@@ -269,7 +269,7 @@ Deno.serve(async (req) => {
           : aggregateLiqScore !== null
             ? `No contract is currently selected. The available ${optionType.toLowerCase()} chain has an aggregate liquidity score of ${aggregateLiqScore}/100; contract-specific liquidity must be rechecked if the setup becomes suggestion-eligible.`
             : 'No eligible contract set is available, so contract-specific liquidity cannot be evaluated.',
-        catalyst_risk: blockers.some((x) => x.toLowerCase().includes('earnings'))
+        catalyst_risk: [...thesisBlockers, ...tradeBlockers].some((x) => x.toLowerCase().includes('earnings'))
           ? 'A scheduled earnings event falls inside the expected holding period.'
           : signal.catalyst_summary
             ? `Monitor the identified market event: ${signal.catalyst_summary}`
