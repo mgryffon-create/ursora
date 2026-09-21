@@ -117,7 +117,7 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
                     <span className="text-zinc-600">to</span>
                     <span className={scoreColor(u.new_score)}>{u.new_direction} {u.new_score}</span>
                     <span className="rounded-sm border border-zinc-700 px-1.5 py-[1px] text-[9px] uppercase text-zinc-400">
-                      {u.materiality}
+                      {u.materiality === 'high' ? 'major change' : u.materiality === 'medium' ? 'notable change' : 'change'}
                     </span>
                     <span className="ml-auto text-zinc-500">{stampET(u.created_at)}</span>
                   </div>
