@@ -85,7 +85,7 @@ const NAV_GROUPS: {
     Icon: Settings2,
     defaultView: 'sources',
     items: [
-      { key: 'sources', label: 'Data Sources', hint: 'Providers and schema', Icon: Database },
+      { key: 'sources', label: 'Data Connections', hint: 'Connection status', Icon: Database },
     ],
   },
 ];
