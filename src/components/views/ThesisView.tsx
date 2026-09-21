@@ -138,6 +138,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const availableFamilies = signal?.score_breakdown?.available_families ?? null;
   const totalFamilies = signal?.score_breakdown?.total_families ?? null;
   const agreementScore = signal?.score_breakdown?.agreement_score ?? null;
+  const agreementFamilyCount = signal?.score_breakdown?.agreement_family_count ?? null;
   const thesisBlockers = signal?.score_breakdown?.thesis_blockers ?? signal?.score_breakdown?.blockers ?? [];
   const tradeBlockers = signal?.score_breakdown?.trade_blockers ?? [];
   const balanced = useMemo(() => candidates.find((c) => c.profile === 'Balanced') ?? candidates[0] ?? null, [candidates]);
@@ -312,8 +313,13 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                 <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
                   <div className="text-[10px] uppercase tracking-wider text-zinc-500">Directional agreement</div>
                   <div className="mt-1 text-sm font-semibold text-zinc-200">
-                    {agreementScore === null ? 'Not recorded' : `${agreementScore}%`}
+                    {agreementScore === null ? 'Insufficient evidence' : `${agreementScore}%`}
                   </div>
+                  {agreementFamilyCount !== null && (
+                    <div className="mt-0.5 text-[10px] text-zinc-600">
+                      {agreementFamilyCount} meaningful directional families
+                    </div>
+                  )}
                 </div>
                 <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
                   <div className="text-[10px] uppercase tracking-wider text-zinc-500">Classification rule</div>
