@@ -133,10 +133,13 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const factors = useMemo(() => signal?.score_breakdown?.factors ?? [], [signal]);
   const thesisState = signal?.score_breakdown?.thesis_state ?? null;
   const evidenceCompleteness = signal?.score_breakdown?.evidence_completeness ?? null;
+  const directionalCompleteness = signal?.score_breakdown?.directional_completeness ?? null;
+  const directionalUncertainty = signal?.score_breakdown?.directional_uncertainty ?? null;
   const availableFamilies = signal?.score_breakdown?.available_families ?? null;
   const totalFamilies = signal?.score_breakdown?.total_families ?? null;
   const agreementScore = signal?.score_breakdown?.agreement_score ?? null;
-  const thesisBlockers = signal?.score_breakdown?.blockers ?? [];
+  const thesisBlockers = signal?.score_breakdown?.thesis_blockers ?? signal?.score_breakdown?.blockers ?? [];
+  const tradeBlockers = signal?.score_breakdown?.trade_blockers ?? [];
   const balanced = useMemo(() => candidates.find((c) => c.profile === 'Balanced') ?? candidates[0] ?? null, [candidates]);
   const retail = sentiment.find((s) => s.cohort === 'retail');
   const professional = sentiment.find((s) => s.cohort === 'professional');
@@ -300,9 +303,14 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                       {availableFamilies} of {totalFamilies} primary evidence categories available
                     </div>
                   )}
+                  {directionalCompleteness !== null && (
+                    <div className="mt-0.5 text-[10px] text-zinc-600">
+                      Directional: {directionalCompleteness}% complete{directionalUncertainty !== null ? ` · ${directionalUncertainty}% uncertainty` : ''}
+                    </div>
+                  )}
                 </div>
                 <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
-                  <div className="text-[10px] uppercase tracking-wider text-zinc-500">Evidence agreement</div>
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500">Directional agreement</div>
                   <div className="mt-1 text-sm font-semibold text-zinc-200">
                     {agreementScore === null ? 'Not recorded' : `${agreementScore}%`}
                   </div>
@@ -310,16 +318,30 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                 <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
                   <div className="text-[10px] uppercase tracking-wider text-zinc-500">Classification rule</div>
                   <div className="mt-1 text-[11px] leading-relaxed text-zinc-400">
-                    A thesis is classified as supported only when several independent evidence categories are available and materially agree.
+                    Thesis status uses directional evidence only. Trade quality can block execution without changing whether the directional thesis is supported.
                   </div>
                 </div>
               </div>
 
               {thesisBlockers.length > 0 && (
                 <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.05] p-3">
-                  <div className="text-[10px] uppercase tracking-wider text-amber-300">Constraints preventing support</div>
+                  <div className="text-[10px] uppercase tracking-wider text-amber-300">Thesis constraints</div>
                   <ul className="mt-2 space-y-1.5 text-[12px] leading-relaxed text-zinc-400">
                     {thesisBlockers.map((blocker) => (
+                      <li key={blocker} className="flex gap-2">
+                        <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
+                        <span>{blocker}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {tradeBlockers.length > 0 && (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.05] p-3">
+                  <div className="text-[10px] uppercase tracking-wider text-amber-300">Trade constraints</div>
+                  <ul className="mt-2 space-y-1.5 text-[12px] leading-relaxed text-zinc-400">
+                    {tradeBlockers.map((blocker) => (
                       <li key={blocker} className="flex gap-2">
                         <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
                         <span>{blocker}</span>
@@ -355,8 +377,15 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                         ? 'Directional signal is present, but not strong enough to confirm the analysis'
                         : 'No meaningful directional evidence';
 
-                const strength =
-                  raw >= 85 ? 'Very strong'
+                const signed = Number(f.signed_score ?? 0);
+                const strength = isTradeQuality
+                  ? signed >= 75 ? 'Excellent'
+                    : signed >= 50 ? 'Favorable'
+                      : signed >= 20 ? 'Adequate'
+                        : signed > -20 ? 'Neutral'
+                          : signed > -50 ? 'Weak'
+                            : 'Poor'
+                  : raw >= 85 ? 'Very strong'
                     : raw >= 65 ? 'Strong'
                       : raw >= 45 ? 'Moderate'
                         : raw >= 25 ? 'Weak'
@@ -399,7 +428,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                     <div className="mt-3 grid gap-2 sm:grid-cols-3">
                       <div className="rounded-sm border border-zinc-800 bg-[#111419] p-2.5">
                         <div className="text-[10px] uppercase tracking-wider text-zinc-500">{isTradeQuality ? 'Trade quality score' : 'Evidence strength'}</div>
-                        <div className={cn('mt-1 text-sm font-semibold', scoreColor(raw))}>{strength} · {num(raw, 0)}/100</div>
+                        <div className={cn('mt-1 text-sm font-semibold', scoreColor(isTradeQuality ? Math.max(0, Math.min(100, (signed + 100) / 2)) : raw))}>
+                          {strength} · {isTradeQuality ? `${signed > 0 ? '+' : ''}${num(signed, 0)}` : `${num(raw, 0)}/100`}
+                        </div>
                       </div>
                       <div className="rounded-sm border border-zinc-800 bg-[#111419] p-2.5">
                         <div className="text-[10px] uppercase tracking-wider text-zinc-500">Weight in current score</div>
