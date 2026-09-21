@@ -95,7 +95,15 @@ function webullConfig() {
 }
 
 function summarizeWebullError(error: unknown) {
-  return { message: error instanceof Error ? error.message : String(error) };
+  if (error instanceof Error) return { message: error.message };
+  if (error && typeof error === 'object') {
+    try {
+      return { message: JSON.stringify(error) };
+    } catch {
+      return { message: String(error) };
+    }
+  }
+  return { message: String(error) };
 }
 
 async function webullGet<T = unknown>(
