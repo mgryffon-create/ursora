@@ -263,8 +263,8 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         {/* SCORE BREAKDOWN */}
         <TabsContent value="score" className="mt-3 space-y-3">
           <Panel
-            title="Why URSORA scored this setup this way"
-            subtitle="A plain-English explanation of what is helping or hurting this setup. Higher scores mean the evidence is stronger — not that the trade is guaranteed to work."
+            title="Opportunity score rationale"
+            subtitle="An interpretation of the evidence included in this run, its relative importance, and its directional effect. The score summarizes available evidence; it is not a probability of profit."
             right={<DemoBadge />}
           >
             <div className="space-y-3">
@@ -273,15 +273,15 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                 const raw = Number(f.raw_score);
                 const effectText =
                   f.effect === 'INCREASED'
-                    ? 'This is helping the setup.'
+                    ? 'Supports the current thesis.'
                     : f.effect === 'DECREASED'
-                      ? 'This is hurting the setup.'
-                      : 'This is not changing the setup much.';
+                      ? 'Weakens the current thesis.'
+                      : 'Neutral effect on the current thesis.';
                 const strength =
                   raw >= 70 ? 'Strong'
                     : raw >= 55 ? 'Moderate'
-                      : raw >= 40 ? 'Weak'
-                        : 'Very weak';
+                      : raw >= 40 ? 'Limited'
+                        : 'Minimal';
 
                 return (
                   <div key={f.factor} className="rounded-md border border-zinc-800 bg-black/20 p-3">
@@ -306,17 +306,17 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
 
                     <div className="mt-3 grid gap-2 sm:grid-cols-3">
                       <div className="rounded-sm border border-zinc-800 bg-[#111419] p-2.5">
-                        <div className="text-[10px] uppercase tracking-wider text-zinc-500">How strong is this evidence?</div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500">Evidence strength</div>
                         <div className={cn('mt-1 text-sm font-semibold', scoreColor(raw))}>{strength} · {num(raw, 0)}/100</div>
                       </div>
                       <div className="rounded-sm border border-zinc-800 bg-[#111419] p-2.5">
-                        <div className="text-[10px] uppercase tracking-wider text-zinc-500">How much does it matter?</div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500">Weight in current score</div>
                         <div className="mt-1 text-sm font-semibold text-zinc-200">{importance}% of this score</div>
                       </div>
                       <div className="rounded-sm border border-zinc-800 bg-[#111419] p-2.5">
-                        <div className="text-[10px] uppercase tracking-wider text-zinc-500">Impact on the setup</div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500">Directional effect</div>
                         <div className="mt-1 text-sm font-semibold text-zinc-200">
-                          {f.effect === 'INCREASED' ? 'Positive' : f.effect === 'DECREASED' ? 'Negative' : 'Neutral'}
+                          {f.effect === 'INCREASED' ? 'Supportive' : f.effect === 'DECREASED' ? 'Adverse' : 'Neutral'}
                         </div>
                       </div>
                     </div>
@@ -327,19 +327,18 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               {!factors.length && <Unavailable />}
 
               <div className="rounded-md border border-sky-500/30 bg-sky-500/[0.05] p-3">
-                <div className="text-[10px] uppercase tracking-wider text-zinc-500">Overall opportunity score</div>
+                <div className="text-[10px] uppercase tracking-wider text-zinc-500">Provisional opportunity score</div>
                 <div className={cn('mt-1 text-2xl font-semibold tabular-nums', scoreColor(signal.opportunity_score))}>
                   {signal.opportunity_score}/100
                 </div>
                 <p className="mt-1 text-[12px] leading-relaxed text-zinc-400">
-                  Think of this as URSORA's summary of how much supporting evidence it currently sees for the setup.
-                  It is not a probability that the trade will make money.
+                  This is URSORA's current summary of the evidence available to the scoring engine. It should be interpreted in the context of data completeness and is not a probability of profit.
                 </p>
               </div>
             </div>
           </Panel>
 
-          <Panel title="Why these factors matter this much" subtitle={"Current market environment: " + (signal.regime ?? 'not enough data yet')}>
+          <Panel title="Factor weighting rationale" subtitle={"Market regime used for this run: " + (signal.regime ?? 'not available')}>
             <div className="space-y-2">
               {(signal.weights?.decisions ?? []).map((d, i) => (
                 <div key={i} className="flex gap-2 rounded-sm border border-zinc-800 bg-black/20 p-2.5 text-[12px] leading-relaxed text-zinc-400">
@@ -347,23 +346,29 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                   <span>{d}</span>
                 </div>
               ))}
-              {!signal.weights?.decisions?.length && (
-                <p className="text-[12px] leading-relaxed text-zinc-500">
-                  URSORA is using its normal baseline weighting because there is not enough broader market information
-                  to justify emphasizing one factor over another.
-                </p>
+              {(!signal.weights?.decisions?.length ||
+                (signal.weights.decisions.length === 1 &&
+                  signal.weights.decisions[0] === 'Independent baseline scoring uses only stored market rows.')) && (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.05] p-3">
+                  <div className="text-[11px] font-medium text-amber-200">Provisional scoring basis</div>
+                  <p className="mt-1 text-[12px] leading-relaxed text-zinc-400">
+                    This run uses only quote-derived price movement and momentum. Options activity, catalysts, verified
+                    news, broader market alignment, liquidity, risk/reward and cross-factor agreement are not represented.
+                    The current score is therefore preliminary and should not be treated as a complete trade thesis.
+                  </p>
+                </div>
               )}
             </div>
 
             <details className="mt-3 rounded-md border border-zinc-800 bg-black/20">
               <summary className="cursor-pointer px-3 py-2 text-[11px] font-medium text-zinc-400 hover:text-zinc-200">
-                Show technical scoring details
+                View technical scoring details
               </summary>
               <div className="overflow-x-auto border-t border-zinc-800 p-3">
                 <table className="w-full min-w-[720px] text-left text-[11px]">
                   <thead className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
                     <tr>
-                      {['Factor', 'Raw score', 'Normal weight', 'Current weight', 'Weight change', 'Score contribution'].map((h) => (
+                      {['Factor', 'Raw score', 'Baseline weight', 'Current weight', 'Weight adjustment', 'Weighted contribution'].map((h) => (
                         <th key={h} scope="col" className="px-2 py-1.5">{h}</th>
                       ))}
                     </tr>
