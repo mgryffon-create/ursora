@@ -76,6 +76,32 @@ function impactMultiplier(impact: string | null | undefined): number {
   }
 }
 
+
+function deriveStructureFromBars(bars: AnyRow[]): { support: number | null; resistance: number | null; atr: number | null } {
+  if (!bars.length) return { support: null, resistance: null, atr: null };
+
+  const ordered = [...bars].sort((a, b) => String(a.bar_time).localeCompare(String(b.bar_time)));
+  const recent20 = ordered.slice(-20);
+  const lows = recent20.map((b) => n(b.low)).filter((v): v is number => v !== null);
+  const highs = recent20.map((b) => n(b.high)).filter((v): v is number => v !== null);
+
+  const trueRanges: number[] = [];
+  for (let i = 1; i < ordered.length; i++) {
+    const high = n(ordered[i].high);
+    const low = n(ordered[i].low);
+    const prevClose = n(ordered[i - 1].close);
+    if (high === null || low === null || prevClose === null) continue;
+    trueRanges.push(Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose)));
+  }
+  const atrSlice = trueRanges.slice(-14);
+
+  return {
+    support: lows.length ? Math.min(...lows) : null,
+    resistance: highs.length ? Math.max(...highs) : null,
+    atr: atrSlice.length >= 10 ? atrSlice.reduce((a, b) => a + b, 0) / atrSlice.length : null,
+  };
+}
+
 Deno.serve(async (req) => {
   const preflight = handleOptions(req); if (preflight) return preflight;
   if (req.method !== 'POST') return json({ error: 'POST required' }, 405);
@@ -106,6 +132,29 @@ Deno.serve(async (req) => {
     for (const q of latestQuotes ?? []) {
       const symbol = String(q.symbol ?? '').toUpperCase();
       if (symbol && !bySymbol.has(symbol)) bySymbol.set(symbol, q);
+    }
+
+
+    let barRows: AnyRow[] = [];
+    try {
+      const { data } = await db
+        .from('ohlcv_bars')
+        .select('symbol,bar_time,high,low,close')
+        .eq('timeframe', '1d')
+        .order('bar_time', { ascending: false })
+        .limit(6500);
+      barRows = data ?? [];
+    } catch {
+      barRows = [];
+    }
+
+    const barsBySymbol = new Map<string, AnyRow[]>();
+    for (const row of barRows) {
+      const symbol = String(row.symbol ?? '').toUpperCase();
+      if (!symbol) continue;
+      const list = barsBySymbol.get(symbol) ?? [];
+      list.push(row);
+      barsBySymbol.set(symbol, list);
     }
 
     // Optional evidence tables. Missing integrations reduce completeness rather than failing the run.
@@ -199,10 +248,15 @@ Deno.serve(async (req) => {
       const sma20 = n(q.sma20);
       const sma50 = n(q.sma50);
       const sma200 = n(q.sma200);
-      const support = n(q.support);
-      const resistance = n(q.resistance);
-      const atr = n(q.atr);
+      const quoteSupport = n(q.support);
+      const quoteResistance = n(q.resistance);
+      const quoteAtr = n(q.atr);
       const relVolume = n(q.rel_volume);
+
+      const derivedStructure = deriveStructureFromBars(barsBySymbol.get(symbol) ?? []);
+      const support = quoteSupport ?? derivedStructure.support;
+      const resistance = quoteResistance ?? derivedStructure.resistance;
+      const atr = quoteAtr ?? derivedStructure.atr;
 
       // ----- Absolute market orientations (-100 bearish, +100 bullish) -----
       const priceParts: number[] = [];
@@ -392,7 +446,7 @@ Deno.serve(async (req) => {
           directional: false,
           explanation: riskRewardEvidence === null
             ? 'Support, resistance, and volatility data are not sufficient to estimate the trade structure.'
-            : `The estimated reward-to-risk relationship is approximately ${estimatedRatio?.toFixed(2) ?? 'unavailable'} to 1 using current structural levels and ATR.`,
+            : `The estimated reward-to-risk relationship is approximately ${estimatedRatio?.toFixed(2) ?? 'unavailable'} to 1 using current support/resistance and ATR derived from stored daily price history.`,
         },
         {
           factor: 'cross_factor_agreement',
