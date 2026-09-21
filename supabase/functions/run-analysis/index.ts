@@ -721,8 +721,24 @@ Deno.serve(async (req) => {
       const evidenceUncertainty = Math.round(clamp((1 - reliabilityCoverage) * 100, 0, 100));
       const evidenceUncertaintyLabel = uncertaintyLabel(evidenceUncertainty);
 
+      const directionalSpecs = factorSpecs.filter((factor) => factor.directional);
       const directionalFactors = factors.filter((factor) =>
-        factorSpecs.find((spec) => spec.factor === factor.factor)?.directional
+        directionalSpecs.some((spec) => spec.factor === factor.factor)
+      );
+      const directionalBaseWeightTotal = directionalSpecs.reduce((sum, factor) => sum + factor.baseWeight, 0);
+      const directionalAvailableWeight = directionalSpecs.reduce(
+        (sum, factor) => sum + (factor.signedScore === null ? 0 : factor.baseWeight),
+        0,
+      );
+      const directionalCompleteness = Math.round(
+        clamp((directionalAvailableWeight / Math.max(directionalBaseWeightTotal, 0.0001)) * 100, 0, 100),
+      );
+      const directionalReliabilityCoverage = directionalFactors.reduce(
+        (sum, factor) => sum + Number(factor.effective_weight ?? 0),
+        0,
+      ) / Math.max(directionalBaseWeightTotal, 0.0001);
+      const directionalUncertainty = Math.round(
+        clamp((1 - directionalReliabilityCoverage) * 100, 0, 100),
       );
       const independentDirectionalFamilies = directionalFactors.filter(
         (factor) => factor.provenance !== 'unavailable' && Number(factor.reliability ?? 0) >= 0.35,
@@ -781,23 +797,23 @@ Deno.serve(async (req) => {
 
       let thesisState: ThesisState;
       if (direction === 'neutral') thesisState = 'Unsupported';
-      else if (thesisSupport < 35 && evidenceCompleteness >= 60) thesisState = 'Rejected';
+      else if (thesisSupport < 35 && directionalCompleteness >= 60) thesisState = 'Rejected';
       else if (
-        evidenceCompleteness < 55 ||
-        evidenceUncertainty > 55 ||
+        directionalCompleteness < 55 ||
+        directionalUncertainty > 55 ||
         independentDirectionalFamilies < 3
       ) thesisState = 'Preliminary';
       else if (thesisBlockers.length) thesisState = 'Unsupported';
       else if (
         thesisSupport >= 78 &&
-        evidenceCompleteness >= 75 &&
-        evidenceUncertainty <= 35 &&
+        directionalCompleteness >= 75 &&
+        directionalUncertainty <= 35 &&
         agreement >= 70
       ) thesisState = 'Strongly Supported';
       else if (
         thesisSupport >= 65 &&
-        evidenceCompleteness >= 65 &&
-        evidenceUncertainty <= 45 &&
+        directionalCompleteness >= 65 &&
+        directionalUncertainty <= 45 &&
         agreement >= 60
       ) thesisState = 'Supported';
       else if (thesisSupport < 35) thesisState = 'Rejected';
@@ -837,7 +853,7 @@ Deno.serve(async (req) => {
 
       const noTradeReason =
         thesisState === 'Preliminary'
-          ? `The analysis is preliminary because evidence completeness is ${evidenceCompleteness}% and uncertainty is ${evidenceUncertainty}%. URSORA requires at least three sufficiently independent directional evidence families before classifying the thesis as supported.`
+          ? `The analysis is preliminary because directional evidence completeness is ${directionalCompleteness}% and directional uncertainty is ${directionalUncertainty}%. URSORA requires at least three sufficiently independent directional evidence families before classifying the thesis as supported.`
           : thesisState === 'Unsupported'
             ? (thesisBlockers.length ? thesisBlockers.join(' ') : 'The available directional evidence does not provide sufficient strength to support the thesis.')
             : thesisState === 'Rejected'
@@ -883,6 +899,8 @@ Deno.serve(async (req) => {
           evidence_completeness: evidenceCompleteness,
           evidence_uncertainty: evidenceUncertainty,
           evidence_uncertainty_label: evidenceUncertaintyLabel,
+          directional_completeness: directionalCompleteness,
+          directional_uncertainty: directionalUncertainty,
           evidence_families: evidenceFamilies,
           available_families: availableFamilies,
           total_families: totalFamilies,
@@ -902,8 +920,10 @@ Deno.serve(async (req) => {
           decisions: [
             `Thesis classification: ${thesisState}.`,
             `Bayesian thesis support: ${thesisSupport}% from a neutral 50% prior.`,
-            `Evidence completeness: ${evidenceCompleteness}% (${availableFamilies} of ${totalFamilies} primary categories available).`,
-            `Evidence uncertainty: ${evidenceUncertainty}% (${evidenceUncertaintyLabel}).`,
+            `Overall evidence completeness: ${evidenceCompleteness}% (${availableFamilies} of ${totalFamilies} primary categories available).`,
+            `Directional evidence completeness: ${directionalCompleteness}%.`,
+            `Directional evidence uncertainty: ${directionalUncertainty}%.`,
+            `Overall evidence uncertainty: ${evidenceUncertainty}% (${evidenceUncertaintyLabel}).`,
             `Evidence agreement: ${agreement}% among meaningful directional categories.`,
             `AHP consistency ratio: ${(ahp.consistency_ratio * 100).toFixed(2)}%.`,
             thesisBlockers.length ? `Thesis constraints: ${thesisBlockers.join(' ')}` : 'No thesis-level directional constraints were identified.',
