@@ -25,6 +25,9 @@ export const EDGE_FUNCTIONS = {
   backtest: 'run-backtest',
   analyst: 'ai-analyst',
   paperDashboard: 'webull-paper-dashboard',
+  marketSync: 'sync-webull-market',
+  historySync: 'sync-webull-history',
+  optionsSync: 'sync-webull-options',
 } as const;
 
 export type EdgeFunctionSlug = (typeof EDGE_FUNCTIONS)[keyof typeof EDGE_FUNCTIONS];
@@ -108,6 +111,58 @@ export interface WebullPaperDashboard {
 
 export async function fetchWebullPaperDashboard(): Promise<WebullPaperDashboard> {
   return callEdge<WebullPaperDashboard>(EDGE_FUNCTIONS.paperDashboard, {});
+}
+
+
+export interface FreshAnalysisResult {
+  signals: number;
+  updates: number;
+  run_id?: string;
+  engine_version?: string;
+  warnings: string[];
+}
+
+/**
+ * Refreshes the market evidence Ursora can gather, then runs TradeCycle analysis.
+ * Enrichment failures are retained as warnings so missing evidence lowers
+ * completeness instead of preventing analysis from running altogether.
+ */
+export async function runFreshAnalysis(
+  body: Record<string, unknown> = { kind: 'manual' },
+): Promise<FreshAnalysisResult> {
+  const warnings: string[] = [];
+  const symbols = Array.isArray(body.symbols) ? { symbols: body.symbols } : {};
+
+  const stages: Array<{ label: string; slug: EdgeFunctionSlug; payload: Record<string, unknown> }> = [
+    { label: 'market quotes', slug: EDGE_FUNCTIONS.marketSync, payload: symbols },
+    { label: 'historical technical data', slug: EDGE_FUNCTIONS.historySync, payload: symbols },
+    { label: 'options market data', slug: EDGE_FUNCTIONS.optionsSync, payload: symbols },
+  ];
+
+  for (const stage of stages) {
+    try {
+      await callEdge(stage.slug, stage.payload);
+    } catch (error) {
+      warnings.push(
+        `${stage.label}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  const analysis = await callEdge<{
+    signals?: number;
+    updates?: number;
+    run_id?: string;
+    engine_version?: string;
+  }>(EDGE_FUNCTIONS.analysis, body);
+
+  return {
+    signals: analysis.signals ?? 0,
+    updates: analysis.updates ?? 0,
+    run_id: analysis.run_id,
+    engine_version: analysis.engine_version,
+    warnings,
+  };
 }
 
 /* --------------------------------- reads --------------------------------- */
