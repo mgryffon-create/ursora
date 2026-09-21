@@ -46,18 +46,18 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
     return Object.entries(m).sort((a, b) => (a[0] < b[0] ? 1 : -1));
   }, [filtered]);
 
-  if (loading) return <Spinner label="Loading the signal ledger" />;
+  if (loading) return <Spinner label="Loading analysis history" />;
 
   return (
     <div className="space-y-4">
       <SectionHeading
-        eyebrow="Signal history"
-        title="Append-only signal ledger"
-        description="Every signal ever generated, grouped by analysis run. Records are immutable: a database trigger rejects any UPDATE or DELETE on the signals table, so a historical score can never be revised after the fact."
+        eyebrow="Analysis history"
+        title="Past analyses and material changes"
+        description="Review prior URSORA analyses, grouped by run. Historical records are preserved so past scores and decisions remain unchanged."
         right={
           <span className="inline-flex items-center gap-1.5 rounded-sm border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-emerald-300">
             <Lock className="h-3 w-3" aria-hidden="true" />
-            immutable at the database
+            historical records preserved
           </span>
         }
       />
@@ -99,11 +99,10 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
         </div>
       </Panel>
 
-      <Panel title="Signal updates" subtitle="A recommendation is never changed silently: every material move writes a SIGNAL UPDATE record." right={<DemoBadge />}>
+      <Panel title="Material changes" subtitle="When an analysis changes meaningfully, URSORA records the change rather than replacing the earlier result." right={<DemoBadge />}>
         {updates.length === 0 ? (
           <p className="text-[12px] text-zinc-500">
-            No material change recorded yet. An update is written when direction flips or the opportunity score moves
-            eight points or more between runs.
+            No material change has been recorded yet. URSORA records a change when the direction changes or when the opportunity score moves substantially between analyses.
           </p>
         ) : (
           <ul className="grid gap-2 md:grid-cols-2">
@@ -129,7 +128,7 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
                       onClick={() => onOpenThesis(u.signal_id as number)}
                       className="mt-1.5 font-mono text-[10px] uppercase tracking-wider text-sky-400 transition-colors hover:text-sky-300"
                     >
-                      open thesis
+                      open analysis
                     </button>
                   )}
                 </li>
@@ -139,13 +138,13 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
       </Panel>
 
       {runs.length === 0 ? (
-        <EmptyState title="No signals stored" body="Run the analysis engine from Today's Opportunities to populate the ledger." />
+        <EmptyState title="No analyses stored" body="Run an analysis from Today's Opportunities to begin building history." />
       ) : (
         runs.map(([runId, set]) => (
           <Panel
             key={runId}
             title={`Run ${runId}`}
-            subtitle={`${set.length} records · ${stampET(set[0].generated_at)} · ${set[0].engine_version} · regime ${set[0].regime ?? 'DATA UNAVAILABLE'}`}
+            subtitle={`${set.length} records · ${stampET(set[0].generated_at)} · ${set[0].engine_version} · market environment ${set[0].regime ?? 'DATA UNAVAILABLE'}`}
             right={<DemoBadge />}
             bodyClassName="p-0"
           >
@@ -153,7 +152,7 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
               <table className="w-full min-w-[900px] text-left text-[11px]">
                 <thead className="bg-black/40 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
                   <tr>
-                    {['Time', 'Symbol', 'Direction', 'Strategy', 'Opp', 'Conf', 'Risk', 'Strike', 'Expiration', 'Invalidation', 'Note', ''].map((h, i) => (
+                    {['Time', 'Symbol', 'Direction', 'Strategy', 'Opportunity', 'Confidence', 'Risk', 'Strike', 'Expiration', 'Trade no longer valid below/above', 'Note', ''].map((h, i) => (
                       <th key={`${h}-${i}`} scope="col" className="whitespace-nowrap px-2 py-1.5">{h}</th>
                     ))}
                   </tr>
