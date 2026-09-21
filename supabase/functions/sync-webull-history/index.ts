@@ -396,7 +396,7 @@ Deno.serve(async (req) => {
       if (latestQuote?.id) {
         stage = `update derived technicals for ${group.symbol}`;
         const { error: quoteError } = await db.from('quotes').update({
-          avg_volume: avgVolume,
+          avg_volume: avgVolume === null ? null : Math.round(avgVolume),
           rel_volume: avgVolume && latestVolume ? latestVolume / avgVolume : null,
           sma20: s20,
           sma50: s50,
@@ -451,6 +451,19 @@ Deno.serve(async (req) => {
       }
     }
 
-    return json({ error: `History sync failed at "${stage}": ${message}` }, 500);
+    let publicMessage = message;
+
+    if (/22P02|invalid input syntax for type bigint/i.test(message)) {
+      publicMessage = 'Historical technical data could not be stored because one numeric value was in an unexpected format.';
+    } else if (/429|rate limit|thrott/i.test(message)) {
+      publicMessage = 'Historical technical data provider is temporarily rate-limited. Please try again shortly.';
+    } else if (/401|signature|authentication/i.test(message)) {
+      publicMessage = 'Historical technical data provider authentication failed.';
+    }
+
+    return json({
+      error: publicMessage,
+      debug: `History sync failed at "${stage}": ${message}`,
+    }, 500);
   }
 });
