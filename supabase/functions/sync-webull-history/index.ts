@@ -429,7 +429,20 @@ Deno.serve(async (req) => {
     });
   } catch (error) {
     if (error instanceof AuthError) return json({ error: error.message }, error.status);
-    const detail = summarizeWebullError(error);
-    return json({ error: detail.message, detail }, 500);
+
+    let message: string;
+    if (error instanceof Error) {
+      message = error.message;
+    } else if (typeof error === 'string') {
+      message = error;
+    } else {
+      try {
+        message = JSON.stringify(error);
+      } catch {
+        message = String(error);
+      }
+    }
+
+    return json({ error: message }, 500);
   }
 });
