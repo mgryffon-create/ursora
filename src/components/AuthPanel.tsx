@@ -13,6 +13,7 @@ export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' 
   const [mode, setMode] = useState<'signin' | 'signup'>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -35,7 +36,7 @@ export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' 
           setMode('signin');
         }
       } else {
-        await signIn(email.trim(), password);
+        await signIn(email.trim(), password, remember);
         track('form_submit', { form: 'ursora-signin' });
       }
     } catch (err) {
@@ -112,6 +113,23 @@ export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' 
             />
           </div>
         </div>
+
+        {mode === 'signin' && (
+          <label className="flex cursor-pointer items-start gap-2 rounded-sm border border-zinc-800 bg-black/20 p-2.5">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+              className="mt-0.5 h-3.5 w-3.5 accent-sky-500"
+            />
+            <span>
+              <span className="block text-[12px] text-zinc-300">Remember me</span>
+              <span className="mt-0.5 block text-[10px] leading-relaxed text-zinc-600">
+                Keep me signed in on this site after I close the browser.
+              </span>
+            </span>
+          </label>
+        )}
 
         {error && (
           <div className="flex items-start gap-2 rounded-sm border border-red-500/40 bg-red-500/10 p-2 text-[12px] text-red-200">
