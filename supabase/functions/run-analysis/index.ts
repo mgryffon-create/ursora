@@ -762,11 +762,22 @@ Deno.serve(async (req) => {
         100,
       ));
 
-      const blockers: string[] = [];
-      if (liquidityEvidence !== null && liquidityEvidence < -25) blockers.push('Available option contracts have poor liquidity or unusually wide spreads.');
-      if (riskRewardEvidence !== null && riskRewardEvidence < -20) blockers.push('The current structural reward does not adequately compensate for the estimated risk.');
-      if (eventInsideHoldingWindow) blockers.push('A scheduled earnings event falls inside the expected holding period.');
-      if (directionalEvidence.length >= 3 && agreement < 60) blockers.push('The major directional evidence categories do not agree sufficiently.');
+      const thesisBlockers: string[] = [];
+      const tradeBlockers: string[] = [];
+
+      if (directionalEvidence.length >= 3 && agreement < 60) {
+        thesisBlockers.push('The major directional evidence categories do not agree sufficiently.');
+      }
+
+      if (liquidityEvidence !== null && liquidityEvidence < -25) {
+        tradeBlockers.push('Available option contracts have poor liquidity or unusually wide spreads.');
+      }
+      if (riskRewardEvidence !== null && riskRewardEvidence < -20) {
+        tradeBlockers.push('The current structural reward does not adequately compensate for the estimated risk.');
+      }
+      if (eventInsideHoldingWindow) {
+        tradeBlockers.push('A scheduled earnings event falls inside the expected holding period.');
+      }
 
       let thesisState: ThesisState;
       if (direction === 'neutral') thesisState = 'Unsupported';
@@ -776,13 +787,12 @@ Deno.serve(async (req) => {
         evidenceUncertainty > 55 ||
         independentDirectionalFamilies < 3
       ) thesisState = 'Preliminary';
-      else if (blockers.length) thesisState = 'Unsupported';
+      else if (thesisBlockers.length) thesisState = 'Unsupported';
       else if (
         thesisSupport >= 78 &&
         evidenceCompleteness >= 75 &&
         evidenceUncertainty <= 35 &&
-        agreement >= 70 &&
-        opportunity >= 65
+        agreement >= 70
       ) thesisState = 'Strongly Supported';
       else if (
         thesisSupport >= 65 &&
@@ -808,7 +818,10 @@ Deno.serve(async (req) => {
           if (spreadA !== spreadB) return spreadA - spreadB;
           return Math.abs(Number(a.strike) - Number(price ?? a.strike)) - Math.abs(Number(b.strike) - Number(price ?? b.strike));
         });
-      const suggested = (thesisState === 'Supported' || thesisState === 'Strongly Supported') ? candidatePool[0] ?? null : null;
+      const tradeEligible =
+        (thesisState === 'Supported' || thesisState === 'Strongly Supported') &&
+        tradeBlockers.length === 0;
+      const suggested = tradeEligible ? candidatePool[0] ?? null : null;
 
       const riskLevel =
         eventInsideHoldingWindow ||
@@ -826,17 +839,19 @@ Deno.serve(async (req) => {
         thesisState === 'Preliminary'
           ? `The analysis is preliminary because evidence completeness is ${evidenceCompleteness}% and uncertainty is ${evidenceUncertainty}%. URSORA requires at least three sufficiently independent directional evidence families before classifying the thesis as supported.`
           : thesisState === 'Unsupported'
-            ? (blockers.length ? blockers.join(' ') : 'The available evidence does not provide sufficient agreement and strength to support this trade analysis.')
+            ? (thesisBlockers.length ? thesisBlockers.join(' ') : 'The available directional evidence does not provide sufficient strength to support the thesis.')
             : thesisState === 'Rejected'
-              ? 'The available evidence materially contradicts the proposed direction.'
-              : null;
+              ? 'The available directional evidence materially contradicts the proposed direction.'
+              : tradeBlockers.length
+                ? tradeBlockers.join(' ')
+                : null;
 
       created.push({
         run_id: runId,
         symbol,
         trading_day: new Date().toISOString().slice(0, 10),
         direction,
-        strategy: thesisState === 'Supported' || thesisState === 'Strongly Supported' ? 'directional option' : 'No Trade',
+        strategy: tradeEligible ? 'directional option' : 'No Trade',
         confidence_score: confidence,
         opportunity_score: opportunity,
         risk_level: riskLevel,
@@ -875,7 +890,9 @@ Deno.serve(async (req) => {
           independent_directional_families: independentDirectionalFamilies,
           reliability_coverage: Math.round(reliabilityCoverage * 1000) / 10,
           source_quality: sourceQuality,
-          blockers,
+          thesis_blockers: thesisBlockers,
+          trade_blockers: tradeBlockers,
+          trade_eligible: tradeEligible,
         },
         weights: {
           method: 'AHP baseline weighting + reliability discounting + Bayesian thesis update',
@@ -889,7 +906,8 @@ Deno.serve(async (req) => {
             `Evidence uncertainty: ${evidenceUncertainty}% (${evidenceUncertaintyLabel}).`,
             `Evidence agreement: ${agreement}% among meaningful directional categories.`,
             `AHP consistency ratio: ${(ahp.consistency_ratio * 100).toFixed(2)}%.`,
-            blockers.length ? `Trade constraints: ${blockers.join(' ')}` : 'No hard trade constraints were identified from the data currently available.',
+            thesisBlockers.length ? `Thesis constraints: ${thesisBlockers.join(' ')}` : 'No thesis-level directional constraints were identified.',
+            tradeBlockers.length ? `Trade constraints: ${tradeBlockers.join(' ')}` : 'No hard trade constraints were identified from the data currently available.',
             'Observed and derived evidence are reliability-discounted for freshness, source quality, and redundancy. Imputed evidence receives an additional imputation-confidence discount. Unavailable evidence contributes no directional support.',
           ],
         },
