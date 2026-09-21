@@ -31,6 +31,23 @@ function atr(bars: AnyRow[], period = 14): number | null {
   return recent.reduce((a, b) => a + b, 0) / recent.length;
 }
 
+function rsi(closes: number[], period = 14): number | null {
+  if (closes.length < period + 1) return null;
+  const recent = closes.slice(-(period + 1));
+  let gains = 0;
+  let losses = 0;
+  for (let i = 1; i < recent.length; i++) {
+    const diff = recent[i] - recent[i - 1];
+    if (diff > 0) gains += diff;
+    else losses += Math.abs(diff);
+  }
+  const avgGain = gains / period;
+  const avgLoss = losses / period;
+  if (avgLoss === 0) return avgGain === 0 ? 50 : 100;
+  const rs = avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
+}
+
 function normalizePayload(payload: any): { symbol: string; result: AnyRow[] }[] {
   const groups = Array.isArray(payload?.result) ? payload.result
     : Array.isArray(payload?.data?.result) ? payload.data.result
@@ -106,7 +123,10 @@ Deno.serve(async (req) => {
       const closes = ordered.map((b) => n(b.close)).filter((v): v is number => v !== null);
       const volumes = ordered.map((b) => n(b.volume)).filter((v): v is number => v !== null);
       const latest = ordered[ordered.length - 1];
+      const previous = ordered[ordered.length - 2];
       const latestClose = n(latest?.close);
+      const latestOpen = n(latest?.open);
+      const previousClose = n(previous?.close);
       const recent20 = ordered.slice(-20);
       const support = recent20.length ? Math.min(...recent20.map((b) => n(b.low)).filter((v): v is number => v !== null)) : null;
       const resistance = recent20.length ? Math.max(...recent20.map((b) => n(b.high)).filter((v): v is number => v !== null)) : null;
@@ -116,11 +136,15 @@ Deno.serve(async (req) => {
       const s50 = sma(closes, 50);
       const s200 = sma(closes, 200);
       const a14 = atr(ordered, 14);
+      const rsi14 = rsi(closes, 14);
+      const gapPct = latestOpen !== null && previousClose !== null && previousClose !== 0
+        ? ((latestOpen - previousClose) / previousClose) * 100
+        : null;
 
       let trend = 'insufficient data';
       if (latestClose !== null && s20 !== null && s50 !== null) {
-        trend = latestClose > s20 && s20 > s50 ? 'uptrend'
-          : latestClose < s20 && s20 < s50 ? 'downtrend'
+        trend = latestClose > s20 && s20 > s50 && (s200 === null || s50 > s200) ? 'uptrend'
+          : latestClose < s20 && s20 < s50 && (s200 === null || s50 < s200) ? 'downtrend'
           : 'mixed';
       }
 
@@ -142,6 +166,10 @@ Deno.serve(async (req) => {
           support,
           resistance,
           atr: a14,
+          momentum_score: rsi14,
+          gap_pct: gapPct,
+          prev_day_high: n(previous?.high),
+          prev_day_low: n(previous?.low),
           trend,
           retrieved_at: now,
         }).eq('id', latestQuote.id);
