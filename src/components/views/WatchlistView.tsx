@@ -200,7 +200,7 @@ export const WatchlistView: React.FC<{ onOpenThesis: (id: number) => void }> = (
       </Panel>
 
       <div className="grid gap-3 lg:grid-cols-2">
-        <Panel title="Alert preferences" subtitle="Stored per user. The board and command center use these thresholds to surface what matters to you.">
+        <Panel title="Alert preferences" subtitle="Stored per user. These settings control which opportunities URSORA highlights for you.">
           <div className="space-y-3">
             <div>
               <label htmlFor="al-score" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
@@ -219,7 +219,7 @@ export const WatchlistView: React.FC<{ onOpenThesis: (id: number) => void }> = (
               />
             </div>
             <fieldset>
-              <legend className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Directions to alert on</legend>
+              <legend className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Directions to include</legend>
               <div className="mt-1.5 flex flex-wrap gap-3">
                 {['bullish', 'bearish', 'neutral'].map((d) => (
                   <label key={d} className="flex cursor-pointer items-center gap-1.5 text-[12px] text-zinc-300">
@@ -243,7 +243,7 @@ export const WatchlistView: React.FC<{ onOpenThesis: (id: number) => void }> = (
             </fieldset>
             <div>
               <label htmlFor="al-risk" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                Maximum risk level
+                Highest risk level to include
               </label>
               <select
                 id="al-risk"
