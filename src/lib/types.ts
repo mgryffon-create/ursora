@@ -113,7 +113,8 @@ export interface Signal {
     evidence_families?: Record<string, boolean>;
     available_families?: number;
     total_families?: number;
-    agreement_score?: number;
+    agreement_score?: number | null;
+    agreement_family_count?: number;
     blockers?: string[];
     thesis_blockers?: string[];
     trade_blockers?: string[];
