@@ -62,8 +62,16 @@ export async function callEdge<T = Record<string, unknown>>(
     parsed = null;
   }
   if (!res.ok) {
+    const rawError = (parsed as { error?: unknown } | null)?.error;
     const msg =
-      (parsed as { error?: string } | null)?.error ?? `${slug} failed with HTTP ${res.status}: ${text.slice(0, 300)}`;
+      typeof rawError === 'string'
+        ? rawError
+        : rawError !== undefined
+          ? (() => {
+              try { return JSON.stringify(rawError); }
+              catch { return String(rawError); }
+            })()
+          : `${slug} failed with HTTP ${res.status}: ${text.slice(0, 300)}`;
     throw new Error(msg);
   }
   return (parsed ?? {}) as T;
