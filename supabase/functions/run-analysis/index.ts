@@ -532,9 +532,10 @@ Deno.serve(async (req) => {
         .filter((v): v is number => v !== null && Math.abs(v) >= 25);
       const supportingCount = directionalEvidence.filter((v) => v > 0).length;
       const opposingCount = directionalEvidence.filter((v) => v < 0).length;
-      const agreement = directionalEvidence.length
+      const agreement = directionalEvidence.length >= 3
         ? Math.round((Math.max(supportingCount, opposingCount) / directionalEvidence.length) * 100)
-        : 50;
+        : null;
+      const agreementForConfidence = agreement ?? 50;
       const nextEarnings = (earningsBySymbol.get(symbol) ?? [])[0] ?? null;
       const hoursToEarnings = nextEarnings?.report_time
         ? (new Date(nextEarnings.report_time).getTime() - nowMs) / 3600000
@@ -773,7 +774,7 @@ Deno.serve(async (req) => {
         (thesisSupport * 0.35) +
         (evidenceCompleteness * 0.25) +
         ((100 - evidenceUncertainty) * 0.25) +
-        (agreement * 0.15),
+        (agreementForConfidence * 0.15),
         0,
         100,
       ));
@@ -781,8 +782,8 @@ Deno.serve(async (req) => {
       const thesisBlockers: string[] = [];
       const tradeBlockers: string[] = [];
 
-      if (directionalEvidence.length >= 3 && agreement < 60) {
-        thesisBlockers.push('The major directional evidence categories do not agree sufficiently.');
+      if (agreement !== null && agreement < 60) {
+        thesisBlockers.push('The major directional evidence categories are conflicting or ambiguous.');
       }
 
       if (liquidityEvidence !== null && liquidityEvidence < -25) {
@@ -796,28 +797,37 @@ Deno.serve(async (req) => {
       }
 
       let thesisState: ThesisState;
-      if (direction === 'neutral') thesisState = 'Unsupported';
-      else if (thesisSupport < 35 && directionalCompleteness >= 60) thesisState = 'Rejected';
-      else if (
+      if (direction === 'neutral') {
+        thesisState = 'Unsupported';
+      } else if (
         directionalCompleteness < 55 ||
         directionalUncertainty > 55 ||
-        independentDirectionalFamilies < 3
-      ) thesisState = 'Preliminary';
-      else if (thesisBlockers.length) thesisState = 'Unsupported';
-      else if (
-        thesisSupport >= 78 &&
-        directionalCompleteness >= 75 &&
-        directionalUncertainty <= 35 &&
-        agreement >= 70
-      ) thesisState = 'Strongly Supported';
-      else if (
-        thesisSupport >= 65 &&
-        directionalCompleteness >= 65 &&
-        directionalUncertainty <= 45 &&
-        agreement >= 60
-      ) thesisState = 'Supported';
-      else if (thesisSupport < 35) thesisState = 'Rejected';
-      else thesisState = 'Unsupported';
+        independentDirectionalFamilies < 3 ||
+        agreement === null
+      ) {
+        thesisState = 'Preliminary';
+      } else if (agreement >= 90) {
+        // Near-unanimous meaningful directional evidence is, by definition, support
+        // for the inferred direction once minimum evidence sufficiency is met.
+        thesisState =
+          thesisSupport >= 78 &&
+          directionalCompleteness >= 75 &&
+          directionalUncertainty <= 35
+            ? 'Strongly Supported'
+            : 'Supported';
+      } else if (
+        agreement >= 70 &&
+        thesisSupport >= 60
+      ) {
+        thesisState = 'Supported';
+      } else if (
+        agreement <= 40 &&
+        thesisSupport < 35
+      ) {
+        thesisState = 'Rejected';
+      } else {
+        thesisState = 'Unsupported';
+      }
 
       const candidatePool = relevantOptions
         .filter((r) => {
@@ -905,6 +915,7 @@ Deno.serve(async (req) => {
           available_families: availableFamilies,
           total_families: totalFamilies,
           agreement_score: agreement,
+          agreement_family_count: directionalEvidence.length,
           independent_directional_families: independentDirectionalFamilies,
           reliability_coverage: Math.round(reliabilityCoverage * 1000) / 10,
           source_quality: sourceQuality,
@@ -924,7 +935,9 @@ Deno.serve(async (req) => {
             `Directional evidence completeness: ${directionalCompleteness}%.`,
             `Directional evidence uncertainty: ${directionalUncertainty}%.`,
             `Overall evidence uncertainty: ${evidenceUncertainty}% (${evidenceUncertaintyLabel}).`,
-            `Evidence agreement: ${agreement}% among meaningful directional categories.`,
+            agreement === null
+              ? `Directional agreement: insufficient meaningful evidence families to calculate.`
+              : `Directional agreement: ${agreement}% across ${directionalEvidence.length} meaningful directional families.`,
             `AHP consistency ratio: ${(ahp.consistency_ratio * 100).toFixed(2)}%.`,
             thesisBlockers.length ? `Thesis constraints: ${thesisBlockers.join(' ')}` : 'No thesis-level directional constraints were identified.',
             tradeBlockers.length ? `Trade constraints: ${tradeBlockers.join(' ')}` : 'No hard trade constraints were identified from the data currently available.',
