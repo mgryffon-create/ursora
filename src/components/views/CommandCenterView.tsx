@@ -82,14 +82,14 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
     [watchlist, quotes],
   );
 
-  if (loading) return <Spinner label="Loading the live command center" />;
+  if (loading) return <Spinner label="Loading the market overview" />;
 
   return (
     <div className="space-y-4">
       <SectionHeading
-        eyebrow="Live market command center"
-        title="Intraday regime, movers and signal feed"
-        description="Everything on this page is stored, timestamped and attributed. The feed polls the database continuously while it is running."
+        eyebrow="Market overview"
+        title="Current market conditions and notable activity"
+        description="This page summarizes current market conditions, notable price activity, and recent signal changes using the data available to URSORA."
         right={
           <div className="flex items-center gap-2">
             <button
@@ -103,16 +103,16 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
               )}
             >
               {live ? <Pause className="h-3 w-3" aria-hidden="true" /> : <Play className="h-3 w-3" aria-hidden="true" />}
-              {live ? 'streaming' : 'paused'}
+              {live ? 'auto-refresh on' : 'auto-refresh off'}
             </button>
-            <span className="font-mono text-[10px] text-zinc-500">polled {clockET(lastPoll)}</span>
+            <span className="font-mono text-[10px] text-zinc-500">updated {clockET(lastPoll)}</span>
           </div>
         }
       />
 
       {/* REGIME STRIP */}
       <div className="grid gap-3 lg:grid-cols-[1.1fr_2fr]">
-        <Panel title="Market regime" right={<DemoBadge />}>
+        <Panel title="Market environment" right={<DemoBadge />}>
           {snapshot ? (
             <div>
               <div
@@ -139,7 +139,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
           )}
         </Panel>
 
-        <Panel title="Index tape, volatility and breadth" right={<DemoBadge />}>
+        <Panel title="Major indexes, volatility, and market participation" right={<DemoBadge />}>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <Metric label="SPY" value={num(snapshot?.spy_price)} hint={snapshot?.spy_trend ?? undefined} valueClass={changeColor(snapshot?.spy_change_pct)} />
             <Metric label="SPY change" value={pct(snapshot?.spy_change_pct)} valueClass={changeColor(snapshot?.spy_change_pct)} />
@@ -147,12 +147,12 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
             <Metric label="QQQ change" value={pct(snapshot?.qqq_change_pct)} valueClass={changeColor(snapshot?.qqq_change_pct)} />
             <Metric label="IWM" value={num(snapshot?.iwm_price)} valueClass={changeColor(snapshot?.iwm_change_pct)} />
             <Metric label="VIX" value={num(snapshot?.vix)} hint={pct(snapshot?.vix_change_pct) ?? undefined} valueClass={Number(snapshot?.vix) > 20 ? 'text-amber-300' : 'text-zinc-100'} />
-            <Metric label="Advancers" value={snapshot?.breadth_advancers} valueClass="text-emerald-300" />
-            <Metric label="Decliners" value={snapshot?.breadth_decliners} valueClass="text-red-300" />
+            <Metric label="Stocks rising" value={snapshot?.breadth_advancers} valueClass="text-emerald-300" />
+            <Metric label="Stocks falling" value={snapshot?.breadth_decliners} valueClass="text-red-300" />
           </div>
           <p className="mt-2.5 text-[12px] leading-relaxed text-zinc-500">{snapshot?.breadth_note ?? <Unavailable />}</p>
           <div className="mt-3">
-            <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Sector performance</div>
+            <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Sector movement</div>
             <div className="mt-1.5 space-y-1">
               {(snapshot?.sector_performance ?? []).map((s) => (
                 <div key={s.sector} className="flex items-center gap-2">
@@ -307,7 +307,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
             right={
               <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-emerald-400">
                 <Radio className={cn('h-3 w-3', live && 'animate-pulse')} aria-hidden="true" />
-                {live ? 'live' : 'paused'}
+                {live ? 'live' : 'auto-refresh off'}
               </span>
             }
             bodyClassName="max-h-[560px] overflow-y-auto p-0"
