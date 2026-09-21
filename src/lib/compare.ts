@@ -115,6 +115,7 @@ export interface FactorRow {
   label: string;
   /** Per column: null when this factor is not stored on that signal. */
   raw: (number | null)[];
+  signed: (number | null)[];
   weight: (number | null)[];
   contribution: (number | null)[];
   effect: (string | null)[];
@@ -123,6 +124,7 @@ export interface FactorRow {
   bestIndex: number | null;
   worstIndex: number | null;
   partial: boolean;
+  tradeQuality: boolean;
 }
 
 export function factorRows(columns: CompareColumn[]): FactorRow[] {
@@ -137,11 +139,19 @@ export function factorRows(columns: CompareColumn[]): FactorRow[] {
   return order.map((factor) => {
     const found = columns.map((c) => (c.signal.score_breakdown?.factors ?? []).find((f) => f.factor === factor) ?? null);
     const raw = found.map((f) => (f ? Number(f.raw_score) : null));
-    const stats = numericStats(raw, true);
+    const signed = found.map((f) => {
+      if (!f) return null;
+      const value = Number((f as any).signed_score);
+      return Number.isFinite(value) ? value : Number(f.raw_score);
+    });
+    const tradeQuality = factor === 'liquidity' || factor === 'risk_reward';
+    const comparable = tradeQuality ? signed : raw;
+    const stats = numericStats(comparable, true);
     return {
       factor,
       label: labels[factor] ?? factor,
       raw,
+      signed,
       weight: found.map((f) => (f ? Number(f.effective_weight) : null)),
       contribution: found.map((f) => (f ? Number(f.contribution) : null)),
       effect: found.map((f) => f?.effect ?? null),
@@ -150,6 +160,7 @@ export function factorRows(columns: CompareColumn[]): FactorRow[] {
       bestIndex: stats.bestIndex,
       worstIndex: stats.worstIndex,
       partial: found.some((f) => f === null),
+      tradeQuality,
     };
   });
 }
@@ -428,8 +439,7 @@ export function buildDiffNotes(columns: CompareColumn[], picked: (ContractCandid
       section: 'Contract candidates',
       tone: 'gap',
       text:
-        'At least one column has no contract stored at this profile, so the chain cannot be compared line for line. ' +
-        'A direction without a tradeable contract is not a trade.',
+        'At least one column has no contract stored at this profile. Ursora only creates contract candidates after a setup becomes suggestion-eligible, so unavailable contract rows may reflect gating rather than a failed options feed.',
     });
   }
 
@@ -457,7 +467,7 @@ export function buildDiffNotes(columns: CompareColumn[], picked: (ContractCandid
     notes.push({
       section: 'Catalysts',
       tone: 'gap',
-      text: 'No column carries a dated catalyst. Nothing is inferred in place of one; the catalyst factor scored at its neutral floor for all of these.',
+      text: 'No column carries a dated catalyst. Nothing is inferred in place of one; the news and market-events factor is unavailable and contributes no directional evidence for these setups.',
     });
   }
 
