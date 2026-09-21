@@ -263,76 +263,129 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         {/* SCORE BREAKDOWN */}
         <TabsContent value="score" className="mt-3 space-y-3">
           <Panel
-            title="Score breakdown"
-            subtitle="Each factor's raw score, the weight this market regime assigned it, and whether it pushed the final score up or down. Raw scores and effective weights are stored with the signal, so this number can be re-derived exactly."
+            title="Why URSORA scored this setup this way"
+            subtitle="A plain-English explanation of what is helping or hurting this setup. Higher scores mean the evidence is stronger — not that the trade is guaranteed to work."
             right={<DemoBadge />}
           >
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[820px] text-left text-[11px]">
-                <thead className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                  <tr>
-                    {['Factor', 'Raw score', 'Base weight', 'Effective weight', 'Shift', 'Contribution', 'Effect'].map((h) => (
-                      <th key={h} scope="col" className="px-2 py-1.5">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800/60">
-                  {factors.map((f) => (
-                    <tr key={f.factor} className="align-top transition-colors hover:bg-black/30">
-                      <td className="px-2 py-2">
-                        <div className="text-[12px] font-semibold text-zinc-200">{f.label}</div>
-                        <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-zinc-500">{f.explanation}</p>
-                      </td>
-                      <td className="px-2 py-2">
-                        <div className="w-24"><ScoreBar score={f.raw_score} /></div>
-                      </td>
-                      <td className="px-2 py-2 font-mono tabular-nums text-zinc-500">{(f.base_weight * 100).toFixed(1)}%</td>
-                      <td className="px-2 py-2 font-mono font-semibold tabular-nums text-zinc-200">{(f.effective_weight * 100).toFixed(1)}%</td>
-                      <td className={cn('px-2 py-2 font-mono tabular-nums', f.weight_change > 0 ? 'text-emerald-400' : f.weight_change < 0 ? 'text-red-400' : 'text-zinc-500')}>
-                        {f.weight_change > 0 ? '+' : ''}{(f.weight_change * 100).toFixed(1)}pp
-                      </td>
-                      <td className="px-2 py-2 font-mono tabular-nums text-zinc-300">{f.contribution}</td>
-                      <td className="px-2 py-2">
-                        <span
-                          className={cn(
-                            'rounded-sm border px-1.5 py-[1px] font-mono text-[9px] uppercase tracking-wide',
-                            f.effect === 'INCREASED'
-                              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-                              : f.effect === 'DECREASED'
-                                ? 'border-red-500/40 bg-red-500/10 text-red-300'
-                                : 'border-zinc-600 text-zinc-400',
-                          )}
-                        >
-                          {f.effect}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t border-zinc-700 bg-black/30">
-                    <td className="px-2 py-2 font-mono text-[10px] uppercase tracking-wider text-zinc-400">Weighted opportunity score</td>
-                    <td colSpan={5} />
-                    <td className={cn('px-2 py-2 font-mono text-sm font-semibold tabular-nums', scoreColor(signal.opportunity_score))}>
-                      {signal.opportunity_score}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
+            <div className="space-y-3">
+              {factors.map((f) => {
+                const importance = Math.round(f.effective_weight * 100);
+                const raw = Number(f.raw_score);
+                const effectText =
+                  f.effect === 'INCREASED'
+                    ? 'This is helping the setup.'
+                    : f.effect === 'DECREASED'
+                      ? 'This is hurting the setup.'
+                      : 'This is not changing the setup much.';
+                const strength =
+                  raw >= 70 ? 'Strong'
+                    : raw >= 55 ? 'Moderate'
+                      : raw >= 40 ? 'Weak'
+                        : 'Very weak';
+
+                return (
+                  <div key={f.factor} className="rounded-md border border-zinc-800 bg-black/20 p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-[13px] font-semibold text-zinc-100">{f.label}</div>
+                        <p className="mt-1 max-w-3xl text-[12px] leading-relaxed text-zinc-400">{f.explanation}</p>
+                      </div>
+                      <span
+                        className={cn(
+                          'rounded-sm border px-2 py-1 text-[10px] font-medium',
+                          f.effect === 'INCREASED'
+                            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                            : f.effect === 'DECREASED'
+                              ? 'border-red-500/40 bg-red-500/10 text-red-300'
+                              : 'border-zinc-700 text-zinc-400',
+                        )}
+                      >
+                        {effectText}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      <div className="rounded-sm border border-zinc-800 bg-[#111419] p-2.5">
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500">How strong is this evidence?</div>
+                        <div className={cn('mt-1 text-sm font-semibold', scoreColor(raw))}>{strength} · {num(raw, 0)}/100</div>
+                      </div>
+                      <div className="rounded-sm border border-zinc-800 bg-[#111419] p-2.5">
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500">How much does it matter?</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-200">{importance}% of this score</div>
+                      </div>
+                      <div className="rounded-sm border border-zinc-800 bg-[#111419] p-2.5">
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500">Impact on the setup</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-200">
+                          {f.effect === 'INCREASED' ? 'Positive' : f.effect === 'DECREASED' ? 'Negative' : 'Neutral'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {!factors.length && <Unavailable />}
+
+              <div className="rounded-md border border-sky-500/30 bg-sky-500/[0.05] p-3">
+                <div className="text-[10px] uppercase tracking-wider text-zinc-500">Overall opportunity score</div>
+                <div className={cn('mt-1 text-2xl font-semibold tabular-nums', scoreColor(signal.opportunity_score))}>
+                  {signal.opportunity_score}/100
+                </div>
+                <p className="mt-1 text-[12px] leading-relaxed text-zinc-400">
+                  Think of this as URSORA's summary of how much supporting evidence it currently sees for the setup.
+                  It is not a probability that the trade will make money.
+                </p>
+              </div>
             </div>
-            {!factors.length && <Unavailable />}
           </Panel>
 
-          <Panel title="Why the weights look like this" subtitle={`Regime: ${signal.regime ?? 'DATA UNAVAILABLE'}`}>
-            <ul className="space-y-2">
+          <Panel title="Why these factors matter this much" subtitle={"Current market environment: " + (signal.regime ?? 'not enough data yet')}>
+            <div className="space-y-2">
               {(signal.weights?.decisions ?? []).map((d, i) => (
-                <li key={i} className="flex gap-2 text-[12px] leading-relaxed text-zinc-400">
-                  <Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-sky-400" aria-hidden="true" />
-                  {d}
-                </li>
+                <div key={i} className="flex gap-2 rounded-sm border border-zinc-800 bg-black/20 p-2.5 text-[12px] leading-relaxed text-zinc-400">
+                  <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-400" aria-hidden="true" />
+                  <span>{d}</span>
+                </div>
               ))}
-              {!signal.weights?.decisions?.length && <Unavailable />}
-            </ul>
+              {!signal.weights?.decisions?.length && (
+                <p className="text-[12px] leading-relaxed text-zinc-500">
+                  URSORA is using its normal baseline weighting because there is not enough broader market information
+                  to justify emphasizing one factor over another.
+                </p>
+              )}
+            </div>
+
+            <details className="mt-3 rounded-md border border-zinc-800 bg-black/20">
+              <summary className="cursor-pointer px-3 py-2 text-[11px] font-medium text-zinc-400 hover:text-zinc-200">
+                Show technical scoring details
+              </summary>
+              <div className="overflow-x-auto border-t border-zinc-800 p-3">
+                <table className="w-full min-w-[720px] text-left text-[11px]">
+                  <thead className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                    <tr>
+                      {['Factor', 'Raw score', 'Normal weight', 'Current weight', 'Weight change', 'Score contribution'].map((h) => (
+                        <th key={h} scope="col" className="px-2 py-1.5">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800/60">
+                    {factors.map((f) => (
+                      <tr key={f.factor}>
+                        <td className="px-2 py-2 text-zinc-300">{f.label}</td>
+                        <td className="px-2 py-2 font-mono tabular-nums text-zinc-300">{num(f.raw_score, 1)}</td>
+                        <td className="px-2 py-2 font-mono tabular-nums text-zinc-500">{(f.base_weight * 100).toFixed(1)}%</td>
+                        <td className="px-2 py-2 font-mono tabular-nums text-zinc-300">{(f.effective_weight * 100).toFixed(1)}%</td>
+                        <td className="px-2 py-2 font-mono tabular-nums text-zinc-500">
+                          {f.weight_change > 0 ? '+' : ''}{(f.weight_change * 100).toFixed(1)} percentage points
+                        </td>
+                        <td className="px-2 py-2 font-mono tabular-nums text-zinc-300">{num(f.contribution, 2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+
             <Disclaimer className="mt-3 border-t border-zinc-800 pt-3" />
           </Panel>
         </TabsContent>
