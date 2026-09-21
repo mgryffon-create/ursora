@@ -123,6 +123,16 @@ export async function fetchWebullPaperDashboard(): Promise<WebullPaperDashboard>
 }
 
 
+function describeUnknownError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
 export interface FreshAnalysisResult {
   signals: number;
   updates: number;
@@ -153,7 +163,7 @@ export async function runFreshAnalysis(
       await callEdge(stage.slug, stage.payload);
     } catch (error) {
       warnings.push(
-        `${stage.label}: ${error instanceof Error ? error.message : String(error)}`,
+        `${stage.label}: ${describeUnknownError(error)}`,
       );
     }
   }
@@ -170,7 +180,7 @@ export async function runFreshAnalysis(
       await callEdge(EDGE_FUNCTIONS.tradeStructure, { run_id: analysis.run_id });
     } catch (error) {
       warnings.push(
-        `contract selection and risk assessment: ${error instanceof Error ? error.message : String(error)}`,
+        `contract selection and risk assessment: ${describeUnknownError(error)}`,
       );
     }
   }
