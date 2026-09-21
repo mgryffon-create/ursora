@@ -119,6 +119,8 @@ export interface Signal {
     thesis_blockers?: string[];
     trade_blockers?: string[];
     trade_eligible?: boolean;
+    suggestion_eligible?: boolean;
+    thesis_support?: number;
   };
   weights: {
     effective?: Record<string, number>;
@@ -364,6 +366,16 @@ export interface PaperTrade {
   result: 'open' | 'win' | 'loss' | 'scratch';
   return_pct: number | null;
   closed_at: string | null;
+  origin?: string | null;
+  thesis_mode?: 'monitoring' | 'review' | null;
+  inferred_thesis_direction?: string | null;
+  thesis_inference_basis?: string | null;
+  thesis_status?: string | null;
+  thesis_support?: number | null;
+  thesis_agreement?: number | null;
+  thesis_last_checked_at?: string | null;
+  thesis_review_status?: string | null;
+  thesis_review_summary?: string | null;
   created_at: string;
 }
 
