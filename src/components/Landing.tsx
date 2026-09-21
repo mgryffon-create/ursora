@@ -14,16 +14,16 @@ const DAWN_IMG = '/assets/dawn-grid.svg';
 
 
 const MODULES = [
-  { Icon: ListChecks, title: "Today's Opportunities", body: 'A ranked, filterable board of the day’s setups with direction, strategy, confidence, opportunity score, risk level, the full contract line and a link straight to the evidence.' },
-  { Icon: ScrollText, title: 'Trade Thesis pages', body: 'Market context, price action with levels drawn on the chart, options-market interpretation, dated news, keynote intelligence, both sentiment cohorts, risk and contract candidates.' },
-  { Icon: Gauge, title: 'Explainable score breakdown', body: 'Nine factors, each with its raw score, the effective weight this regime assigned it, the direction it pushed the score, and a plain-English reason for every weighting decision.' },
-  { Icon: Binary, title: 'Contract selection engine', body: 'Aggressive, Balanced and Conservative candidates ranked on liquidity, spread, Greeks, expiry and reach to structure — with the tradeoff between them written out and risk flags attached.' },
-  { Icon: Radar, title: 'Live command center', body: 'Regime, index trends, VIX, breadth, movers, relative-volume leaders, unusual options activity and a timestamped signal feed that polls continuously.' },
-  { Icon: CalendarClock, title: 'Catalyst calendar', body: 'Month, week and list views of earnings, CPI, PPI, jobs, FOMC, Fed speeches, product launches, court and regulatory decisions — each tagged with the watchlist names exposed.' },
-  { Icon: ShieldAlert, title: 'Risk engine', body: 'Bull, standard and bear cases, premium at risk, theta per day, IV and liquidity risk, the invalidation level, and a prominent section on why this trade could fail.' },
-  { Icon: LineChart, title: 'Paper-trading ledger', body: 'Append-only records with the price and contract at generation, excursions, result and return, rolled up into win rate, expectancy, profit factor and drawdown.' },
-  { Icon: FlaskConical, title: 'Backtesting with a look-ahead guard', body: 'Only rows whose publication timestamp precedes the simulated bar are eligible, sample size is shown before results, and backtested, paper and live performance never share a panel.' },
-];
+  { Icon: ListChecks, title: "Today's Opportunities", body: 'A ranked list of opportunities with direction, evidence strength, risk, and available option-contract information.' },
+  { Icon: ScrollText, title: 'Trade Analysis', body: 'A detailed review of the evidence supporting a trade, the market conditions around it, available contracts, and the conditions that would make the analysis no longer valid.' },
+  { Icon: Gauge, title: 'Score Rationale', body: 'A clear explanation of the factors contributing to an opportunity score, how important each factor is, and whether it supports or weakens the analysis.' },
+  { Icon: Binary, title: 'Option Contract Comparison', body: 'A comparison of available option contracts using price, spread, liquidity, expiration, and risk characteristics.' },
+  { Icon: Radar, title: 'Market Overview', body: 'A summary of current index movement, volatility, sector activity, notable movers, and recent signal changes.' },
+  { Icon: CalendarClock, title: 'Market Events', body: 'Upcoming earnings, economic reports, central-bank events, company presentations, regulatory decisions, and other scheduled events.' },
+  { Icon: ShieldAlert, title: 'Risk Review', body: 'Potential loss, time decay, liquidity, expected price movement, and the specific conditions that could weaken or invalidate a trade analysis.' },
+  { Icon: LineChart, title: 'Paper Trading', body: 'A private record of paper trades, open positions, account balances, and performance over time.' },
+  { Icon: FlaskConical, title: 'Historical Testing', body: 'Test URSORA’s rules against historical market data while excluding information that would not have been available at the time.' },
+]
 
 export const Landing: React.FC<{ onStart: () => void; onSignIn: () => void }> = ({ onStart, onSignIn }) => (
   <div className="min-h-screen bg-[#0b0d10]">
@@ -50,7 +50,7 @@ export const Landing: React.FC<{ onStart: () => void; onSignIn: () => void }> = 
         <h1 className="mt-6 max-w-4xl text-3xl font-semibold leading-[1.1] tracking-tight text-zinc-50 sm:text-5xl lg:text-6xl">
           Market analysis, trade analysis, and trading-process insight
         </h1>
-        <p className="mt-5 max-w-2xl text-standard leading-relaxed text-zinc-400 sm:text-lg">
+        <p className="mt-5 max-w-2xl text-base leading-relaxed text-zinc-400 sm:text-lg">
           URSORA identifies options-trading opportunities, explains the evidence behind them, evaluates available contracts and risk, and tracks how the analysis changes over time. It also reviews your recorded trading process to identify patterns in how you plan and execute trades.
         </p>
 
