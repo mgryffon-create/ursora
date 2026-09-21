@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Activity, Bell, Bot, Brain, CalendarClock, Database, FlaskConical, LayoutList, LineChart,
+  Activity, Bot, Brain, CalendarClock, ChevronDown, Database, FlaskConical, LineChart,
   ListChecks, LogOut, Menu, Radar, ScrollText, Settings2, Star, X,
 } from 'lucide-react';
 import { fetchFeed, fetchSnapshot } from '@/lib/api';
@@ -26,29 +26,85 @@ import TraderIntelligenceView from '@/components/views/TraderIntelligenceView';
 
 type ViewKey =
   | 'opportunities' | 'command' | 'calendar' | 'watchlist' | 'history'
-  | 'paper' | 'backtest' | 'analyst' | 'sources' | 'thesis' | 'feed' | 'alerts' | 'trader';
+  | 'paper' | 'backtest' | 'analyst' | 'sources' | 'thesis' | 'feed' | 'trader';
 
-const NAV: { key: ViewKey; label: string; Icon: React.ElementType; hint: string }[] = [
-  { key: 'opportunities', label: "Today's Opportunities", Icon: ListChecks, hint: 'Ranked setups with contracts' },
-  { key: 'command', label: 'Command Center', Icon: Radar, hint: 'Regime, movers, live feed' },
-  { key: 'trader', label: 'Trader Intelligence', Icon: Brain, hint: 'Your baseline, patterns and process' },
-  { key: 'calendar', label: 'Catalyst Calendar', Icon: CalendarClock, hint: 'Dated market-moving events' },
-  { key: 'watchlist', label: 'Watchlist', Icon: Star, hint: 'Your universe and alerts' },
-  { key: 'history', label: 'Signal History', Icon: ScrollText, hint: 'Append-only ledger' },
-  { key: 'paper', label: 'Paper Trading', Icon: LineChart, hint: 'Performance ledger' },
-  { key: 'backtest', label: 'Backtesting', Icon: FlaskConical, hint: 'Replay with look-ahead guard' },
-  { key: 'analyst', label: 'AI Analyst', Icon: Bot, hint: 'Grounded question answering' },
-  { key: 'sources', label: 'Data Sources', Icon: Settings2, hint: 'Providers, jobs, schema' },
+type NavGroupKey = 'today' | 'trades' | 'intelligence' | 'research' | 'system';
+
+const NAV_GROUPS: {
+  key: NavGroupKey;
+  label: string;
+  Icon: React.ElementType;
+  defaultView: ViewKey;
+  items: { key: ViewKey; label: string; hint: string; Icon: React.ElementType }[];
+}[] = [
+  {
+    key: 'today',
+    label: 'Today',
+    Icon: ListChecks,
+    defaultView: 'opportunities',
+    items: [
+      { key: 'opportunities', label: 'Opportunities', hint: 'Ranked setups', Icon: ListChecks },
+      { key: 'command', label: 'Command Center', hint: 'Market context', Icon: Radar },
+    ],
+  },
+  {
+    key: 'trades',
+    label: 'Trades',
+    Icon: LineChart,
+    defaultView: 'paper',
+    items: [
+      { key: 'paper', label: 'Paper Trading', hint: 'Account, positions, performance', Icon: LineChart },
+      { key: 'history', label: 'Signal History', hint: 'Append-only signal ledger', Icon: ScrollText },
+      { key: 'backtest', label: 'Backtesting', hint: 'Replay and validation', Icon: FlaskConical },
+    ],
+  },
+  {
+    key: 'intelligence',
+    label: 'Intelligence',
+    Icon: Brain,
+    defaultView: 'trader',
+    items: [
+      { key: 'trader', label: 'Trader Intelligence', hint: 'Patterns, process, behavior', Icon: Brain },
+    ],
+  },
+  {
+    key: 'research',
+    label: 'Research',
+    Icon: Star,
+    defaultView: 'watchlist',
+    items: [
+      { key: 'watchlist', label: 'Watchlist', hint: 'Your universe', Icon: Star },
+      { key: 'calendar', label: 'Catalyst Calendar', hint: 'Dated market events', Icon: CalendarClock },
+      { key: 'analyst', label: 'AI Analyst', hint: 'Grounded questions', Icon: Bot },
+      { key: 'feed', label: 'Signal Feed', hint: 'Timestamped events', Icon: Activity },
+    ],
+  },
+  {
+    key: 'system',
+    label: 'System',
+    Icon: Settings2,
+    defaultView: 'sources',
+    items: [
+      { key: 'sources', label: 'Data Sources', hint: 'Providers and schema', Icon: Database },
+    ],
+  },
 ];
 
+const groupForView = (view: ViewKey): NavGroupKey => {
+  if (view === 'thesis' || view === 'opportunities' || view === 'command') return 'today';
+  if (view === 'paper' || view === 'history' || view === 'backtest') return 'trades';
+  if (view === 'trader') return 'intelligence';
+  if (view === 'watchlist' || view === 'calendar' || view === 'analyst' || view === 'feed') return 'research';
+  return 'system';
+};
 
-const MOBILE_TABS: { key: ViewKey; label: string; Icon: React.ElementType }[] = [
-  { key: 'opportunities', label: 'Setups', Icon: ListChecks },
-  { key: 'feed', label: 'Feed', Icon: Activity },
-  { key: 'watchlist', label: 'Watchlist', Icon: Star },
-  { key: 'command', label: 'Market', Icon: Radar },
-  { key: 'alerts', label: 'Alerts', Icon: Bell },
-];
+const labelForView = (view: ViewKey) => {
+  for (const group of NAV_GROUPS) {
+    const item = group.items.find((entry) => entry.key === view);
+    if (item) return item.label;
+  }
+  return view === 'thesis' ? 'Trade Thesis' : 'URSORA';
+};
 
 const StatusBar: React.FC<{ snapshot: MarketSnapshot | null }> = ({ snapshot }) => {
   const [status, setStatus] = useState(marketStatus());
@@ -59,21 +115,19 @@ const StatusBar: React.FC<{ snapshot: MarketSnapshot | null }> = ({ snapshot }) 
   const tickers = [
     { label: 'SPY', price: snapshot?.spy_price, change: snapshot?.spy_change_pct },
     { label: 'QQQ', price: snapshot?.qqq_price, change: snapshot?.qqq_change_pct },
-    { label: 'IWM', price: snapshot?.iwm_price, change: snapshot?.iwm_change_pct },
-    { label: 'VIX', price: snapshot?.vix, change: snapshot?.vix_change_pct },
   ];
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-zinc-800 bg-[#0b0d10] px-3 py-1.5">
+    <div className="flex items-center gap-4 border-b border-zinc-800 bg-[#0b0d10] px-3 py-1.5">
       <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider">
         <span className={cn('h-1.5 w-1.5 rounded-full', status.open ? 'animate-pulse bg-emerald-400' : 'bg-zinc-500')} />
         <span className={status.open ? 'text-emerald-400' : 'text-zinc-400'}>{status.label}</span>
       </span>
-      <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+      <span className="hidden font-mono text-[10px] uppercase tracking-wider text-zinc-500 sm:inline">
         regime <span className={cn(
           snapshot?.regime === 'Risk-On' ? 'text-emerald-300' : snapshot?.regime === 'Risk-Off' ? 'text-red-300' : 'text-sky-300',
         )}>{snapshot?.regime ?? 'DATA UNAVAILABLE'}</span>
       </span>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <div className="hidden items-center gap-3 md:flex">
         {tickers.map((t) => (
           <span key={t.label} className="font-mono text-[10px] tabular-nums">
             <span className="text-zinc-500">{t.label} </span>
@@ -83,8 +137,8 @@ const StatusBar: React.FC<{ snapshot: MarketSnapshot | null }> = ({ snapshot }) 
         ))}
       </div>
       <span className="ml-auto flex items-center gap-2">
-        <span className="hidden font-mono text-[10px] text-zinc-600 sm:inline">
-          snapshot {stampET(snapshot?.as_of) ?? 'DATA UNAVAILABLE'}
+        <span className="hidden font-mono text-[10px] text-zinc-600 lg:inline">
+          {stampET(snapshot?.as_of) ?? 'DATA UNAVAILABLE'}
         </span>
         <DemoBadge />
       </span>
@@ -142,14 +196,16 @@ const FeedPage: React.FC = () => {
   );
 };
 
+
 export const AppLayout: React.FC = () => {
-  const { user, loading, signOut, prefs } = useAuth();
+  const { user, loading, signOut } = useAuth();
   const [entered, setEntered] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup' | null>(null);
   const [view, setView] = useState<ViewKey>('opportunities');
   const [thesisId, setThesisId] = useState<number | null>(null);
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null);
   const [navOpen, setNavOpen] = useState(false);
+  const [expandedGroup, setExpandedGroup] = useState<NavGroupKey>('today');
 
   useEffect(() => {
     let active = true;
@@ -173,6 +229,10 @@ export const AppLayout: React.FC = () => {
     }
   }, [user]);
 
+  useEffect(() => {
+    setExpandedGroup(groupForView(view));
+  }, [view]);
+
   const openThesis = useCallback((id: number) => {
     setThesisId(id);
     setView('thesis');
@@ -184,6 +244,17 @@ export const AppLayout: React.FC = () => {
     setNavOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
+
+  const goGroup = useCallback((groupKey: NavGroupKey) => {
+    const group = NAV_GROUPS.find((entry) => entry.key === groupKey);
+    if (!group) return;
+    if (expandedGroup === groupKey) {
+      go(group.defaultView);
+      return;
+    }
+    setExpandedGroup(groupKey);
+    go(group.defaultView);
+  }, [expandedGroup, go]);
 
   const body = useMemo(() => {
     switch (view) {
@@ -198,7 +269,6 @@ export const AppLayout: React.FC = () => {
       case 'calendar':
         return <CalendarView />;
       case 'watchlist':
-      case 'alerts':
         return <WatchlistView onOpenThesis={openThesis} />;
       case 'history':
         return <SignalHistoryView onOpenThesis={openThesis} />;
@@ -212,7 +282,6 @@ export const AppLayout: React.FC = () => {
         return <TraderIntelligenceView onOpenThesis={openThesis} />;
       case 'sources':
         return <DataSourcesView />;
-
       case 'feed':
         return <FeedPage />;
       default:
@@ -224,7 +293,6 @@ export const AppLayout: React.FC = () => {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0b0d10]">
         <Spinner label="Starting URSORA" />
-
       </div>
     );
   }
@@ -257,7 +325,8 @@ export const AppLayout: React.FC = () => {
     );
   }
 
-  const activeLabel = NAV.find((n) => n.key === view)?.label ?? (view === 'thesis' ? 'Trade Thesis' : 'Signal Feed');
+  const activeGroup = groupForView(view);
+  const activeLabel = labelForView(view);
 
   return (
     <div className="min-h-screen bg-[#0b0d10] text-zinc-200">
@@ -279,14 +348,16 @@ export const AppLayout: React.FC = () => {
           >
             <CompactMark className="h-6 w-6" title="URSORA" />
             URSORA
-
           </button>
           <span className="hidden font-mono text-[10px] uppercase tracking-wider text-zinc-500 md:inline">
             {activeLabel}
           </span>
           <div className="ml-auto flex items-center gap-2">
+            <span className="hidden rounded-sm border border-amber-500/30 bg-amber-500/[0.06] px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-amber-300 lg:inline">
+              sandbox data
+            </span>
             <span className="hidden font-mono text-[10px] text-zinc-500 sm:inline">
-              {user ? user.email : 'demo session — not signed in'}
+              {user ? user.email : 'demo session'}
             </span>
             {user ? (
               <button
@@ -301,87 +372,75 @@ export const AppLayout: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setAuthMode('signin')}
-                className="inline-flex items-center gap-1.5 rounded-sm border border-sky-500/40 bg-sky-500/10 px-2 py-1.5 font-mono text-[10px] uppercase tracking-wider text-sky-300 transition-colors hover:bg-sky-500/20"
+                className="rounded-sm border border-sky-500/40 bg-sky-500/10 px-2 py-1.5 font-mono text-[10px] uppercase tracking-wider text-sky-300"
               >
                 sign in
               </button>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 border-t border-amber-500/20 bg-amber-500/[0.07] px-3 py-1">
-          <Database className="h-3 w-3 shrink-0 text-amber-400" aria-hidden="true" />
-          <p className="text-[10px] leading-snug text-amber-200/90">
-            <strong className="font-mono uppercase tracking-wider">Market data status</strong> — live market and options providers are not connected yet.
-            Market-dependent fields remain unavailable or clearly labelled when simulated.
-            Research tool only, not investment advice.
-          </p>
-        </div>
-
       </header>
 
       <div className="flex">
-        {/* SIDEBAR */}
         <aside
           className={cn(
-            'fixed inset-y-0 left-0 z-30 w-60 shrink-0 overflow-y-auto border-r border-zinc-800 bg-[#0e1116] pt-[132px] transition-transform lg:sticky lg:top-[132px] lg:h-[calc(100vh-132px)] lg:translate-x-0 lg:pt-0',
+            'fixed inset-y-0 left-0 z-30 w-56 shrink-0 overflow-y-auto border-r border-zinc-800 bg-[#0e1116] pt-[94px] transition-transform lg:sticky lg:top-[94px] lg:h-[calc(100vh-94px)] lg:translate-x-0 lg:pt-0',
             navOpen ? 'translate-x-0' : '-translate-x-full',
           )}
         >
           <nav aria-label="Primary" className="p-2">
-            {NAV.map(({ key, label, Icon, hint }) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => go(key)}
-                className={cn(
-                  'group mb-0.5 flex w-full items-start gap-2.5 rounded-sm border px-2.5 py-2 text-left transition-colors',
-                  view === key || (view === 'thesis' && key === 'opportunities')
-                    ? 'border-sky-500/40 bg-sky-500/10'
-                    : 'border-transparent hover:border-zinc-800 hover:bg-black/40',
-                )}
-              >
-                <Icon
-                  className={cn(
-                    'mt-0.5 h-3.5 w-3.5 shrink-0 transition-colors',
-                    view === key ? 'text-sky-400' : 'text-zinc-500 group-hover:text-zinc-300',
+            {NAV_GROUPS.map((group) => {
+              const GroupIcon = group.Icon;
+              const expanded = expandedGroup === group.key;
+              const active = activeGroup === group.key;
+              return (
+                <div key={group.key} className="mb-1">
+                  <button
+                    type="button"
+                    onClick={() => goGroup(group.key)}
+                    className={cn(
+                      'flex w-full items-center gap-2.5 rounded-sm border px-2.5 py-2.5 text-left transition-colors',
+                      active
+                        ? 'border-sky-500/30 bg-sky-500/[0.08] text-sky-100'
+                        : 'border-transparent text-zinc-300 hover:border-zinc-800 hover:bg-black/30',
+                    )}
+                  >
+                    <GroupIcon className={cn('h-4 w-4 shrink-0', active ? 'text-sky-400' : 'text-zinc-500')} aria-hidden="true" />
+                    <span className="text-[13px] font-medium">{group.label}</span>
+                    <ChevronDown
+                      className={cn('ml-auto h-3.5 w-3.5 text-zinc-600 transition-transform', expanded && 'rotate-180')}
+                      aria-hidden="true"
+                    />
+                  </button>
+                  {expanded && (
+                    <div className="ml-5 mt-1 border-l border-zinc-800 pl-2">
+                      {group.items.map((item) => {
+                        const ItemIcon = item.Icon;
+                        const selected = view === item.key || (view === 'thesis' && item.key === 'opportunities');
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            onClick={() => go(item.key)}
+                            className={cn(
+                              'flex w-full items-start gap-2 rounded-sm px-2 py-2 text-left transition-colors',
+                              selected ? 'bg-sky-500/[0.08] text-sky-200' : 'text-zinc-400 hover:bg-black/30 hover:text-zinc-200',
+                            )}
+                          >
+                            <ItemIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                            <span className="min-w-0">
+                              <span className="block text-[11px] font-medium">{item.label}</span>
+                              <span className="block truncate text-[9px] text-zinc-600">{item.hint}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
-                  aria-hidden="true"
-                />
-                <span className="min-w-0">
-                  <span className={cn('block truncate text-[12px] font-medium', view === key ? 'text-sky-200' : 'text-zinc-300')}>
-                    {label}
-                  </span>
-                  <span className="block truncate text-[10px] text-zinc-600">{hint}</span>
-                </span>
-              </button>
-            ))}
+                </div>
+              );
+            })}
           </nav>
-          <div className="border-t border-zinc-800 p-3">
-            <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Alert threshold</div>
-            <div className="mt-1 font-mono text-[11px] text-zinc-300">
-              opportunity {'>='} {prefs.alert_min_score} · {prefs.alert_directions.join(', ') || 'none'} · max {prefs.alert_risk_max} risk
-            </div>
-            <button
-              type="button"
-              onClick={() => go('watchlist')}
-              className="mt-2 font-mono text-[10px] uppercase tracking-wider text-sky-400 transition-colors hover:text-sky-300"
-            >
-              edit preferences
-            </button>
-          </div>
-          <div className="p-3">
-            <button
-              type="button"
-              onClick={() => go('feed')}
-              className={cn(
-                'flex w-full items-center gap-2 rounded-sm border px-2.5 py-2 text-left transition-colors',
-                view === 'feed' ? 'border-sky-500/40 bg-sky-500/10 text-sky-200' : 'border-zinc-800 text-zinc-400 hover:text-zinc-200',
-              )}
-            >
-              <LayoutList className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="text-[12px]">Full signal feed</span>
-            </button>
-          </div>
         </aside>
 
         {navOpen && (
@@ -393,83 +452,33 @@ export const AppLayout: React.FC = () => {
           />
         )}
 
-        {/* MAIN */}
-        <main className="min-w-0 flex-1 px-3 py-4 pb-24 lg:px-5 lg:pb-8">
-          <div className="mx-auto w-full max-w-[1800px]">{body}</div>
+        <main className="min-w-0 flex-1 px-3 py-4 pb-20 lg:px-6 lg:pb-8">
+          <div className="mx-auto w-full max-w-[1600px]">{body}</div>
         </main>
       </div>
 
-      {/* FOOTER */}
-      <footer className="border-t border-zinc-800 bg-[#0e1116] px-3 py-6 pb-24 lg:pb-6">
-        <div className="mx-auto grid w-full max-w-[1800px] gap-6 lg:grid-cols-[1.4fr_1fr_1fr]">
-          <div>
-            <div className="flex items-center gap-2 font-mono text-[12px] font-semibold tracking-[0.2em] text-zinc-200">
-              <CompactMark className="h-6 w-6" title="URSORA" />
-              URSORA
-
-            </div>
-            <p className="mt-2 max-w-xl text-[11px] leading-relaxed text-zinc-500" style={{ textWrap: 'pretty' }}>
-              An options-trading research and opportunity-ranking engine. It exists to show the evidence behind a
-              setup, the contract that expresses it, the risk it carries, and the level that would prove it wrong.
-            </p>
-            <p className="mt-3 max-w-xl text-[11px] leading-relaxed text-amber-200/80">
-              <strong className="font-mono uppercase tracking-wider">Disclaimer</strong> — research tool only. Not
-              investment advice, not a recommendation, and not an offer to trade. Confidence and opportunity scores are
-              internal evidence-quality measures, not probabilities of profit. Market-dependent fields remain unavailable until live providers are connected. Options trading can result in the total loss of premium.
-            </p>
-          </div>
-          <nav aria-label="Footer" className="grid grid-cols-2 gap-x-4 gap-y-1 self-start">
-            {NAV.map((n) => (
-              <button
-                key={n.key}
-                type="button"
-                onClick={() => go(n.key)}
-                className="text-left text-[11px] text-zinc-500 transition-colors hover:text-sky-300"
-              >
-                {n.label}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => go('feed')}
-              className="text-left text-[11px] text-zinc-500 transition-colors hover:text-sky-300"
-            >
-              Signal Feed
-            </button>
-          </nav>
-          <div>
-            <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Platform status</div>
-            <ul className="mt-2 space-y-1 font-mono text-[11px] text-zinc-400">
-              <li>Providers: 7 interfaces, all in demo mode</li>
-              <li>Premarket job: weekdays 06:30 ET</li>
-              <li>Intraday refresh: every 5 minutes, 09:00–16:55 ET</li>
-              <li>Signal ledger: append-only, immutable</li>
-              <li>Snapshot: {stampET(snapshot?.as_of) ?? 'DATA UNAVAILABLE'}</li>
-            </ul>
-            <div className="mt-3"><DemoBadge /></div>
-          </div>
-        </div>
-      </footer>
-
-      {/* MOBILE BOTTOM TABS */}
       <nav
         aria-label="Mobile primary"
         className="fixed bottom-0 left-0 right-0 z-40 grid grid-cols-5 border-t border-zinc-800 bg-[#0b0d10]/98 backdrop-blur lg:hidden"
       >
-        {MOBILE_TABS.map(({ key, label, Icon }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => go(key)}
-            className={cn(
-              'flex flex-col items-center gap-0.5 py-2 transition-colors',
-              view === key ? 'text-sky-300' : 'text-zinc-500 hover:text-zinc-300',
-            )}
-          >
-            <Icon className="h-4 w-4" aria-hidden="true" />
-            <span className="font-mono text-[9px] uppercase tracking-wider">{label}</span>
-          </button>
-        ))}
+        {NAV_GROUPS.map((group) => {
+          const Icon = group.Icon;
+          const active = activeGroup === group.key;
+          return (
+            <button
+              key={group.key}
+              type="button"
+              onClick={() => goGroup(group.key)}
+              className={cn(
+                'flex flex-col items-center gap-0.5 py-2 transition-colors',
+                active ? 'text-sky-300' : 'text-zinc-500 hover:text-zinc-300',
+              )}
+            >
+              <Icon className="h-4 w-4" aria-hidden="true" />
+              <span className="font-mono text-[9px] uppercase tracking-wider">{group.label}</span>
+            </button>
+          );
+        })}
       </nav>
 
       {authMode && !user && (
