@@ -17,7 +17,7 @@ export const DemoBadge: React.FC<{ className?: string; label?: string }> = ({ cl
       'font-mono text-[10px] font-semibold uppercase tracking-wider text-amber-300',
       className,
     )}
-    title="Modelled development data. Not live market data."
+    title="Simulated development data. This is not live market data."
 
   >
     <Database className="h-2.5 w-2.5" aria-hidden="true" />
@@ -28,7 +28,7 @@ export const DemoBadge: React.FC<{ className?: string; label?: string }> = ({ cl
 export const Unavailable: React.FC<{ className?: string }> = ({ className }) => (
   <span
     className={cn('font-mono text-[11px] uppercase tracking-wide text-zinc-500', className)}
-    title="No value is stored for this field. URSORA never estimates a missing data point."
+    title="URSORA does not currently have data for this field."
   >
     {DATA_UNAVAILABLE}
   </span>
@@ -224,9 +224,7 @@ export const EmptyState: React.FC<{ title: string; body: string; action?: React.
 
 export const Disclaimer: React.FC<{ className?: string }> = ({ className }) => (
   <p className={cn('text-[11px] leading-relaxed text-zinc-500', className)}>
-    Confidence and opportunity scores are internal evidence-quality measures, <strong className="text-zinc-400">not
-    probabilities of profit</strong>. URSORA is a research tool. Nothing here is investment advice, a
-    recommendation, or an offer to trade. Options carry the risk of total loss of premium.
+    Opportunity and confidence scores summarize the evidence currently available to URSORA. They are <strong className="text-zinc-400">not probabilities of profit</strong>. URSORA is a research tool, not investment advice or an offer to trade. Options can lose the full premium paid.
   </p>
 );
 
