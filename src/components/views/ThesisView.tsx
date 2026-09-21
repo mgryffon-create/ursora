@@ -57,7 +57,7 @@ const SentimentGauge: React.FC<{ reading: SentimentReading | undefined; title: s
         ))}
       </div>
       <div className="mt-2 grid grid-cols-2 gap-2">
-        <Metric label="Cohort score" value={reading?.score} />
+        <Metric label="Sentiment score" value={reading?.score} />
         <Metric label="Mention volume" value={compact(reading?.mention_volume)} />
       </div>
       <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">{reading?.note ?? <Unavailable />}</p>
@@ -273,10 +273,10 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                 const raw = Number(f.raw_score);
                 const effectText =
                   f.effect === 'INCREASED'
-                    ? 'Supports the current thesis.'
+                    ? 'Supports the current analysis.'
                     : f.effect === 'DECREASED'
-                      ? 'Weakens the current thesis.'
-                      : 'Neutral effect on the current thesis.';
+                      ? 'Weakens the current analysis.'
+                      : 'Neutral effect on the current analysis.';
                 const strength =
                   raw >= 70 ? 'Strong'
                     : raw >= 55 ? 'Moderate'
@@ -338,7 +338,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             </div>
           </Panel>
 
-          <Panel title="Factor weighting rationale" subtitle={"Market regime used for this run: " + (signal.regime ?? 'not available')}>
+          <Panel title="Factor weighting rationale" subtitle={"Market environment used for this analysis: " + (signal.regime ?? 'not available')}>
             <div className="space-y-2">
               {(signal.weights?.decisions ?? []).map((d, i) => (
                 <div key={i} className="flex gap-2 rounded-sm border border-zinc-800 bg-black/20 p-2.5 text-[12px] leading-relaxed text-zinc-400">
@@ -352,9 +352,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                 <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.05] p-3">
                   <div className="text-[11px] font-medium text-amber-200">Provisional scoring basis</div>
                   <p className="mt-1 text-[12px] leading-relaxed text-zinc-400">
-                    This run uses only quote-derived price movement and momentum. Options activity, catalysts, verified
+                    This analysis currently uses only price movement and momentum from stored quote data. Options activity, market events, verified
                     news, broader market alignment, liquidity, risk/reward and cross-factor agreement are not represented.
-                    The current score is therefore preliminary and should not be treated as a complete trade thesis.
+                    The current score is therefore preliminary and should not be treated as a complete trade analysis.
                   </p>
                 </div>
               )}
@@ -399,7 +399,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         <TabsContent value="market" className="mt-3 space-y-3">
           <Panel title="Market conditions" subtitle="Broader market conditions that may affect this analysis." right={<DemoBadge />}>
             <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
-              <Metric label="Regime" value={snapshot?.regime} mono={false} />
+              <Metric label="Market environment" value={snapshot?.regime} mono={false} />
               <Metric label="SPY" value={num(snapshot?.spy_price)} hint={pct(snapshot?.spy_change_pct) ?? undefined} valueClass={changeColor(snapshot?.spy_change_pct)} />
               <Metric label="QQQ" value={num(snapshot?.qqq_price)} hint={pct(snapshot?.qqq_change_pct) ?? undefined} valueClass={changeColor(snapshot?.qqq_change_pct)} />
               <Metric label="IWM" value={num(snapshot?.iwm_price)} hint={pct(snapshot?.iwm_change_pct) ?? undefined} valueClass={changeColor(snapshot?.iwm_change_pct)} />
@@ -415,8 +415,8 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                 <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Market participation</div>
                 <p className="mt-1.5 text-[12px] leading-relaxed text-zinc-400">{snapshot?.breadth_note ?? <Unavailable />}</p>
                 <div className="mt-2 grid grid-cols-2 gap-2">
-                  <Metric label="Advancers" value={snapshot?.breadth_advancers} valueClass="text-emerald-300" />
-                  <Metric label="Decliners" value={snapshot?.breadth_decliners} valueClass="text-red-300" />
+                  <Metric label="Stocks rising" value={snapshot?.breadth_advancers} valueClass="text-emerald-300" />
+                  <Metric label="Stocks falling" value={snapshot?.breadth_decliners} valueClass="text-red-300" />
                 </div>
                 <div className="mt-3 font-mono text-[10px] uppercase tracking-wider text-zinc-500">Economic environment</div>
                 <p className="mt-1.5 text-[12px] leading-relaxed text-zinc-400">{snapshot?.macro_note ?? <Unavailable />}</p>
@@ -469,7 +469,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               ]}
             />
           </Panel>
-          <Panel title="Intraday structure" right={<DemoBadge />}>
+          <Panel title="Current trading-session movement" right={<DemoBadge />}>
             <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
               <Metric label="Trend" value={quote?.trend} mono={false} />
               <Metric label="Last" value={num(quote?.price)} />
@@ -572,7 +572,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               <Metric label="Liquidity score" value={balanced?.liquidity_score} />
             </div>
             <div className="mt-3 rounded-sm border border-zinc-800 bg-black/20 p-2.5 text-[11px] leading-relaxed text-zinc-500">
-              Large-trade tape and block prints: <span className="font-mono text-zinc-300">DATA UNAVAILABLE</span> in
+              Large individual trades and block transactions: <span className="font-mono text-zinc-300">DATA UNAVAILABLE</span> in
               demo mode. When a real OptionsDataProvider is connected, individual prints with size, side and exchange
               appear here with their own provenance.
             </div>
@@ -633,7 +633,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                   />
                 </li>
               ))}
-              {!news.length && <EmptyState title="No dated news in store" body="The engine scored this name's news factor at the neutral floor rather than inventing a catalyst." />}
+              {!news.length && <EmptyState title="No recent news available" body="URSORA does not currently have dated news for this symbol and does not substitute an assumed event." />}
             </ul>
           </Panel>
 
@@ -662,7 +662,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                 {!filings.length && <Unavailable />}
               </ul>
             </Panel>
-            <Panel title="Scheduled catalysts for this name" right={<DemoBadge />}>
+            <Panel title="Scheduled market events for this symbol" right={<DemoBadge />}>
               <ul className="space-y-2">
                 {earnings.map((e) => (
                   <li key={`e-${e.id}`} className="rounded-sm border border-amber-500/30 bg-amber-500/[0.05] p-2.5">
@@ -750,7 +750,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         <TabsContent value="sentiment" className="mt-3">
           <Panel
             title="Investor sentiment"
-            subtitle="Retail and professional cohorts are kept separate, and both are weighted far below price, volume, verified news and options data."
+            subtitle="Retail and professional investor sentiment are shown separately and receive substantially less weight than price, volume, verified news, and options data."
             right={<DemoBadge />}
           >
             <div className="grid gap-3 lg:grid-cols-2">
@@ -760,7 +760,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             <div className="mt-3 rounded-sm border border-amber-500/30 bg-amber-500/[0.06] p-3 text-[12px] leading-relaxed text-zinc-400">
               Social popularity alone is not reliable evidence. Mention volume measures attention, not information, and
               it is frequently highest exactly when a move is most crowded. The signal engine caps the social factor at
-              5% of the final score in every regime; if the crowd is the only thing supporting a thesis, the score will
+              5% of the final score in every market environment; if investor sentiment is the only evidence supporting an analysis, the score will
               not clear the tradable threshold.
             </div>
           </Panel>
@@ -796,7 +796,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               {[
                 { t: 'IV risk', v: risk?.iv_risk },
                 { t: 'Liquidity risk', v: risk?.liquidity_risk },
-                { t: 'Catalyst risk', v: risk?.catalyst_risk },
+                { t: 'Market-event risk', v: risk?.catalyst_risk },
               ].map((r) => (
                 <div key={r.t} className="rounded-sm border border-zinc-800 bg-black/20 p-2.5">
                   <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">{r.t}</div>
@@ -893,7 +893,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             )}
             <p className="mt-3 border-t border-zinc-800 pt-3 text-[11px] leading-relaxed text-zinc-500">
               Model confidence is derived from contract delta and the evidence score. It is a modelled estimate of the
-              thesis resolving before expiration — not a probability of profit, and not a guarantee of fill at these
+              analysis remaining valid through expiration — not a probability of profit, and not a guarantee of execution at these
               prices. All chain values are Black-Scholes modelled by the simulation adapter and stored at low confidence.
             </p>
           </Panel>
@@ -925,7 +925,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                     {h.id === signal.id && <span className="font-mono text-[9px] uppercase text-sky-300">viewing</span>}
                   </div>
                   <p className="mt-1 text-[11px] leading-snug text-zinc-500">
-                    {h.no_trade_reason ?? h.catalyst_summary ?? 'No catalyst text stored for this record.'}
+                    {h.no_trade_reason ?? h.catalyst_summary ?? 'No market-event note is stored for this record.'}
                   </p>
                 </li>
               ))}
@@ -964,7 +964,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           <div className="h-full w-full max-w-xl border-l border-zinc-800 bg-[#0b0d10] p-3">
             <div className="mb-2 flex items-center justify-between">
               <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-                Analyst panel · {signal.symbol} thesis context
+                Analyst panel · {signal.symbol} analysis context
               </span>
               <button
                 type="button"
