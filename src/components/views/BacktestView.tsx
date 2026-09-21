@@ -268,13 +268,13 @@ export const BacktestView: React.FC = () => {
                 <Metric label="Win rate" value={m?.win_rate_pct === null || m?.win_rate_pct === undefined ? null : `${m.win_rate_pct}%`} />
                 <Metric label="Average winner" value={m?.avg_winner_pct === null || m?.avg_winner_pct === undefined ? null : `${m.avg_winner_pct}%`} valueClass="text-emerald-300" />
                 <Metric label="Average loser" value={m?.avg_loser_pct === null || m?.avg_loser_pct === undefined ? null : `${m.avg_loser_pct}%`} valueClass="text-red-300" />
-                <Metric label="Expectancy" value={m?.expectancy_pct === null || m?.expectancy_pct === undefined ? null : `${m.expectancy_pct}%`} />
-                <Metric label="Profit factor" value={m?.profit_factor ?? null} />
-                <Metric label="Max drawdown" value={m?.max_drawdown_pct === null || m?.max_drawdown_pct === undefined ? null : `${m.max_drawdown_pct}%`} valueClass="text-red-300" />
+                <Metric label="Average return per trade" value={m?.expectancy_pct === null || m?.expectancy_pct === undefined ? null : `${m.expectancy_pct}%`} />
+                <Metric label="Gross gains ÷ gross losses" value={m?.profit_factor ?? null} />
+                <Metric label="Largest decline" value={m?.max_drawdown_pct === null || m?.max_drawdown_pct === undefined ? null : `${m.max_drawdown_pct}%`} valueClass="text-red-300" />
                 <Metric label="Future-dated items excluded" value={m?.news_rows_excluded_by_guard ?? null} hint="not yet available at that time" />
               </div>
 
-              <Panel title="Portfolio path and drawdown" right={<DemoBadge />}>
+              <Panel title="Portfolio performance over time" right={<DemoBadge />}>
                 <EquityCurve data={result.equity_curve ?? []} />
               </Panel>
 
@@ -282,7 +282,7 @@ export const BacktestView: React.FC = () => {
                 <Panel title="Results by opportunity score">
                   <table className="w-full text-left text-[11px]">
                     <thead className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                      <tr>{['Bucket', 'n', 'Win rate', 'Expectancy'].map((h) => <th key={h} scope="col" className="px-2 py-1.5">{h}</th>)}</tr>
+                      <tr>{['Score range', 'Trades', 'Win rate', 'Average return'].map((h) => <th key={h} scope="col" className="px-2 py-1.5">{h}</th>)}</tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-800/60">
                       {(result.by_score_bucket ?? []).map((b) => (
@@ -301,7 +301,7 @@ export const BacktestView: React.FC = () => {
                 <Panel title="Results by symbol">
                   <table className="w-full text-left text-[11px]">
                     <thead className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                      <tr>{['Ticker', 'n', 'Win rate', 'Expectancy'].map((h) => <th key={h} scope="col" className="px-2 py-1.5">{h}</th>)}</tr>
+                      <tr>{['Symbol', 'Trades', 'Win rate', 'Average return'].map((h) => <th key={h} scope="col" className="px-2 py-1.5">{h}</th>)}</tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-800/60">
                       {(result.by_symbol ?? []).map((b) => (
