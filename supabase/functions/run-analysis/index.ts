@@ -1,5 +1,73 @@
-import { AuthError, requireUser } from '../_shared/auth.ts';
-import { handleOptions, json } from '../_shared/http.ts';
+import { createClient } from 'npm:@supabase/supabase-js@2';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+function handleOptions(req: Request): Response | null {
+  return req.method === 'OPTIONS'
+    ? new Response('ok', { headers: corsHeaders })
+    : null;
+}
+
+class AuthError extends Error {
+  status: number;
+
+  constructor(message: string, status = 401) {
+    super(message);
+    this.name = 'AuthError';
+    this.status = status;
+  }
+}
+
+function adminClient() {
+  const url = Deno.env.get('SUPABASE_URL');
+  const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+  if (!url || !key) {
+    throw new Error('Supabase runtime credentials are missing.');
+  }
+
+  return createClient(url, key, {
+    auth: { persistSession: false },
+  });
+}
+
+async function requireUser(req: Request) {
+  const authHeader = req.headers.get('Authorization');
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    throw new AuthError('Authentication required.', 401);
+  }
+
+  const token = authHeader.slice(7).trim();
+
+  if (!token) {
+    throw new AuthError('Authentication required.', 401);
+  }
+
+  const db = adminClient();
+  const {
+    data: { user },
+    error,
+  } = await db.auth.getUser(token);
+
+  if (error || !user) {
+    throw new AuthError('Invalid or expired session.', 401);
+  }
+
+  return { user, db };
+}
+
 
 type AnyRow = Record<string, any>;
 type ThesisState = 'Rejected' | 'Unsupported' | 'Preliminary' | 'Supported' | 'Strongly Supported';
