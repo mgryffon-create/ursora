@@ -28,6 +28,7 @@ export const EDGE_FUNCTIONS = {
   marketSync: 'sync-webull-market',
   historySync: 'sync-webull-history',
   optionsSync: 'sync-webull-options',
+  tradeStructure: 'build-trade-structure',
 } as const;
 
 export type EdgeFunctionSlug = (typeof EDGE_FUNCTIONS)[keyof typeof EDGE_FUNCTIONS];
@@ -155,6 +156,16 @@ export async function runFreshAnalysis(
     run_id?: string;
     engine_version?: string;
   }>(EDGE_FUNCTIONS.analysis, body);
+
+  if (analysis.run_id) {
+    try {
+      await callEdge(EDGE_FUNCTIONS.tradeStructure, { run_id: analysis.run_id });
+    } catch (error) {
+      warnings.push(
+        `contract selection and risk assessment: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
 
   return {
     signals: analysis.signals ?? 0,
