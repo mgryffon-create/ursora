@@ -217,38 +217,43 @@ Deno.serve(async (req) => {
       const premiumAtRisk = n(chosenForRisk?.max_loss);
       const theta = n(chosenForRisk?.theta);
       const iv = n(chosenForRisk?.implied_volatility);
-      const liqScore = n(chosenForRisk?.liquidity_score);
+      const selectedLiqScore = n(chosenForRisk?.liquidity_score);
+      const aggregateLiqScores = pool.map((row: AnyRow) => liquidityScore(row));
+      const aggregateLiqScore = aggregateLiqScores.length
+        ? Math.round(aggregateLiqScores.reduce((a, b) => a + b, 0) / aggregateLiqScores.length)
+        : null;
+
       const thesisBlockers: string[] = Array.isArray(signal.score_breakdown?.thesis_blockers)
         ? signal.score_breakdown.thesis_blockers.map(String)
         : [];
       const tradeBlockers: string[] = Array.isArray(signal.score_breakdown?.trade_blockers)
         ? signal.score_breakdown.trade_blockers.map(String)
         : [];
-      const blockers = [...thesisBlockers, ...tradeBlockers];
 
+      // Future monitoring conditions only. Current blockers are stored separately
+      // on the signal and should not be presented as things that "could" happen.
       const whyItCouldFail = [
-        ...blockers,
         signal.direction === 'bullish'
-          ? 'Price could fail to hold support or broader market conditions could turn against the bullish thesis.'
+          ? `Price could fall through the tactical invalidation level at ${signal.invalidation_level ?? 'the defined support area'} or directional evidence could materially reverse.`
           : signal.direction === 'bearish'
-            ? 'Price could reclaim resistance or broader market conditions could turn against the bearish thesis.'
-            : 'The directional evidence may remain too mixed to produce a durable move.',
+            ? `Price could rise through the tactical invalidation level at ${signal.invalidation_level ?? 'the defined resistance area'} or directional evidence could materially reverse.`
+            : 'Directional evidence could remain too mixed to establish a durable thesis.',
         chosenForRisk
-          ? 'Option value can decline from time decay or volatility contraction even when the underlying moves only modestly.'
-          : 'No contract passed the current selection rules, so execution quality cannot yet be established.',
+          ? 'The selected option can lose value through time decay or volatility contraction even if the underlying moves only modestly in the expected direction.'
+          : 'If the setup later becomes suggestion-eligible, contract-specific execution quality must still be checked before entry.',
       ];
 
       risks.push({
         signal_id: signal.id,
         bull_case: signal.direction === 'bullish'
-          ? `Price holds above the analysis support level and advances toward ${signal.target_price ?? 'the next resistance area'}.`
-          : 'Bullish price expansion would invalidate or weaken the bearish trade structure.',
+          ? `Bullish continuation: price remains above ${signal.invalidation_level ?? 'the tactical invalidation level'} and advances toward the near-term target around ${signal.target_price ?? 'the next resistance area'} while directional evidence remains aligned.`
+          : `Bullish reversal risk: price reclaims ${signal.invalidation_level ?? 'the tactical invalidation level'} and the bearish evidence weakens.`,
         base_case: supported
-          ? `The ${signal.direction} thesis remains valid while price respects the invalidation level and the evidence categories remain aligned.`
-          : 'The evidence remains incomplete or insufficient; no trade should be assumed until the thesis qualifies as supported.',
+          ? `Thesis remains ${thesisState.toLowerCase()}: price stays on the valid side of ${signal.invalidation_level ?? 'the tactical invalidation level'} and meaningful directional evidence does not materially diverge.`
+          : 'Directional evidence is not sufficiently established for a supported thesis; continue monitoring rather than assuming a trade premise.',
         bear_case: signal.direction === 'bearish'
-          ? `Price remains below resistance and declines toward ${signal.target_price ?? 'the next support area'}.`
-          : 'A break below support would weaken or invalidate the bullish trade structure.',
+          ? `Bearish continuation: price remains below ${signal.invalidation_level ?? 'the tactical invalidation level'} and declines toward the near-term target around ${signal.target_price ?? 'the next support area'} while directional evidence remains aligned.`
+          : `Bearish failure case: price breaks below ${signal.invalidation_level ?? 'the tactical invalidation level'} or the bullish directional evidence materially deteriorates.`,
         premium_at_risk: premiumAtRisk,
         break_even: n(chosenForRisk?.break_even),
         theta_per_day: theta === null ? null : theta * 100,
@@ -257,11 +262,13 @@ Deno.serve(async (req) => {
           : iv >= 0.60
             ? 'Elevated implied volatility increases premium and volatility-contraction risk.'
             : 'Implied volatility is not currently flagged as elevated by the TradeCycle threshold.',
-        liquidity_risk: liqScore === null
-          ? 'Contract liquidity has not been established.'
-          : liqScore >= 70
-            ? 'Selected contract liquidity is acceptable under current rules.'
-            : 'Selected contract liquidity is below the preferred threshold; fills and exits may be less efficient.',
+        liquidity_risk: selectedLiqScore !== null
+          ? (selectedLiqScore >= 70
+              ? 'Selected contract liquidity is acceptable under current rules.'
+              : 'Selected contract liquidity is below the preferred threshold; fills and exits may be less efficient.')
+          : aggregateLiqScore !== null
+            ? `No contract is currently selected. The available ${optionType.toLowerCase()} chain has an aggregate liquidity score of ${aggregateLiqScore}/100; contract-specific liquidity must be rechecked if the setup becomes suggestion-eligible.`
+            : 'No eligible contract set is available, so contract-specific liquidity cannot be evaluated.',
         catalyst_risk: blockers.some((x) => x.toLowerCase().includes('earnings'))
           ? 'A scheduled earnings event falls inside the expected holding period.'
           : signal.catalyst_summary
