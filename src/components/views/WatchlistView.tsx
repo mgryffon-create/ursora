@@ -113,7 +113,7 @@ export const WatchlistView: React.FC<{ onOpenThesis: (id: number) => void }> = (
         {!user && (
           <p className="mt-3 text-[12px] text-zinc-500">
             You are viewing the default universe. Sign in to keep your own watchlist, alert thresholds and paper-trading
-            ledger.
+            history.
           </p>
         )}
       </Panel>
@@ -263,7 +263,7 @@ export const WatchlistView: React.FC<{ onOpenThesis: (id: number) => void }> = (
                 onChange={(e) => savePrefs({ auto_paper_trade: e.target.checked })}
                 className="h-3.5 w-3.5 accent-sky-500"
               />
-              Auto-record every qualifying signal in my paper-trading ledger
+              Automatically add every qualifying opportunity to my paper-trading history
             </label>
             {!user && <p className="text-[11px] text-zinc-500">Sign in to save preferences.</p>}
           </div>
