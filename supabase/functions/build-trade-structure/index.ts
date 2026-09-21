@@ -127,6 +127,7 @@ Deno.serve(async (req) => {
     for (const signal of signalRows as AnyRow[]) {
       const thesisState = String(signal.score_breakdown?.thesis_state ?? '');
       const supported = thesisState === 'Supported' || thesisState === 'Strongly Supported';
+      const suggestionEligible = signal.score_breakdown?.suggestion_eligible === true;
       const optionType = String(signal.direction).toLowerCase() === 'bearish' ? 'PUT' : 'CALL';
       const stockPrice = n(signal.stock_price_at_generation);
 
@@ -139,7 +140,7 @@ Deno.serve(async (req) => {
         return dte >= 7 && dte <= 60 && bid !== null && ask !== null && ask >= bid && ask > 0;
       });
 
-      if (supported && pool.length) {
+      if (supported && suggestionEligible && pool.length) {
         for (let rank = 0; rank < profiles.length; rank++) {
           const profile = profiles[rank];
           const chosen = [...pool]
@@ -217,9 +218,13 @@ Deno.serve(async (req) => {
       const theta = n(chosenForRisk?.theta);
       const iv = n(chosenForRisk?.implied_volatility);
       const liqScore = n(chosenForRisk?.liquidity_score);
-      const blockers: string[] = Array.isArray(signal.score_breakdown?.blockers)
-        ? signal.score_breakdown.blockers.map(String)
+      const thesisBlockers: string[] = Array.isArray(signal.score_breakdown?.thesis_blockers)
+        ? signal.score_breakdown.thesis_blockers.map(String)
         : [];
+      const tradeBlockers: string[] = Array.isArray(signal.score_breakdown?.trade_blockers)
+        ? signal.score_breakdown.trade_blockers.map(String)
+        : [];
+      const blockers = [...thesisBlockers, ...tradeBlockers];
 
       const whyItCouldFail = [
         ...blockers,
