@@ -106,21 +106,21 @@ export const CalendarView: React.FC = () => {
     return out;
   }, [monthOffset]);
 
-  if (loading) return <Spinner label="Loading the catalyst calendar" />;
+  if (loading) return <Spinner label="Loading market events" />;
 
   const todayKey = new Date().toISOString().slice(0, 10);
 
   return (
     <div className="space-y-4">
       <SectionHeading
-        eyebrow="Catalyst calendar"
-        title="Dated events that move this universe"
-        description="Earnings, CPI, PPI, jobs reports, FOMC, Fed speeches, investor days, product launches, shareholder meetings, conferences, regulatory and court decisions. Each entry names the watchlist tickers exposed to it."
+        eyebrow="Market events"
+        title="Upcoming events that may affect the market"
+        description="Review earnings, economic reports, central-bank events, company presentations, product announcements, regulatory decisions, and other scheduled events that may affect tracked symbols."
         right={
           <div className="flex flex-wrap items-center gap-2">
             <label className="flex cursor-pointer items-center gap-2 text-[11px] text-zinc-400">
               <input type="checkbox" checked={watchlistOnly} onChange={(e) => setWatchlistOnly(e.target.checked)} className="h-3.5 w-3.5 accent-sky-500" />
-              Watchlist exposure only
+              Watchlist symbols only
             </label>
             <div className="flex overflow-hidden rounded-sm border border-zinc-800">
               {([
