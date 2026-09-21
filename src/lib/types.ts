@@ -1,0 +1,401 @@
+/**
+ * URSORA — shared domain types.
+ * These mirror the database schema exactly; nothing is invented client-side.
+ */
+
+export type Direction = 'bullish' | 'bearish' | 'neutral';
+export type RiskLevel = 'Low' | 'Moderate' | 'High' | 'Extreme';
+export type SourceType =
+  | 'Verified News'
+  | 'Company Source'
+  | 'SEC Filing'
+  | 'Analyst Report'
+  | 'Market Data'
+  | 'Social Sentiment'
+  | 'Unverified Discussion';
+
+export interface Ticker {
+  symbol: string;
+  company: string;
+  sector: string | null;
+  is_default: boolean;
+  priority: number;
+}
+
+export interface Quote {
+  id: number;
+  symbol: string;
+  price: number | null;
+  change_abs: number | null;
+  change_pct: number | null;
+  day_open: number | null;
+  day_high: number | null;
+  day_low: number | null;
+  prev_close: number | null;
+  prev_day_high: number | null;
+  prev_day_low: number | null;
+  premarket_price: number | null;
+  premarket_change_pct: number | null;
+  premarket_high: number | null;
+  premarket_low: number | null;
+  volume: number | null;
+  avg_volume: number | null;
+  rel_volume: number | null;
+  vwap: number | null;
+  sma20: number | null;
+  sma50: number | null;
+  sma200: number | null;
+  support: number | null;
+  resistance: number | null;
+  gap_pct: number | null;
+  atr: number | null;
+  iv: number | null;
+  iv_rank: number | null;
+  iv_percentile: number | null;
+  iv_change: number | null;
+  call_volume: number | null;
+  put_volume: number | null;
+  put_call_ratio: number | null;
+  total_oi: number | null;
+  unusual_options_volume: boolean | null;
+  momentum_score: number | null;
+  trend: string | null;
+  source_name: string | null;
+  source_type: string | null;
+  published_at: string | null;
+  retrieved_at: string;
+  confidence: number | null;
+  is_demo: boolean;
+  as_of: string;
+}
+
+export interface ScoreFactor {
+  factor: string;
+  label: string;
+  raw_score: number;
+  base_weight: number;
+  effective_weight: number;
+  weight_change: number;
+  contribution: number;
+  effect: 'INCREASED' | 'DECREASED' | 'NEUTRAL';
+  explanation: string;
+}
+
+export interface Signal {
+  id: number;
+  run_id: string;
+  symbol: string;
+  trading_day: string;
+  direction: Direction;
+  strategy: string;
+  confidence_score: number;
+  opportunity_score: number;
+  risk_level: RiskLevel;
+  holding_period: string | null;
+  catalyst_summary: string | null;
+  no_trade_reason: string | null;
+  stock_price_at_generation: number | null;
+  suggested_expiration: string | null;
+  suggested_strike: number | null;
+  break_even: number | null;
+  est_premium: number | null;
+  max_defined_loss: number | null;
+  target_price: number | null;
+  invalidation_level: number | null;
+  expected_move_pct: number | null;
+  score_breakdown: { factors?: ScoreFactor[]; raw?: Record<string, number> };
+  weights: {
+    effective?: Record<string, number>;
+    base?: Record<string, number>;
+    decisions?: string[];
+  };
+  regime: string | null;
+  regime_explanation: string | null;
+  engine_version: string;
+  is_demo: boolean;
+  generated_at: string;
+}
+
+export interface ContractCandidate {
+  id: number;
+  signal_id: number;
+  profile: 'Aggressive' | 'Balanced' | 'Conservative';
+  rank: number;
+  symbol: string;
+  option_type: string;
+  strike: number;
+  expiration: string;
+  bid: number | null;
+  ask: number | null;
+  mid: number | null;
+  volume: number | null;
+  open_interest: number | null;
+  implied_volatility: number | null;
+  delta: number | null;
+  gamma: number | null;
+  theta: number | null;
+  vega: number | null;
+  spread_pct: number | null;
+  liquidity_score: number | null;
+  selection_score: number | null;
+  break_even: number | null;
+  est_premium: number | null;
+  max_loss: number | null;
+  target_value: number | null;
+  prob_thesis_pct: number | null;
+  tradeoff: string | null;
+  flags: string[];
+}
+
+export interface RiskAssessment {
+  id: number;
+  signal_id: number;
+  bull_case: string | null;
+  base_case: string | null;
+  bear_case: string | null;
+  premium_at_risk: number | null;
+  break_even: number | null;
+  theta_per_day: number | null;
+  iv_risk: string | null;
+  liquidity_risk: string | null;
+  catalyst_risk: string | null;
+  expected_move_pct: number | null;
+  time_remaining: string | null;
+  invalidation_level: number | null;
+  why_it_could_fail: string[];
+}
+
+export interface NewsItem {
+  id: number;
+  symbol: string | null;
+  headline: string;
+  summary: string | null;
+  category: string | null;
+  url: string | null;
+  source_name: string;
+  source_type: SourceType;
+  sentiment: 'bullish' | 'bearish' | 'neutral' | null;
+  sentiment_score: number | null;
+  impact: 'low' | 'medium' | 'high' | 'critical' | null;
+  recency_weight: number | null;
+  confidence: number | null;
+  published_at: string;
+  retrieved_at: string;
+  is_demo: boolean;
+}
+
+export interface Filing {
+  id: number;
+  symbol: string | null;
+  form_type: string;
+  title: string | null;
+  summary: string | null;
+  url: string | null;
+  source_name: string;
+  source_type: SourceType;
+  filed_at: string;
+  retrieved_at: string;
+  confidence: number | null;
+}
+
+export interface TranscriptStatement {
+  id: number;
+  symbol: string;
+  speaker: string;
+  speaker_role: string | null;
+  event_name: string | null;
+  quote: string;
+  why_it_matters: string | null;
+  market_impact: string | null;
+  source_name: string;
+  source_type: SourceType;
+  source_url: string | null;
+  said_at: string;
+  retrieved_at: string;
+  confidence: number | null;
+}
+
+export interface SentimentReading {
+  id: number;
+  symbol: string;
+  cohort: 'retail' | 'professional';
+  label: string;
+  score: number | null;
+  mention_volume: number | null;
+  sources: string[];
+  note: string | null;
+  source_type: SourceType;
+  as_of: string;
+  retrieved_at: string;
+  confidence: number | null;
+}
+
+export interface MarketSnapshot {
+  id: number;
+  as_of: string;
+  regime: 'Risk-On' | 'Risk-Off' | 'Mixed';
+  regime_note: string | null;
+  spy_price: number | null;
+  spy_change_pct: number | null;
+  spy_trend: string | null;
+  qqq_price: number | null;
+  qqq_change_pct: number | null;
+  qqq_trend: string | null;
+  iwm_price: number | null;
+  iwm_change_pct: number | null;
+  vix: number | null;
+  vix_change_pct: number | null;
+  dxy: number | null;
+  us10y: number | null;
+  us02y: number | null;
+  wti: number | null;
+  gold: number | null;
+  breadth_advancers: number | null;
+  breadth_decliners: number | null;
+  breadth_note: string | null;
+  sector_performance: { sector: string; change_pct: number }[] | null;
+  macro_note: string | null;
+  market_status: string | null;
+  retrieved_at: string;
+  is_demo: boolean;
+}
+
+export interface MarketMover {
+  id: number;
+  symbol: string;
+  company: string | null;
+  kind: 'gainer' | 'loser' | 'rel_volume' | 'unusual_options';
+  value: number | null;
+  detail: string | null;
+  as_of: string;
+  source_name: string | null;
+}
+
+export interface EconomicEvent {
+  id: number;
+  title: string;
+  category: string;
+  event_time: string;
+  impact: 'low' | 'medium' | 'high' | 'critical';
+  affected_symbols: string[];
+  detail: string | null;
+  source_name: string;
+  source_type: SourceType;
+  source_url: string | null;
+  retrieved_at: string;
+}
+
+export interface EarningsEvent {
+  id: number;
+  symbol: string;
+  report_time: string;
+  session: string | null;
+  confirmed: boolean | null;
+  eps_estimate: number | null;
+  revenue_estimate: string | null;
+  expected_move_pct: number | null;
+  source_name: string;
+  source_url: string | null;
+}
+
+export interface SignalUpdate {
+  id: number;
+  symbol: string;
+  signal_id: number | null;
+  prev_direction: string | null;
+  prev_score: number | null;
+  new_direction: string | null;
+  new_score: number | null;
+  reason: string;
+  materiality: string | null;
+  created_at: string;
+}
+
+export interface FeedEvent {
+  id: number;
+  symbol: string | null;
+  category: string;
+  message: string;
+  source_name: string;
+  source_type: SourceType;
+  source_url: string | null;
+  severity: string | null;
+  event_time: string;
+}
+
+
+export interface PaperTrade {
+  id: number;
+  signal_id: number | null;
+  symbol: string;
+  direction: string | null;
+  strategy: string | null;
+  option_type: string | null;
+  strike: number | null;
+  expiration: string | null;
+  confidence_score: number | null;
+  opportunity_score: number | null;
+  risk_level: string | null;
+  regime: string | null;
+  signal_timestamp: string | null;
+  stock_price_at_generation: number | null;
+  contract_price_at_generation: number | null;
+  contracts: number;
+  entry_assumptions: string | null;
+  max_favorable_excursion: number | null;
+  max_adverse_excursion: number | null;
+  closing_price: number | null;
+  result: 'open' | 'win' | 'loss' | 'scratch';
+  return_pct: number | null;
+  closed_at: string | null;
+  created_at: string;
+}
+
+export interface ProviderConfig {
+  id: number;
+  provider_key: string;
+  interface_name: string;
+  display_name: string;
+  adapter: string;
+  mode: 'demo' | 'connected' | 'error';
+  supplies: string[];
+  candidate_providers: string[];
+  secret_env_name: string | null;
+  docs_url: string | null;
+  notes: string | null;
+  last_sync: string | null;
+  last_error: string | null;
+}
+
+export interface AnalysisRun {
+  id: number;
+  run_id: string;
+  kind: string;
+  trading_day: string;
+  signals_generated: number;
+  updates_emitted: number;
+  feed_events: number;
+  regime: string | null;
+  notes: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export interface Bar {
+  bar_time: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface ChatMessage {
+  id: number;
+  thread: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  context_used: Record<string, unknown> | null;
+  symbol: string | null;
+  created_at: string;
+}

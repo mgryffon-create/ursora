@@ -1,0 +1,145 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* URSORA is a dark-only trading terminal: the root palette IS the dark
+     palette, so nothing can flash light on first paint. */
+  :root, .dark {
+    color-scheme: dark;
+
+    --background: 220 16% 5%;
+    --foreground: 220 14% 96%;
+
+    --card: 220 12% 9%;
+    --card-foreground: 220 14% 96%;
+
+    --popover: 220 14% 8%;
+    --popover-foreground: 220 14% 96%;
+
+    --primary: 199 89% 55%;
+    --primary-foreground: 220 20% 6%;
+
+    --secondary: 220 10% 14%;
+    --secondary-foreground: 220 14% 92%;
+
+    --muted: 220 10% 14%;
+    --muted-foreground: 220 8% 62%;
+
+    --accent: 220 10% 16%;
+    --accent-foreground: 220 14% 96%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 220 14% 96%;
+
+    --border: 220 9% 18%;
+    --input: 220 9% 18%;
+    --ring: 199 89% 55%;
+
+    --radius: 0.375rem;
+
+    --sidebar-background: 220 14% 7%;
+    --sidebar-foreground: 220 10% 78%;
+    --sidebar-primary: 199 89% 55%;
+    --sidebar-primary-foreground: 220 20% 6%;
+    --sidebar-accent: 220 10% 14%;
+    --sidebar-accent-foreground: 220 14% 96%;
+    --sidebar-border: 220 9% 16%;
+    --sidebar-ring: 199 89% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    background-color: #0b0d10;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    background-color: #0b0d10;
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Figures line up in columns: tabular numerals everywhere numbers appear. */
+  .font-mono, table, .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  pre, code {
+    @apply font-mono;
+  }
+
+  ::selection {
+    background-color: rgba(56, 189, 248, 0.25);
+  }
+
+  /* Terminal-grade thin scrollbars. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0b0d10;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #272b33;
+    border-radius: 6px;
+    border: 2px solid #0b0d10;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3a404a;
+  }
+
+
+  /* No hanging words. A headline must never strand one word on its last
+     line ("...AFTER YOU LAUNCH / IT"); `balance` evens the line lengths so
+     the last line carries its share, and `pretty` keeps paragraphs and
+     list items from ending on a lone orphan. Progressive enhancement:
+     browsers without text-wrap simply wrap as before. Keep these when
+     restyling headings; never override them with `white-space: nowrap`. */
+  h1, h2, h3, h4, h5, h6, blockquote, figcaption, legend, summary {
+    text-wrap: balance;
+  }
+
+  p, li, dd, dt {
+    text-wrap: pretty;
+  }
+}
+
+.markdown-editor {
+  @apply font-mono text-base leading-relaxed;
+}
+
+.markdown-preview {
+  @apply prose max-w-none prose-blue dark:prose-invert;
+}
+
+.markdown-preview pre {
+  @apply bg-secondary p-4 rounded-md overflow-x-auto;
+}
+
+.markdown-preview code {
+  @apply text-sm font-mono text-primary;
+}
+
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3,
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 {
+  @apply font-sans font-semibold text-foreground;
+}
+
+.markdown-preview ul,
+.markdown-preview ol {
+  @apply my-4 ml-6;
+}

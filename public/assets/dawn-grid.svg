@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" role="img" aria-labelledby="t d">
+<title id="t">Market workstation at dawn</title><desc id="d">Abstract dawn skyline behind a dark analytical grid.</desc>
+<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1e293b"/><stop offset=".55" stop-color="#111827"/><stop offset="1" stop-color="#09090b"/></linearGradient></defs>
+<rect width="1200" height="700" fill="url(#g)"/>
+<circle cx="915" cy="210" r="120" fill="#f59e0b" opacity=".12"/>
+<path d="M0 470L90 430 160 455 260 385 350 430 455 350 525 410 630 330 735 405 820 345 910 395 1010 315 1100 375 1200 330V700H0Z" fill="#0b0d10"/>
+<g stroke="#27272a" opacity=".55"><path d="M0 140h1200M0 280h1200M0 420h1200M0 560h1200"/><path d="M200 0v700M400 0v700M600 0v700M800 0v700M1000 0v700"/></g>
+<polyline points="90,390 230,365 360,380 500,310 640,345 780,280 930,300 1090,235" fill="none" stroke="#38bdf8" stroke-width="5" opacity=".7"/>
+</svg>

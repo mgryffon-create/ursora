@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" role="img" aria-labelledby="t d">
+<title id="t">Evidence network</title><desc id="d">Abstract linked evidence cards and data nodes.</desc>
+<rect width="1200" height="700" fill="#101318"/>
+<g stroke="#334155" stroke-width="3" opacity=".7"><path d="M170 210L420 120 615 300 900 165 1030 430 760 540 430 495 170 210Z"/><path d="M420 120L430 495M615 300L1030 430M170 210L760 540"/></g>
+<g fill="#14171c" stroke="#38bdf8" stroke-width="3"><rect x="105" y="155" width="150" height="110" rx="12"/><rect x="345" y="70" width="150" height="110" rx="12"/><rect x="540" y="245" width="150" height="110" rx="12"/><rect x="825" y="110" width="150" height="110" rx="12"/><rect x="955" y="375" width="150" height="110" rx="12"/><rect x="685" y="485" width="150" height="110" rx="12"/><rect x="355" y="440" width="150" height="110" rx="12"/></g>
+<g fill="#71717a"><rect x="130" y="180" width="90" height="8" rx="4"/><rect x="130" y="203" width="105" height="8" rx="4"/><rect x="370" y="95" width="90" height="8" rx="4"/><rect x="370" y="118" width="105" height="8" rx="4"/><rect x="565" y="270" width="90" height="8" rx="4"/><rect x="565" y="293" width="105" height="8" rx="4"/><rect x="850" y="135" width="90" height="8" rx="4"/><rect x="850" y="158" width="105" height="8" rx="4"/></g>
+</svg>

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-labelledby="t d">
+<title id="t">Abstract market chart background</title><desc id="d">Dark grid with stylized candlesticks and volume bars.</desc>
+<rect width="1600" height="900" fill="#0b0d10"/>
+<g stroke="#27272a" stroke-width="1" opacity=".75">
+<path d="M0 150h1600M0 300h1600M0 450h1600M0 600h1600M0 750h1600"/>
+<path d="M200 0v900M400 0v900M600 0v900M800 0v900M1000 0v900M1200 0v900M1400 0v900"/>
+</g>
+<polyline points="0,610 120,560 220,590 340,490 455,525 590,420 710,445 830,330 950,370 1080,250 1190,310 1330,190 1460,225 1600,145" fill="none" stroke="#38bdf8" stroke-width="5" opacity=".65"/>
+<g opacity=".72"><path d="M110 580v120M90 610h40v52H90zM280 490v145M260 530h40v60h-40zM480 430v150M460 470h40v72h-40zM690 340v165M670 395h40v58h-40zM930 285v145M910 320h40v76h-40zM1170 225v150M1150 260h40v69h-40zM1420 130v150M1400 170h40v65h-40z" fill="#22c55e" stroke="#22c55e"/><path d="M190 520v145M170 552h40v70h-40zM590 390v155M570 430h40v65h-40zM820 315v145M800 350h40v68h-40zM1060 245v155M1040 295h40v60h-40zM1300 175v140M1280 210h40v65h-40z" fill="#ef4444" stroke="#ef4444"/></g>
+<g fill="#18181b" opacity=".9"><rect x="50" y="760" width="45" height="75"/><rect x="120" y="720" width="45" height="115"/><rect x="190" y="745" width="45" height="90"/><rect x="260" y="690" width="45" height="145"/><rect x="330" y="710" width="45" height="125"/><rect x="400" y="660" width="45" height="175"/><rect x="470" y="705" width="45" height="130"/><rect x="540" y="635" width="45" height="200"/><rect x="610" y="675" width="45" height="160"/><rect x="680" y="610" width="45" height="225"/><rect x="750" y="650" width="45" height="185"/><rect x="820" y="590" width="45" height="245"/><rect x="890" y="640" width="45" height="195"/><rect x="960" y="570" width="45" height="265"/></g>
+</svg>

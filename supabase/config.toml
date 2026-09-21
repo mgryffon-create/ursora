@@ -1,0 +1,12 @@
+project_id = "xnwpkoddbdkzrodubtyi"
+
+[functions.run-analysis]
+verify_jwt = false
+[functions.run-backtest]
+verify_jwt = false
+[functions.ai-analyst]
+verify_jwt = false
+[functions.webull-test]
+verify_jwt = false
+[functions.sync-webull-market]
+verify_jwt = false
