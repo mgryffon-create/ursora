@@ -27,7 +27,7 @@ interface AuthContextValue {
   loading: boolean;
   watchlist: string[];
   prefs: UserPrefs;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string, remember?: boolean) => Promise<void>;
   signUp: (email: string, password: string) => Promise<{ needsConfirmation: boolean }>;
   signOut: () => Promise<void>;
   addToWatchlist: (symbol: string) => Promise<void>;
@@ -103,7 +103,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [loadUserData]);
 
-  const signIn = useCallback(async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string, remember = true) => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('ursora_remember_login', remember ? 'true' : 'false');
+    }
     const { error } = await db.auth.signInWithPassword({ email, password });
     if (error) throw new Error(error.message);
   }, []);
