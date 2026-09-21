@@ -20,6 +20,24 @@ function chunks<T>(items: T[], size: number): T[][] {
   return out;
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function withWebullRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      const detail = summarizeWebullError(error);
+      const retryable = /429|rate|thrott|temporar|timeout|5\d\d/i.test(detail.message);
+      if (!retryable || attempt === 3) throw error;
+      await sleep(900 * (2 ** attempt));
+    }
+  }
+  throw lastError;
+}
+
 async function fetchContracts(
   underlying: string,
   underlyingPrice: number,
@@ -29,8 +47,8 @@ async function fetchContracts(
   const all: AnyRow[] = [];
   let paginationKey = '';
 
-  for (let page = 0; page < 4; page++) {
-    const payload = await webullGet<any>('/trading/instruments/options/contracts/list', {
+  for (let page = 0; page < 2; page++) {
+    const payload = await withWebullRetry(() => webullGet<any>('/trading/instruments/options/contracts/list', {
       category: 'US_OPTION',
       underlying_symbols: underlying,
       status: 'LISTING',
@@ -39,7 +57,7 @@ async function fetchContracts(
       strike_price_gte: Math.max(0.5, underlyingPrice * 0.80).toFixed(2),
       strike_price_lte: (underlyingPrice * 1.20).toFixed(2),
       ...(paginationKey ? { pagination_key: paginationKey } : {}),
-    });
+    }));
 
     const rows = Array.isArray(payload?.data) ? payload.data : [];
     all.push(...rows);
@@ -53,10 +71,10 @@ async function fetchContracts(
 async function fetchOptionSnapshots(symbols: string[]): Promise<AnyRow[]> {
   const all: AnyRow[] = [];
   for (const batch of chunks(symbols, 20)) {
-    const payload = await webullGet<any>('/market-data/options/snapshots/list', {
+    const payload = await withWebullRetry(() => webullGet<any>('/market-data/options/snapshots/list', {
       symbols: batch.join(','),
       category: 'US_OPTION',
-    });
+    }));
     const rows = Array.isArray(payload) ? payload
       : Array.isArray(payload?.data) ? payload.data
       : Array.isArray(payload?.result) ? payload.result
@@ -80,11 +98,11 @@ Deno.serve(async (req) => {
       : [];
 
     if (!symbols.length) {
-      const { data, error } = await db.from('tickers').select('symbol').eq('is_default', true).order('priority').limit(12);
+      const { data, error } = await db.from('tickers').select('symbol').eq('is_default', true).order('priority').limit(8);
       if (error) throw error;
       symbols = (data ?? []).map((r: any) => String(r.symbol).toUpperCase()).filter(Boolean);
     }
-    symbols = [...new Set(symbols)].slice(0, 12);
+    symbols = [...new Set(symbols)].slice(0, 8);
 
     const now = new Date().toISOString();
     const results: AnyRow[] = [];
@@ -212,6 +230,9 @@ Deno.serve(async (req) => {
         atm_iv: atmIv,
         unusual_options_volume: unusual,
       });
+
+      // Pace requests between underlyings so one analysis run does not burst the sandbox API.
+      await sleep(450);
     }
 
     await db.from('provider_configs').update({
