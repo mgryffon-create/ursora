@@ -3,7 +3,7 @@ import {
   AlertOctagon, Ban, Clock, Layers, Filter, Loader2, RefreshCw, Search, TrendingUp, X,
 } from 'lucide-react';
 import db from '@/lib/db';
-import { EDGE_FUNCTIONS, callEdge, fetchLatestQuotes, fetchRuns, fetchTickers, fetchTodaySignals, paperTradeSignal, track } from '@/lib/api';
+import { fetchLatestQuotes, fetchRuns, fetchTickers, fetchTodaySignals, paperTradeSignal, runFreshAnalysis, track } from '@/lib/api';
 import type { AnalysisRun, ContractCandidate, Quote, Signal, Ticker } from '@/lib/types';
 import { changeColor, compact, dte, ivPct, money, num, pct, scoreColor, stampET } from '@/lib/format';
 import { useAuth } from '@/contexts/AuthContext';
@@ -109,8 +109,11 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
     setRunning(true);
     setError(null);
     try {
-      const res = await callEdge<{ signals: number; updates: number }>(EDGE_FUNCTIONS.analysis, { kind: 'manual' });
+      const res = await runFreshAnalysis({ kind: 'manual' });
       track('analysis_run', { signals: res.signals ?? 0, updates: res.updates ?? 0 });
+      if (res.warnings.length) {
+        console.warn('URSORA completed analysis with data-refresh warnings:', res.warnings);
+      }
       setCompareIds([]);
       await load();
     } catch (e) {
