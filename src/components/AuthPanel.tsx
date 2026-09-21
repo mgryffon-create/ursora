@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AlertTriangle, ArrowRight, Loader2, Lock, Mail, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -11,12 +11,21 @@ export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' 
 }) => {
   const { signIn, signUp } = useAuth();
   const [mode, setMode] = useState<'signin' | 'signup'>(initialMode);
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => typeof window !== 'undefined' ? (window.localStorage.getItem('ursora_saved_email') ?? '') : '');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (remember && email.trim()) {
+      window.localStorage.setItem('ursora_saved_email', email.trim());
+    } else if (!remember) {
+      window.localStorage.removeItem('ursora_saved_email');
+    }
+  }, [email, remember]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,6 +46,10 @@ export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' 
         }
       } else {
         await signIn(email.trim(), password, remember);
+        if (typeof window !== 'undefined') {
+          if (remember) window.localStorage.setItem('ursora_saved_email', email.trim());
+          else window.localStorage.removeItem('ursora_saved_email');
+        }
         track('form_submit', { form: 'ursora-signin' });
       }
     } catch (err) {
@@ -125,7 +138,7 @@ export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' 
             <span>
               <span className="block text-[12px] text-zinc-300">Remember me</span>
               <span className="mt-0.5 block text-[10px] leading-relaxed text-zinc-600">
-                Keep me signed in on this site after I close the browser.
+                Keep this session active on this site and remember my email for faster sign-in.
               </span>
             </span>
           </label>
