@@ -148,13 +148,13 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
     [closed],
   );
 
-  if (loading) return <Spinner label="Loading your paper-trading ledger" />;
+  if (loading) return <Spinner label="Loading paper trading" />;
 
   if (!user) {
     return (
       <EmptyState
-        title="Sign in to use the paper-trading ledger"
-        body="Paper trades are personal records tied to your account and are readable only by you at the database level, so the ledger is unavailable while signed out."
+        title="Sign in to use paper trading"
+        body="Paper trades are private records associated with your account and are available only when you are signed in."
       />
     );
   }
@@ -165,12 +165,12 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
         eyebrow="Paper trading"
         title="Paper Trading"
         description={tab === 'account'
-          ? 'Your Webull sandbox account, buying power and open paper positions.'
-          : 'Review the performance ledger, closed-trade statistics and signal-level history.'}
+          ? 'View your Webull sandbox balance, available buying power, and open paper positions.'
+          : 'Review closed paper trades, performance statistics, and historical results.'}
         right={tab === 'performance' ? (
           <Button size="sm" variant="outline" className="gap-1.5 border-zinc-700" onClick={recordAll} disabled={busy}>
             <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" />
-            Record tradable signals
+            Record qualifying opportunities
           </Button>
         ) : <DemoBadge />}
       />
@@ -203,20 +203,20 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
       {tab === 'account' && (
         <div className="space-y-4">
       <Panel
-        title="Webull PaperTrade account"
-        subtitle={paperAccount ? `${paperAccount.account.label ?? 'Paper account'} · ${paperAccount.environment}` : 'Live connection to the Webull sandbox paper account.'}
+        title="Webull paper trading account"
+        subtitle={paperAccount ? `${paperAccount.account.label ?? 'Paper account'} · ${paperAccount.environment}` : 'Connected to the Webull sandbox paper-trading account.'}
         right={<DemoBadge />}
       >
         {paperAccount ? (
           <div className="space-y-3">
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-              <Metric label="Net liquidation" value={paperAccount.summary.net_liquidation === null ? null : money(paperAccount.summary.net_liquidation)} />
+              <Metric label="Account value" value={paperAccount.summary.net_liquidation === null ? null : money(paperAccount.summary.net_liquidation)} />
               <Metric label="Cash" value={paperAccount.summary.cash === null ? null : money(paperAccount.summary.cash)} />
               <Metric label="Option buying power" value={paperAccount.summary.option_buying_power === null ? null : money(paperAccount.summary.option_buying_power)} />
-              <Metric label="Day buying power" value={paperAccount.summary.day_buying_power === null ? null : money(paperAccount.summary.day_buying_power)} />
+              <Metric label="Intraday buying power" value={paperAccount.summary.day_buying_power === null ? null : money(paperAccount.summary.day_buying_power)} />
               <Metric label="Overnight buying power" value={paperAccount.summary.overnight_buying_power === null ? null : money(paperAccount.summary.overnight_buying_power)} />
               <Metric label="Market value" value={paperAccount.summary.market_value === null ? null : money(paperAccount.summary.market_value)} />
-              <Metric label="Day P/L" value={paperAccount.summary.day_pl === null ? null : money(paperAccount.summary.day_pl)} valueClass={Number(paperAccount.summary.day_pl) > 0 ? 'text-emerald-300' : Number(paperAccount.summary.day_pl) < 0 ? 'text-red-300' : undefined} />
+              <Metric label="Today's profit/loss" value={paperAccount.summary.day_pl === null ? null : money(paperAccount.summary.day_pl)} valueClass={Number(paperAccount.summary.day_pl) > 0 ? 'text-emerald-300' : Number(paperAccount.summary.day_pl) < 0 ? 'text-red-300' : undefined} />
               <Metric label="Open positions" value={paperAccount.position_count} hint={`day trades: ${paperAccount.summary.day_trades_left ?? '—'}`} />
             </div>
 
@@ -225,7 +225,7 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
                 <table className="w-full min-w-[760px] text-left text-[11px]">
                   <thead className="bg-black/40 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
                     <tr>
-                      {['Symbol', 'Side', 'Qty', 'Avg cost', 'Market', 'Value', 'Unrealized P/L'].map((h) => (
+                      {['Symbol', 'Side', 'Quantity', 'Average cost', 'Market', 'Value', 'Unrealized profit/loss'].map((h) => (
                         <th key={h} className="px-2 py-2">{h}</th>
                       ))}
                     </tr>
@@ -268,11 +268,11 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
       <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-7">
         <Metric label="Closed trades" value={stats.n || null} hint="sample size" />
         <Metric label="Win rate" value={stats.winRate === null ? null : `${stats.winRate.toFixed(1)}%`} valueClass={scoreColor(stats.winRate)} />
-        <Metric label="Average winner" value={stats.avgWin === null ? null : `${stats.avgWin.toFixed(1)}%`} valueClass="text-emerald-300" />
-        <Metric label="Average loser" value={stats.avgLoss === null ? null : `${stats.avgLoss.toFixed(1)}%`} valueClass="text-red-300" />
-        <Metric label="Expectancy" value={stats.expectancy === null ? null : `${stats.expectancy.toFixed(1)}%`} />
-        <Metric label="Profit factor" value={stats.profitFactor === null ? null : stats.profitFactor.toFixed(2)} />
-        <Metric label="Max drawdown" value={stats.maxDd ? `${stats.maxDd.toFixed(1)}%` : null} valueClass="text-red-300" />
+        <Metric label="Average gain" value={stats.avgWin === null ? null : `${stats.avgWin.toFixed(1)}%`} valueClass="text-emerald-300" />
+        <Metric label="Average loss" value={stats.avgLoss === null ? null : `${stats.avgLoss.toFixed(1)}%`} valueClass="text-red-300" />
+        <Metric label="Average return per trade" value={stats.expectancy === null ? null : `${stats.expectancy.toFixed(1)}%`} />
+        <Metric label="Gross gains ÷ gross losses" value={stats.profitFactor === null ? null : stats.profitFactor.toFixed(2)} />
+        <Metric label="Largest decline" value={stats.maxDd ? `${stats.maxDd.toFixed(1)}%` : null} valueClass="text-red-300" />
       </div>
 
       {stats.n < 20 && stats.n > 0 && (
@@ -283,11 +283,11 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
       )}
 
       <div className="grid gap-3 xl:grid-cols-[1.4fr_1fr]">
-        <Panel title="Equity curve and drawdown" subtitle="Cumulative percentage return per closed trade, with running drawdown." right={<DemoBadge />}>
+        <Panel title="Account performance over time" subtitle="Cumulative percentage return per closed trade, with running drawdown." right={<DemoBadge />}>
           <EquityCurve data={stats.curve} />
         </Panel>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-          <Panel title="By confidence bucket">
+          <Panel title="Results by confidence range">
             <ul className="space-y-1.5">
               {groupBy((t) => bucketOf(t.confidence_score)).map((g) => (
                 <li key={g.label} className="flex items-center justify-between gap-2 text-[11px]">
@@ -302,7 +302,7 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
               {!closed.length && <Unavailable />}
             </ul>
           </Panel>
-          <Panel title="By market regime">
+          <Panel title="Results by market environment">
             <ul className="space-y-1.5">
               {groupBy((t) => t.regime ?? 'unspecified').map((g) => (
                 <li key={g.label} className="flex items-center justify-between gap-2 text-[11px]">
@@ -321,7 +321,7 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
       </div>
 
       <div className="grid gap-3 lg:grid-cols-2">
-        <Panel title="By ticker">
+        <Panel title="Results by symbol">
           <ul className="space-y-1.5">
             {groupBy((t) => t.symbol).map((g) => (
               <li key={g.label} className="flex items-center justify-between gap-2 text-[11px]">
@@ -336,7 +336,7 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
             {!closed.length && <Unavailable />}
           </ul>
         </Panel>
-        <Panel title="By strategy">
+        <Panel title="Results by strategy">
           <ul className="space-y-1.5">
             {groupBy((t) => t.strategy ?? 'unspecified').map((g) => (
               <li key={g.label} className="flex items-center justify-between gap-2 text-[11px]">
@@ -354,8 +354,8 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
       </div>
 
       <Panel
-        title={`Ledger — ${trades.length} records (${open.length} open)`}
-        subtitle="Marking a position closed uses a near-the-money proxy off the stored underlying move, because no historical option chain exists in demo mode. The assumption is written into each row."
+        title={`Trade history — ${trades.length} records (${open.length} open)`}
+        subtitle="When a paper position is closed in sandbox mode without historical option-chain data, URSORA estimates the option value from the underlying price move. Estimated results are clearly identified."
         right={<DemoBadge />}
         bodyClassName="p-0"
       >
@@ -363,7 +363,7 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
           <div className="p-4">
             <EmptyState
               title="No paper trades yet"
-              body="Open a thesis and use “Paper trade this signal”, or record every tradable signal from this run with the button above."
+              body="Open a analysis and use “Paper trade this signal”, or record every tradable signal from this run with the button above."
             />
           </div>
         ) : (
@@ -371,8 +371,8 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
             <table className="w-full min-w-[1280px] text-left text-[11px]">
               <thead className="bg-black/50 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
                 <tr>
-                  {['Signal time', 'Symbol', 'Dir', 'Contract', 'Stock @ gen', 'Contract @ gen', 'Conf', 'Opp', 'Regime',
-                    'MFE', 'MAE', 'Close', 'Return', 'Result', 'Assumptions', ''].map((h, i) => (
+                  {['Signal time', 'Symbol', 'Dir', 'Contract', 'Stock at signal', 'Option at signal', 'Confidence', 'Opportunity', 'Market environment',
+                    'Best move', 'Worst move', 'Close', 'Return', 'Result', 'Method', ''].map((h, i) => (
                     <th key={`${h}-${i}`} scope="col" className="whitespace-nowrap px-2 py-2">{h}</th>
                   ))}
                 </tr>
@@ -426,7 +426,7 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
                           onClick={() => onOpenThesis(t.signal_id as number)}
                           className="mr-2 font-mono text-[10px] uppercase tracking-wider text-sky-400 transition-colors hover:text-sky-300"
                         >
-                          thesis
+                          analysis
                         </button>
                       )}
                       {t.result === 'open' && (
@@ -436,7 +436,7 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
                           disabled={busy}
                           className="font-mono text-[10px] uppercase tracking-wider text-amber-400 transition-colors hover:text-amber-300 disabled:opacity-50"
                         >
-                          mark closed
+                          close trade
                         </button>
                       )}
                     </td>
