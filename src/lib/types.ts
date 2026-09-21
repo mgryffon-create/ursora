@@ -112,6 +112,7 @@ export interface Signal {
     available_families?: number;
     total_families?: number;
     agreement_score?: number;
+    blockers?: string[];
   };
   weights: {
     effective?: Record<string, number>;
