@@ -108,11 +108,16 @@ export interface Signal {
     raw?: Record<string, number>;
     thesis_state?: 'Rejected' | 'Unsupported' | 'Preliminary' | 'Supported' | 'Strongly Supported';
     evidence_completeness?: number;
+    directional_completeness?: number;
+    directional_uncertainty?: number;
     evidence_families?: Record<string, boolean>;
     available_families?: number;
     total_families?: number;
     agreement_score?: number;
     blockers?: string[];
+    thesis_blockers?: string[];
+    trade_blockers?: string[];
+    trade_eligible?: boolean;
   };
   weights: {
     effective?: Record<string, number>;
