@@ -44,7 +44,7 @@ const NAV_GROUPS: {
     defaultView: 'opportunities',
     items: [
       { key: 'opportunities', label: 'Opportunities', hint: 'Ranked setups', Icon: ListChecks },
-      { key: 'command', label: 'Command Center', hint: 'Market context', Icon: Radar },
+      { key: 'command', label: 'Market Overview', hint: 'Current market conditions', Icon: Radar },
     ],
   },
   {
@@ -54,8 +54,8 @@ const NAV_GROUPS: {
     defaultView: 'paper',
     items: [
       { key: 'paper', label: 'Paper Trading', hint: 'Account, positions, performance', Icon: LineChart },
-      { key: 'history', label: 'Signal History', hint: 'Append-only signal ledger', Icon: ScrollText },
-      { key: 'backtest', label: 'Backtesting', hint: 'Replay and validation', Icon: FlaskConical },
+      { key: 'history', label: 'Analysis History', hint: 'Past signals and changes', Icon: ScrollText },
+      { key: 'backtest', label: 'Historical Testing', hint: 'Test rules on past data', Icon: FlaskConical },
     ],
   },
   {
@@ -74,8 +74,8 @@ const NAV_GROUPS: {
     defaultView: 'watchlist',
     items: [
       { key: 'watchlist', label: 'Watchlist', hint: 'Your universe', Icon: Star },
-      { key: 'calendar', label: 'Catalyst Calendar', hint: 'Dated market events', Icon: CalendarClock },
-      { key: 'analyst', label: 'AI Analyst', hint: 'Grounded questions', Icon: Bot },
+      { key: 'calendar', label: 'Market Events', hint: 'Upcoming market-moving events', Icon: CalendarClock },
+      { key: 'analyst', label: 'AI Analyst', hint: 'Answers based on URSORA data', Icon: Bot },
       { key: 'feed', label: 'Signal Feed', hint: 'Timestamped events', Icon: Activity },
     ],
   },
@@ -103,7 +103,7 @@ const labelForView = (view: ViewKey) => {
     const item = group.items.find((entry) => entry.key === view);
     if (item) return item.label;
   }
-  return view === 'thesis' ? 'Trade Thesis' : 'URSORA';
+  return view === 'thesis' ? 'Trade Analysis' : 'URSORA';
 };
 
 const StatusBar: React.FC<{ snapshot: MarketSnapshot | null }> = ({ snapshot }) => {
@@ -123,7 +123,7 @@ const StatusBar: React.FC<{ snapshot: MarketSnapshot | null }> = ({ snapshot }) 
         <span className={status.open ? 'text-emerald-400' : 'text-zinc-400'}>{status.label}</span>
       </span>
       <span className="hidden font-mono text-[10px] uppercase tracking-wider text-zinc-500 sm:inline">
-        regime <span className={cn(
+        market environment <span className={cn(
           snapshot?.regime === 'Risk-On' ? 'text-emerald-300' : snapshot?.regime === 'Risk-Off' ? 'text-red-300' : 'text-sky-300',
         )}>{snapshot?.regime ?? 'DATA UNAVAILABLE'}</span>
       </span>
@@ -169,11 +169,10 @@ const FeedPage: React.FC = () => {
   return (
     <div className="space-y-3">
       <div>
-        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-sky-400/80">Signal feed</div>
-        <h2 className="mt-1 text-xl font-semibold tracking-tight text-zinc-100">Timestamped intraday events</h2>
+        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-sky-400/80">Market activity</div>
+        <h2 className="mt-1 text-xl font-semibold tracking-tight text-zinc-100">Recent market and signal activity</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Every item carries a timestamp, a ticker, a category and a source. The feed polls the database every twenty
-          seconds.
+          Each item shows when it occurred, which symbol it relates to, the event type, and the source. The page refreshes automatically while open.
         </p>
       </div>
       <ul className="divide-y divide-zinc-800/70 overflow-hidden rounded-md border border-zinc-800 bg-[#14171c]">
