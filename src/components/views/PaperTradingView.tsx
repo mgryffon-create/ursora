@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, ClipboardList, Lock, Percent, TrendingDown, TrendingUp } from 'lucide-react';
+import { CheckCircle2, ClipboardList, Percent, TrendingDown, TrendingUp } from 'lucide-react';
 import { closePaperTrade, fetchLatestQuotes, fetchPaperTrades, fetchTodaySignals, fetchWebullPaperDashboard, paperTradeSignal, track, type WebullPaperDashboard } from '@/lib/api';
 import type { PaperTrade, Quote, Signal } from '@/lib/types';
 import { money, num, pct, scoreColor, stampET } from '@/lib/format';
@@ -24,6 +24,7 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
   const [error, setError] = useState<string | null>(null);
   const [paperAccount, setPaperAccount] = useState<WebullPaperDashboard | null>(null);
   const [paperAccountError, setPaperAccountError] = useState<string | null>(null);
+  const [tab, setTab] = useState<'account' | 'performance'>('account');
 
   const load = useCallback(async () => {
     try {
@@ -162,24 +163,45 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
     <div className="space-y-4">
       <SectionHeading
         eyebrow="Paper trading"
-        title="Performance ledger"
-        description="Each record stores the signal timestamp, the stock price and contract price at generation, both scores, the entry assumptions, the excursions and the result. Records are appended, never rewritten."
-        right={
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-sm border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-emerald-300">
-              <Lock className="h-3 w-3" aria-hidden="true" />
-              append-only ledger
-            </span>
-            <Button size="sm" variant="outline" className="gap-1.5 border-zinc-700" onClick={recordAll} disabled={busy}>
-              <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" />
-              Record all tradable signals
-            </Button>
-          </div>
-        }
+        title="Paper Trading"
+        description={tab === 'account'
+          ? 'Your Webull sandbox account, buying power and open paper positions.'
+          : 'Review the performance ledger, closed-trade statistics and signal-level history.'}
+        right={tab === 'performance' ? (
+          <Button size="sm" variant="outline" className="gap-1.5 border-zinc-700" onClick={recordAll} disabled={busy}>
+            <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" />
+            Record tradable signals
+          </Button>
+        ) : <DemoBadge />}
       />
+
+      <div className="inline-flex rounded-md border border-zinc-800 bg-[#111419] p-1">
+        <button
+          type="button"
+          onClick={() => setTab('account')}
+          className={cn(
+            'rounded-sm px-3 py-1.5 text-[11px] font-medium transition-colors',
+            tab === 'account' ? 'bg-sky-500/15 text-sky-200' : 'text-zinc-500 hover:text-zinc-300',
+          )}
+        >
+          Account & Positions
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('performance')}
+          className={cn(
+            'rounded-sm px-3 py-1.5 text-[11px] font-medium transition-colors',
+            tab === 'performance' ? 'bg-sky-500/15 text-sky-200' : 'text-zinc-500 hover:text-zinc-300',
+          )}
+        >
+          Performance
+        </button>
+      </div>
 
       {error && <div className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-[12px] text-red-200">{error}</div>}
 
+      {tab === 'account' && (
+        <div className="space-y-4">
       <Panel
         title="Webull PaperTrade account"
         subtitle={paperAccount ? `${paperAccount.account.label ?? 'Paper account'} · ${paperAccount.environment}` : 'Live connection to the Webull sandbox paper account.'}
@@ -238,6 +260,11 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
         )}
       </Panel>
 
+        </div>
+      )}
+
+      {tab === 'performance' && (
+        <div className="space-y-4">
       <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-7">
         <Metric label="Closed trades" value={stats.n || null} hint="sample size" />
         <Metric label="Win rate" value={stats.winRate === null ? null : `${stats.winRate.toFixed(1)}%`} valueClass={scoreColor(stats.winRate)} />
@@ -421,7 +448,10 @@ export const PaperTradingView: React.FC<{ onOpenThesis: (id: number) => void }> 
         )}
       </Panel>
 
-      <Disclaimer />
+        </div>
+      )}
+
+      {tab === 'performance' && <Disclaimer />}
     </div>
   );
 };
