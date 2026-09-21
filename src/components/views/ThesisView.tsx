@@ -270,7 +270,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         <TabsContent value="score" className="mt-3 space-y-3">
           <Panel
             title="Opportunity score rationale"
-            subtitle="An interpretation of the evidence included in this run, its relative importance, and its directional effect. The score summarizes available evidence; it is not a probability of profit."
+            subtitle="An interpretation of the evidence included in this run, its relative importance, and whether it affects thesis direction or trade quality. The score summarizes available evidence; it is not a probability of profit."
             right={<DemoBadge />}
           >
             <div className="space-y-3">
@@ -337,20 +337,43 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               {factors.map((f) => {
                 const importance = Math.round(f.effective_weight * 100);
                 const raw = Number(f.raw_score);
-                const effectText =
-                  f.effect === 'INCREASED'
+                const isTradeQuality = f.factor === 'liquidity' || f.factor === 'risk_reward';
+
+                const effectText = isTradeQuality
+                  ? f.effect === 'INCREASED'
+                    ? 'Favorable trade quality'
+                    : f.effect === 'DECREASED'
+                      ? 'Unfavorable trade quality'
+                      : raw > 0
+                        ? 'Limited trade-quality contribution'
+                        : 'No usable trade-quality evidence'
+                  : f.effect === 'INCREASED'
                     ? 'Meaningful supporting evidence'
                     : f.effect === 'DECREASED'
                       ? 'Meaningful opposing evidence'
                       : raw > 0
                         ? 'Directional signal is present, but not strong enough to confirm the analysis'
                         : 'No meaningful directional evidence';
+
                 const strength =
-                  raw >= 80 ? 'Very strong'
+                  raw >= 85 ? 'Very strong'
                     : raw >= 65 ? 'Strong'
                       : raw >= 45 ? 'Moderate'
                         : raw >= 25 ? 'Weak'
                           : 'Insufficient';
+
+                const effectLabel = isTradeQuality ? 'Trade-quality effect' : 'Directional effect';
+                const effectValue = isTradeQuality
+                  ? f.effect === 'INCREASED'
+                    ? 'Improves trade quality'
+                    : f.effect === 'DECREASED'
+                      ? 'Reduces trade quality'
+                      : 'No material effect'
+                  : f.effect === 'INCREASED'
+                    ? 'Supports thesis'
+                    : f.effect === 'DECREASED'
+                      ? 'Opposes thesis'
+                      : 'Not confirmatory';
 
                 return (
                   <div key={f.factor} className="rounded-md border border-zinc-800 bg-black/20 p-3">
@@ -375,7 +398,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
 
                     <div className="mt-3 grid gap-2 sm:grid-cols-3">
                       <div className="rounded-sm border border-zinc-800 bg-[#111419] p-2.5">
-                        <div className="text-[10px] uppercase tracking-wider text-zinc-500">Evidence strength</div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500">{isTradeQuality ? 'Trade quality score' : 'Evidence strength'}</div>
                         <div className={cn('mt-1 text-sm font-semibold', scoreColor(raw))}>{strength} · {num(raw, 0)}/100</div>
                       </div>
                       <div className="rounded-sm border border-zinc-800 bg-[#111419] p-2.5">
@@ -383,9 +406,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                         <div className="mt-1 text-sm font-semibold text-zinc-200">{importance}% of this score</div>
                       </div>
                       <div className="rounded-sm border border-zinc-800 bg-[#111419] p-2.5">
-                        <div className="text-[10px] uppercase tracking-wider text-zinc-500">Directional effect</div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500">{effectLabel}</div>
                         <div className="mt-1 text-sm font-semibold text-zinc-200">
-                          {f.effect === 'INCREASED' ? 'Supports' : f.effect === 'DECREASED' ? 'Opposes' : 'Not confirmatory'}
+                          {effectValue}
                         </div>
                       </div>
                     </div>
