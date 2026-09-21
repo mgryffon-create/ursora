@@ -84,15 +84,38 @@ Deno.serve(async (req) => {
     symbols = [...new Set(symbols)].slice(0, 25);
     if (!symbols.length) return json({ success: false, error: 'No symbols configured.' }, 400);
 
-    const payload = await webullPost('/market-data/stocks/bars/list', {
-      symbols,
-      category: 'US_STOCK',
-      timespan: 'D',
-      count: 260,
-      real_time_required: false,
-    });
+    // Webull can reject large historical batches or transiently throttle them.
+    // Keep requests small and retry throttled/transient failures with bounded backoff.
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const requestHistory = async (batch: string[]) => {
+      let lastError: unknown = null;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          return await webullPost('/market-data/stocks/bars/list', {
+            symbols: batch,
+            category: 'US_STOCK',
+            timespan: 'D',
+            count: 260,
+            real_time_required: false,
+          });
+        } catch (error) {
+          lastError = error;
+          const detail = summarizeWebullError(error);
+          const retryable = /429|rate|thrott|temporar|timeout|5\d\d/i.test(detail.message);
+          if (!retryable || attempt === 3) throw error;
+          await sleep(700 * (2 ** attempt));
+        }
+      }
+      throw lastError;
+    };
 
-    const groups = normalizePayload(payload);
+    const groups: { symbol: string; result: AnyRow[] }[] = [];
+    for (let i = 0; i < symbols.length; i += 5) {
+      const batch = symbols.slice(i, i + 5);
+      const payload = await requestHistory(batch);
+      groups.push(...normalizePayload(payload));
+      if (i + 5 < symbols.length) await sleep(350);
+    }
     const now = new Date().toISOString();
     let barsWritten = 0;
     const updated: string[] = [];
