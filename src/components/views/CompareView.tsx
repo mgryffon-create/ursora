@@ -243,7 +243,7 @@ export const CompareView: React.FC<{
 
       {/* THE WRITTEN NOTE */}
       <Panel
-        title="What actually different"
+        title="What actually differs"
         subtitle="Derived from the stored records, not restated from the scores. Each line names the specific piece of evidence that separates these setups — or says plainly that a section does not separate them."
         right={<DemoBadge />}
         className="border-sky-500/30"
@@ -389,41 +389,50 @@ export const CompareView: React.FC<{
                       )}
                     </div>
                   </div>
-                  {f.raw.map((raw, i) => (
-                    <div key={i} className="border-r border-zinc-800/40 px-2.5 py-2 last:border-r-0">
-                      {raw === null ? (
-                        <Unavailable />
-                      ) : (
-                        <>
-                          <div className="flex items-baseline gap-2">
-                            <span className={cn('font-mono text-[13px] font-semibold tabular-nums', scoreColor(raw))}>
-                              {Math.round(raw)}
-                            </span>
-                            {f.strongestIndex === i && (
-                              <span className="font-mono text-[9px] uppercase tracking-wide text-emerald-400/80">higher</span>
-                            )}
-                            {f.worstIndex === i && (
-                              <span className="font-mono text-[9px] uppercase tracking-wide text-amber-400/80">lower</span>
-                            )}
-                          </div>
-                          <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-zinc-800">
-                            <div
-                              className={cn(
-                                'h-full rounded-full transition-all duration-700',
-                                raw >= 75 ? 'bg-emerald-500' : raw >= 60 ? 'bg-sky-500' : raw >= 45 ? 'bg-amber-500' : 'bg-red-500',
+                  {f.raw.map((raw, i) => {
+                    const signed = f.signed[i];
+                    const display = f.tradeQuality ? signed : raw;
+                    const barValue = f.tradeQuality
+                      ? Math.max(0, Math.min(100, ((display ?? 0) + 100) / 2))
+                      : Math.max(0, Math.min(100, display ?? 0));
+                    return (
+                      <div key={i} className="border-r border-zinc-800/40 px-2.5 py-2 last:border-r-0">
+                        {display === null ? (
+                          <Unavailable />
+                        ) : (
+                          <>
+                            <div className="flex items-baseline gap-2">
+                              <span className={cn('font-mono text-[13px] font-semibold tabular-nums', scoreColor(barValue))}>
+                                {f.tradeQuality ? `${display > 0 ? '+' : ''}${Math.round(display)}` : Math.round(display)}
+                              </span>
+                              {f.strongestIndex === i && (
+                                <span className="font-mono text-[9px] uppercase tracking-wide text-emerald-400/80">higher</span>
                               )}
-                              style={{ width: `${Math.max(0, Math.min(100, raw))}%` }}
-                            />
-                          </div>
-                          <div className="mt-1 font-mono text-[9px] text-zinc-500">
-                            weight {((f.weight[i] ?? 0) * 100).toFixed(1)}% · contributes {Math.round(f.contribution[i] ?? 0)}
-                            {f.effect[i] ? ` · ${String(f.effect[i]).toLowerCase()}` : ''}
-                          </div>
-                          <p className="mt-1 text-[10.5px] leading-snug text-zinc-500">{f.explanation[i] ?? ''}</p>
-                        </>
-                      )}
-                    </div>
-                  ))}
+                              {f.worstIndex === i && (
+                                <span className="font-mono text-[9px] uppercase tracking-wide text-amber-400/80">lower</span>
+                              )}
+                            </div>
+                            <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-zinc-800">
+                              <div
+                                className={cn(
+                                  'h-full rounded-full transition-all duration-700',
+                                  barValue >= 75 ? 'bg-emerald-500' : barValue >= 60 ? 'bg-sky-500' : barValue >= 45 ? 'bg-amber-500' : 'bg-red-500',
+                                )}
+                                style={{ width: `${barValue}%` }}
+                              />
+                            </div>
+                            <div className="mt-1 font-mono text-[9px] text-zinc-500">
+                              weight {((f.weight[i] ?? 0) * 100).toFixed(1)}% · contributes {Math.round(f.contribution[i] ?? 0)}
+                              {f.tradeQuality
+                                ? (display > 0 ? ' · improves trade quality' : display < 0 ? ' · reduces trade quality' : ' · neutral trade quality')
+                                : (f.effect[i] ? ` · ${String(f.effect[i]).toLowerCase()}` : '')}
+                            </div>
+                            <p className="mt-1 text-[10.5px] leading-snug text-zinc-500">{f.explanation[i] ?? ''}</p>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
@@ -462,7 +471,7 @@ export const CompareView: React.FC<{
           {/* CONTRACTS */}
           <SectionBar
             title="Contract candidates"
-            note="One risk profile at a time, so the chain rows stay comparable. Switch the profile to see whether the ranking between these setups survives it."
+            note="Contracts appear only after a setup clears suggestion eligibility. Empty rows can therefore mean the thesis or trade constraints did not clear the gate, not that options data is unavailable."
             Icon={Layers}
             right={
               <div className="flex items-center gap-1 rounded-sm border border-zinc-800 bg-black/40 p-0.5" role="group" aria-label="Contract risk profile">
@@ -484,6 +493,15 @@ export const CompareView: React.FC<{
             }
           />
           {show(chain).map((r) => <DiffRow key={r.key} row={r} n={n} />)}
+          <TextBlockRow
+            label="Suggestion status"
+            n={n}
+            cells={columns.map((c) =>
+              c.signal.score_breakdown?.suggestion_eligible === true
+                ? 'Eligible for proactive suggestion'
+                : (c.signal.no_trade_reason ?? 'Not suggestion-eligible')
+            )}
+          />
           <TextBlockRow
             label="Flags on this contract"
             n={n}
@@ -589,8 +607,24 @@ export const CompareView: React.FC<{
               </ul>
             ))}
           />
+          {columns.some((c) => (c.signal.score_breakdown?.trade_blockers ?? []).length > 0) && (
+            <TextBlockRow
+              label="Current trade constraints"
+              n={n}
+              cells={columns.map((c) => {
+                const blockers = c.signal.score_breakdown?.trade_blockers ?? [];
+                return blockers.length ? (
+                  <ul className="space-y-1.5">
+                    {blockers.map((w, i) => <li key={i}>{w}</li>)}
+                  </ul>
+                ) : (
+                  <span className="font-mono text-[10px] uppercase tracking-wide text-zinc-600">none stored</span>
+                );
+              })}
+            />
+          )}
           <TextBlockRow
-            label="Why this trade could fail"
+            label="Future thesis weakening / invalidation conditions"
             n={n}
             tone="red"
             cells={columns.map((c) =>
