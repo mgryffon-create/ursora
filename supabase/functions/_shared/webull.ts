@@ -1,3 +1,5 @@
+import md5 from 'npm:blueimp-md5@2.19.0';
+
 export type WebullEnvironment = 'sandbox' | 'production';
 
 export interface WebullConfig {
@@ -115,6 +117,60 @@ export async function webullGet<T = unknown>(
     throw new WebullApiError(`Webull returned HTTP ${response.status}.`, response.status, body);
   }
   return body as T;
+}
+
+export async function webullPost<T = unknown>(
+  path: string,
+  body: Record<string, unknown>,
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<T> {
+  const config = webullConfig();
+  const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const nonce = crypto.randomUUID().replaceAll('-', '');
+  const queryParams = canonicalQuery(query);
+  const bodyString = JSON.stringify(body);
+
+  const signingPairs: Array<[string, string]> = [
+    ...Array.from(queryParams.entries()),
+    ['host', config.host],
+    ['x-app-key', config.appKey],
+    ['x-signature-algorithm', 'HMAC-SHA1'],
+    ['x-signature-nonce', nonce],
+    ['x-signature-version', '1.0'],
+    ['x-timestamp', timestamp],
+  ].sort(([a], [b]) => a.localeCompare(b));
+
+  const str1 = signingPairs.map(([k, v]) => `${k}=${v}`).join('&');
+  const bodyHash = String(md5(bodyString)).toUpperCase();
+  const signingString = encodeWebull(`${path}&${str1}&${bodyHash}`);
+  const signature = await hmacSha1Base64(config.appSecret, signingString);
+
+  const url = new URL(`https://${config.host}${path}`);
+  for (const [k, v] of queryParams.entries()) url.searchParams.append(k, v);
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'x-app-key': config.appKey,
+      'x-timestamp': timestamp,
+      'x-signature-algorithm': 'HMAC-SHA1',
+      'x-signature-version': '1.0',
+      'x-signature-nonce': nonce,
+      'x-version': 'v3',
+      'x-signature': signature,
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: bodyString,
+  });
+
+  const raw = await response.text();
+  let parsed: unknown = raw;
+  try { parsed = raw ? JSON.parse(raw) : null; } catch { /* keep text */ }
+  if (!response.ok) {
+    throw new WebullApiError(`Webull returned HTTP ${response.status}.`, response.status, parsed);
+  }
+  return parsed as T;
 }
 
 export function summarizeWebullError(error: unknown) {
