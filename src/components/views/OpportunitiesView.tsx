@@ -142,12 +142,12 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
     });
   }, []);
 
-  const meeting criteria = useMemo(() => signals.filter((s) => s.strategy !== 'No Trade'), [signals]);
+  const meetingCriteria = useMemo(() => signals.filter((s) => s.strategy !== 'No Trade'), [signals]);
   const noTrade = useMemo(() => signals.filter((s) => s.strategy === 'No Trade'), [signals]);
 
   const filtered = useMemo(
     () =>
-      meeting criteria.filter((s) => {
+      meetingCriteria.filter((s) => {
         if (direction !== 'any' && s.direction !== direction) return false;
         if (risk !== 'any' && s.risk_level !== risk) return false;
         if (s.opportunity_score < minScore) return false;
@@ -155,7 +155,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
         if (watchlistOnly && !watchlist.includes(s.symbol)) return false;
         return true;
       }),
-    [meeting criteria, direction, risk, minScore, symbolQuery, watchlistOnly, watchlist],
+    [meetingCriteria, direction, risk, minScore, symbolQuery, watchlistOnly, watchlist],
   );
 
   const selected = useMemo(
@@ -220,7 +220,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
           Filters
         </button>
         <span className="font-mono text-[10px] text-zinc-500">
-          {filtered.length} meeting criteria · {noTrade.length} not selected
+          {filtered.length} meetingCriteria · {noTrade.length} not selected
         </span>
         {compareIds.length > 0 && (
           <span className="font-mono text-[10px] text-sky-300">{compareIds.length} selected to compare</span>
