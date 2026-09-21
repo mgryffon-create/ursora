@@ -47,6 +47,11 @@ function n(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function fmtPrice(value: unknown, fallback: string): string {
+  const parsed = n(value);
+  return parsed === null ? fallback : parsed.toFixed(2);
+}
+
 function clamp(value: number, lo = 0, hi = 100) {
   return Math.max(lo, Math.min(hi, value));
 }
@@ -234,9 +239,9 @@ Deno.serve(async (req) => {
       // on the signal and should not be presented as things that "could" happen.
       const whyItCouldFail = [
         signal.direction === 'bullish'
-          ? `Price could fall through the tactical invalidation level at ${signal.invalidation_level ?? 'the defined support area'} or directional evidence could materially reverse.`
+          ? `Price could fall through the tactical invalidation level at ${fmtPrice(signal.invalidation_level, 'the defined support area')} or directional evidence could materially reverse.`
           : signal.direction === 'bearish'
-            ? `Price could rise through the tactical invalidation level at ${signal.invalidation_level ?? 'the defined resistance area'} or directional evidence could materially reverse.`
+            ? `Price could rise through the tactical invalidation level at ${fmtPrice(signal.invalidation_level, 'the defined resistance area')} or directional evidence could materially reverse.`
             : 'Directional evidence could remain too mixed to establish a durable thesis.',
         chosenForRisk
           ? 'The selected option can lose value through time decay or volatility contraction even if the underlying moves only modestly in the expected direction.'
@@ -246,14 +251,14 @@ Deno.serve(async (req) => {
       risks.push({
         signal_id: signal.id,
         bull_case: signal.direction === 'bullish'
-          ? `Bullish continuation: price remains above ${signal.invalidation_level ?? 'the tactical invalidation level'} and advances toward the near-term target around ${signal.target_price ?? 'the next resistance area'} while directional evidence remains aligned.`
-          : `Bullish reversal risk: price reclaims ${signal.invalidation_level ?? 'the tactical invalidation level'} and the bearish evidence weakens.`,
+          ? `Bullish continuation: price remains above ${fmtPrice(signal.invalidation_level, 'the tactical invalidation level')} and advances toward the near-term target around ${fmtPrice(signal.target_price, 'the next resistance area')} while directional evidence remains aligned.`
+          : `Bullish reversal risk: price reclaims ${fmtPrice(signal.invalidation_level, 'the tactical invalidation level')} and the bearish evidence weakens.`,
         base_case: supported
-          ? `Thesis remains ${thesisState.toLowerCase()}: price stays on the valid side of ${signal.invalidation_level ?? 'the tactical invalidation level'} and meaningful directional evidence does not materially diverge.`
+          ? `Thesis remains ${thesisState.toLowerCase()}: price stays on the valid side of ${fmtPrice(signal.invalidation_level, 'the tactical invalidation level')} and meaningful directional evidence does not materially diverge.`
           : 'Directional evidence is not sufficiently established for a supported thesis; continue monitoring rather than assuming a trade premise.',
         bear_case: signal.direction === 'bearish'
-          ? `Bearish continuation: price remains below ${signal.invalidation_level ?? 'the tactical invalidation level'} and declines toward the near-term target around ${signal.target_price ?? 'the next support area'} while directional evidence remains aligned.`
-          : `Bearish failure case: price breaks below ${signal.invalidation_level ?? 'the tactical invalidation level'} or the bullish directional evidence materially deteriorates.`,
+          ? `Bearish continuation: price remains below ${fmtPrice(signal.invalidation_level, 'the tactical invalidation level')} and declines toward the near-term target around ${fmtPrice(signal.target_price, 'the next support area')} while directional evidence remains aligned.`
+          : `Bearish failure case: price breaks below ${fmtPrice(signal.invalidation_level, 'the tactical invalidation level')} or the bullish directional evidence materially deteriorates.`,
         premium_at_risk: premiumAtRisk,
         break_even: n(chosenForRisk?.break_even),
         theta_per_day: theta === null ? null : theta * 100,
