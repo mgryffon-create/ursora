@@ -274,7 +274,9 @@ Deno.serve(async (req) => {
   const preflight = handleOptions(req); if (preflight) return preflight;
   if (req.method !== 'POST') return json({ error: 'POST required' }, 405);
 
+  let stage = 'startup';
   try {
+    stage = 'authenticate user';
     const { db } = await requireUser(req);
     const config = webullConfig();
     const body = await req.json().catch(() => ({}));
@@ -284,6 +286,7 @@ Deno.serve(async (req) => {
       : [];
 
     if (!symbols.length) {
+      stage = 'load ticker list';
       const { data, error } = await db.from('tickers').select('symbol').eq('is_default', true).order('priority').limit(25);
       if (error) throw error;
       symbols = (data ?? []).map((r: any) => r.symbol).filter(Boolean);
@@ -320,6 +323,7 @@ Deno.serve(async (req) => {
     const groups: { symbol: string; result: AnyRow[] }[] = [];
     for (let i = 0; i < symbols.length; i += 5) {
       const batch = symbols.slice(i, i + 5);
+      stage = `request Webull history for ${batch.join(',')}`;
       const payload = await requestHistory(batch);
       groups.push(...normalizePayload(payload));
       if (i + 5 < symbols.length) await sleep(350);
@@ -342,6 +346,7 @@ Deno.serve(async (req) => {
       })).filter((b) => b.bar_time && b.open !== null && b.high !== null && b.low !== null && b.close !== null);
 
       if (rows.length) {
+        stage = `write historical bars for ${group.symbol}`;
         // Historical rows can safely replace the same symbol/timeframe/time key if a unique constraint exists.
         const { error: barError } = await db.from('ohlcv_bars').upsert(rows, {
           onConflict: 'symbol,timeframe,bar_time',
@@ -379,6 +384,7 @@ Deno.serve(async (req) => {
           : 'mixed';
       }
 
+      stage = `load latest quote for ${group.symbol}`;
       const { data: latestQuote } = await db
         .from('quotes')
         .select('id')
@@ -388,6 +394,7 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       if (latestQuote?.id) {
+        stage = `update derived technicals for ${group.symbol}`;
         const { error: quoteError } = await db.from('quotes').update({
           avg_volume: avgVolume,
           rel_volume: avgVolume && latestVolume ? latestVolume / avgVolume : null,
@@ -409,6 +416,7 @@ Deno.serve(async (req) => {
       }
     }
 
+    stage = 'update provider status';
     await db.from('provider_configs').update({
       adapter: 'WebullPaperTradeAdapter',
       mode: 'sandbox',
@@ -443,6 +451,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    return json({ error: message }, 500);
+    return json({ error: `History sync failed at "${stage}": ${message}` }, 500);
   }
 });
