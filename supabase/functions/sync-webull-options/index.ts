@@ -1,6 +1,112 @@
-import { AuthError, requireUser } from '../_shared/auth.ts';
-import { handleOptions, json } from '../_shared/http.ts';
-import { summarizeWebullError, webullConfig, webullGet } from '../_shared/webull.ts';
+import { createClient } from 'npm:@supabase/supabase-js@2';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+function handleOptions(req: Request): Response | null {
+  return req.method === 'OPTIONS' ? new Response('ok', { headers: corsHeaders }) : null;
+}
+
+class AuthError extends Error {
+  status: number;
+  constructor(message: string, status = 401) {
+    super(message);
+    this.name = 'AuthError';
+    this.status = status;
+  }
+}
+
+function adminClient() {
+  const url = Deno.env.get('SUPABASE_URL');
+  const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!url || !key) throw new Error('Supabase runtime credentials are missing.');
+  return createClient(url, key, { auth: { persistSession: false } });
+}
+
+async function requireUser(req: Request) {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) throw new AuthError('Authentication required.', 401);
+  const token = authHeader.slice(7).trim();
+  if (!token) throw new AuthError('Authentication required.', 401);
+
+  const db = adminClient();
+  const { data: { user }, error } = await db.auth.getUser(token);
+  if (error || !user) throw new AuthError('Invalid or expired session.', 401);
+  return { user, db };
+}
+
+function webullConfig() {
+  const appKey = Deno.env.get('WEBULL_APP_KEY');
+  const appSecret = Deno.env.get('WEBULL_APP_SECRET');
+  const environment = (Deno.env.get('WEBULL_ENVIRONMENT') || 'sandbox').toLowerCase();
+  if (!appKey || !appSecret) throw new Error('Webull credentials are missing.');
+  const baseUrl = environment === 'sandbox'
+    ? 'https://api.sandbox.webull.com'
+    : 'https://api.webull.com';
+  return { appKey, appSecret, environment, baseUrl };
+}
+
+function summarizeWebullError(error: unknown) {
+  return { message: error instanceof Error ? error.message : String(error) };
+}
+
+async function signWebullRequest(method: string, path: string, query: URLSearchParams, bodyText: string) {
+  const { appKey, appSecret } = webullConfig();
+  const timestamp = new Date().toISOString();
+  const canonicalQuery = [...query.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join('&');
+  const canonical = [method.toUpperCase(), path, canonicalQuery, appKey, timestamp, bodyText].join('\n');
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(appSecret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const bytes = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(canonical));
+  const signature = Array.from(new Uint8Array(bytes)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return { 'X-App-Key': appKey, 'X-Timestamp': timestamp, 'X-Signature': signature };
+}
+
+async function webullGet<T = unknown>(path: string, params: Record<string, string | number | boolean> = {}): Promise<T> {
+  const config = webullConfig();
+  const query = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) query.set(k, String(v));
+  const headers = await signWebullRequest('GET', path, query, '');
+  const url = `${config.baseUrl}${path}${query.toString() ? `?${query.toString()}` : ''}`;
+  const res = await fetch(url, { method: 'GET', headers });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Webull returned HTTP ${res.status}: ${text.slice(0, 500)}`);
+  return text ? JSON.parse(text) as T : {} as T;
+}
+
+async function webullPost<T = unknown>(path: string, body: Record<string, unknown>): Promise<T> {
+  const config = webullConfig();
+  const query = new URLSearchParams();
+  const bodyText = JSON.stringify(body);
+  const headers = await signWebullRequest('POST', path, query, bodyText);
+  const res = await fetch(`${config.baseUrl}${path}`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: bodyText,
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Webull returned HTTP ${res.status}: ${text.slice(0, 500)}`);
+  return text ? JSON.parse(text) as T : {} as T;
+}
 
 type AnyRow = Record<string, any>;
 
