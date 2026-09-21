@@ -146,7 +146,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
     }
   }, [balanced, signal]);
 
-  if (loading) return <Spinner label="Assembling the trade thesis" />;
+  if (loading) return <Spinner label="Preparing the trade analysis" />;
   if (!signal) {
     return <EmptyState title="Signal not found" body="This signal record is not in the store." action={<Button onClick={onBack}>Back to opportunities</Button>} />;
   }
@@ -213,7 +213,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             <div className="flex items-center gap-2">
               <Ban className="h-4 w-4 text-amber-400" aria-hidden="true" />
               <h2 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-300">
-                NO TRADE / WAIT
+                NO TRADE IDENTIFIED
               </h2>
             </div>
             <p className="mt-2 max-w-4xl text-[13px] leading-relaxed text-zinc-300">{signal.no_trade_reason}</p>
@@ -222,14 +222,14 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
 
         <div className="grid gap-2 p-3 sm:grid-cols-3 lg:grid-cols-6">
           <Metric label="Holding period" value={signal.holding_period} mono={false} />
-          <Metric label="Suggested expiration" value={signal.suggested_expiration} hint={dte(signal.suggested_expiration) !== null ? `${dte(signal.suggested_expiration)} days out` : undefined} />
-          <Metric label="Suggested strike" value={num(signal.suggested_strike)} />
+          <Metric label="Expiration" value={signal.suggested_expiration} hint={dte(signal.suggested_expiration) !== null ? `${dte(signal.suggested_expiration)} days out` : undefined} />
+          <Metric label="Strike" value={num(signal.suggested_strike)} />
           <Metric label="Break-even" value={num(signal.break_even)} />
           <Metric label="Target" value={num(signal.target_price)} valueClass="text-emerald-300" />
-          <Metric label="Invalidation" value={num(signal.invalidation_level)} valueClass="text-amber-300" />
+          <Metric label="Trade no longer valid at" value={num(signal.invalidation_level)} valueClass="text-amber-300" />
         </div>
         <div className="border-t border-zinc-800 px-3 py-2 text-[12px] leading-relaxed text-zinc-400">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Catalyst · </span>
+          <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Market-moving event · </span>
           {signal.catalyst_summary ?? <Unavailable />}
         </div>
       </div>
@@ -242,16 +242,16 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
       <Tabs defaultValue="score" className="w-full">
         <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-[#14171c] p-1">
           {[
-            { v: 'score', l: 'Score breakdown', Icon: Gauge },
-            { v: 'market', l: 'Market context', Icon: LineChart },
-            { v: 'price', l: 'Price action', Icon: LineChart },
-            { v: 'options', l: 'Options market', Icon: Layers },
-            { v: 'news', l: 'News & catalysts', Icon: Newspaper },
-            { v: 'exec', l: 'Keynote intelligence', Icon: MessageSquareQuote },
+            { v: 'score', l: 'Score rationale', Icon: Gauge },
+            { v: 'market', l: 'Market conditions', Icon: LineChart },
+            { v: 'price', l: 'Price movement', Icon: LineChart },
+            { v: 'options', l: 'Options data', Icon: Layers },
+            { v: 'news', l: 'News & market events', Icon: Newspaper },
+            { v: 'exec', l: 'Executive statements', Icon: MessageSquareQuote },
             { v: 'sentiment', l: 'Investor sentiment', Icon: Users },
             { v: 'risk', l: 'Risk', Icon: ShieldAlert },
-            { v: 'contracts', l: 'Contract candidates', Icon: ClipboardList },
-            { v: 'history', l: 'Signal history', Icon: CalendarClock },
+            { v: 'contracts', l: 'Option contract candidates', Icon: ClipboardList },
+            { v: 'history', l: 'Analysis history', Icon: CalendarClock },
           ].map(({ v, l, Icon }) => (
             <TabsTrigger key={v} value={v} className="gap-1.5 font-mono text-[10px] uppercase tracking-wider data-[state=active]:bg-sky-500/15 data-[state=active]:text-sky-300">
               <Icon className="h-3 w-3" aria-hidden="true" />
@@ -397,7 +397,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
 
         {/* MARKET CONTEXT */}
         <TabsContent value="market" className="mt-3 space-y-3">
-          <Panel title="Market context" subtitle="The tape this thesis has to survive." right={<DemoBadge />}>
+          <Panel title="Market conditions" subtitle="Broader market conditions that may affect this analysis." right={<DemoBadge />}>
             <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
               <Metric label="Regime" value={snapshot?.regime} mono={false} />
               <Metric label="SPY" value={num(snapshot?.spy_price)} hint={pct(snapshot?.spy_change_pct) ?? undefined} valueClass={changeColor(snapshot?.spy_change_pct)} />
@@ -412,13 +412,13 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             </div>
             <div className="mt-3 grid gap-3 lg:grid-cols-2">
               <div>
-                <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Market breadth</div>
+                <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Market participation</div>
                 <p className="mt-1.5 text-[12px] leading-relaxed text-zinc-400">{snapshot?.breadth_note ?? <Unavailable />}</p>
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <Metric label="Advancers" value={snapshot?.breadth_advancers} valueClass="text-emerald-300" />
                   <Metric label="Decliners" value={snapshot?.breadth_decliners} valueClass="text-red-300" />
                 </div>
-                <div className="mt-3 font-mono text-[10px] uppercase tracking-wider text-zinc-500">Macro environment</div>
+                <div className="mt-3 font-mono text-[10px] uppercase tracking-wider text-zinc-500">Economic environment</div>
                 <p className="mt-1.5 text-[12px] leading-relaxed text-zinc-400">{snapshot?.macro_note ?? <Unavailable />}</p>
               </div>
               <div>
@@ -457,14 +457,14 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
 
         {/* PRICE ACTION */}
         <TabsContent value="price" className="mt-3 space-y-3">
-          <Panel title="Price action with key levels drawn" right={<DemoBadge />}>
+          <Panel title="Price movement with key levels drawn" right={<DemoBadge />}>
             <PriceChart
               bars={bars}
               levels={[
                 { value: quote?.vwap, label: 'VWAP', color: '#38bdf8' },
                 { value: quote?.resistance, label: 'Resistance', color: '#34d399' },
                 { value: quote?.support, label: 'Support', color: '#f87171' },
-                { value: signal.invalidation_level, label: 'Invalidation', color: '#fbbf24', dash: '2 2' },
+                { value: signal.invalidation_level, label: 'Trade no longer valid at', color: '#fbbf24', dash: '2 2' },
                 { value: signal.suggested_strike, label: 'Strike', color: '#a78bfa', dash: '6 3' },
               ]}
             />
@@ -526,7 +526,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
 
         {/* OPTIONS MARKET */}
         <TabsContent value="options" className="mt-3 space-y-3">
-          <Panel title="Options market" right={<DemoBadge />}>
+          <Panel title="Options data" right={<DemoBadge />}>
             <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
               <Metric label="Call volume" value={compact(quote?.call_volume)} />
               <Metric label="Put volume" value={compact(quote?.put_volume)} />
@@ -591,7 +591,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         {/* NEWS */}
         <TabsContent value="news" className="mt-3 space-y-3">
           <Panel
-            title="News & catalysts"
+            title="News & market events"
             subtitle="Newer items carry more weight. The recency weight shown is the multiplier the engine applied to each item this run."
             right={<DemoBadge />}
           >
@@ -674,7 +674,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                     </div>
                     <div className="mt-1.5 grid grid-cols-3 gap-2">
                       <Metric label="EPS estimate" value={num(e.eps_estimate)} />
-                      <Metric label="Expected move" value={pct(e.expected_move_pct)} />
+                      <Metric label="Expected price range" value={pct(e.expected_move_pct)} />
                       <Metric label="Date confirmed" value={e.confirmed ? 'yes' : 'no'} mono={false} />
                     </div>
                     <div className="mt-1 font-mono text-[10px] text-zinc-600">revenue estimate: {e.revenue_estimate ?? 'DATA UNAVAILABLE'}</div>
@@ -699,8 +699,8 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         {/* EXEC INTELLIGENCE */}
         <TabsContent value="exec" className="mt-3">
           <Panel
-            title="Executive / keynote intelligence"
-            subtitle="Potentially market-moving statements extracted from earnings calls, conferences, investor days and keynotes — with the quote, the source, the timestamp and why it matters."
+            title="Executive and company statements"
+            subtitle="Statements from earnings calls, conferences, investor events, and company presentations that may affect the analysis, shown with source and timing information."
             right={<DemoBadge />}
           >
             <ul className="space-y-3">
@@ -726,7 +726,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                     “{t.quote}”
                   </blockquote>
                   <div className="mt-2">
-                    <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Why it matters</div>
+                    <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Relevance to this analysis</div>
                     <p className="mt-1 text-[12px] leading-relaxed text-zinc-400">{t.why_it_matters ?? <Unavailable />}</p>
                   </div>
                   <Provenance
@@ -781,14 +781,14 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             ))}
           </div>
 
-          <Panel title="Quantified risk" right={<DemoBadge />}>
+          <Panel title="Risk measures" right={<DemoBadge />}>
             <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
               <Metric label="Premium at risk" value={money(risk?.premium_at_risk)} valueClass="text-red-300" />
               <Metric label="Break-even" value={num(risk?.break_even)} />
-              <Metric label="Theta per day" value={money(risk?.theta_per_day)} valueClass="text-amber-300" />
-              <Metric label="Expected move" value={pct(risk?.expected_move_pct)} />
+              <Metric label="Estimated daily time decay" value={money(risk?.theta_per_day)} valueClass="text-amber-300" />
+              <Metric label="Expected price range" value={pct(risk?.expected_move_pct)} />
               <Metric label="Time remaining" value={risk?.time_remaining} mono={false} />
-              <Metric label="Invalidation level" value={num(risk?.invalidation_level)} valueClass="text-amber-300" />
+              <Metric label="Trade no longer valid at level" value={num(risk?.invalidation_level)} valueClass="text-amber-300" />
               <Metric label="Max defined loss" value={money(signal.max_defined_loss)} valueClass="text-red-300" />
               <Metric label="Target" value={num(signal.target_price)} valueClass="text-emerald-300" />
             </div>
@@ -807,8 +807,8 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           </Panel>
 
           <Panel
-            title="WHY THIS TRADE COULD FAIL"
-            subtitle="Disconfirming conditions, stored with the signal. These are the specific ways this thesis breaks."
+            title="Conditions that would weaken or invalidate this analysis"
+            subtitle="Specific conditions that would reduce confidence in the analysis or make the trade premise no longer valid."
             className="border-red-500/40"
           >
             <ol className="space-y-2">
@@ -829,7 +829,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         {/* CONTRACTS */}
         <TabsContent value="contracts" className="mt-3 space-y-3">
           <Panel
-            title="Contract candidates"
+            title="Option contract candidates"
             subtitle="Ranked on liquidity, spread, open interest, Greeks, expiry fit, premium, break-even and reach to structure. Illiquid contracts are filtered out before ranking."
             right={<DemoBadge />}
           >
@@ -857,7 +857,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                       )}>
                         {c.profile}
                       </span>
-                      <span className="font-mono text-[10px] text-zinc-500">selection {c.selection_score}/100</span>
+                      <span className="font-mono text-[10px] text-zinc-500">contract score {c.selection_score}/100</span>
                     </div>
                     <div className="mt-2 font-mono text-sm font-semibold text-zinc-100">
                       {c.symbol} {c.strike} {c.option_type.toUpperCase()} · {c.expiration}
@@ -879,7 +879,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                       <Metric label="Premium" value={money(c.est_premium)} />
                       <Metric label="Max loss" value={money(c.max_loss)} valueClass="text-red-300" />
                       <Metric label="Modelled target value" value={money(c.target_value)} valueClass="text-emerald-300" />
-                      <Metric label="Thesis probability" value={c.prob_thesis_pct ? `${num(c.prob_thesis_pct, 0)}%` : null} />
+                      <Metric label="Model confidence" value={c.prob_thesis_pct ? `${num(c.prob_thesis_pct, 0)}%` : null} />
                     </div>
                     {c.flags.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -892,7 +892,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               </div>
             )}
             <p className="mt-3 border-t border-zinc-800 pt-3 text-[11px] leading-relaxed text-zinc-500">
-              Thesis probability is derived from contract delta and the evidence score. It is a modelled estimate of the
+              Model confidence is derived from contract delta and the evidence score. It is a modelled estimate of the
               thesis resolving before expiration — not a probability of profit, and not a guarantee of fill at these
               prices. All chain values are Black-Scholes modelled by the simulation adapter and stored at low confidence.
             </p>
@@ -902,8 +902,8 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         {/* HISTORY */}
         <TabsContent value="history" className="mt-3 space-y-3">
           <Panel
-            title={`Signal history — ${signal.symbol}`}
-            subtitle="Append-only. Historical records are immutable at the database level: a database trigger rejects any update or delete on the signals table."
+            title={`Analysis history — ${signal.symbol}`}
+            subtitle="Historical analyses are preserved so earlier scores and conclusions are not overwritten."
             right={<DemoBadge />}
           >
             <ol className="relative space-y-3 border-l border-zinc-800 pl-4">
@@ -933,7 +933,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             </ol>
           </Panel>
 
-          <Panel title="Signal updates for this ticker" subtitle="Material changes are recorded, never applied silently.">
+          <Panel title="Material changes for this symbol" subtitle="Meaningful changes are recorded as new entries rather than replacing prior analysis.">
             <ul className="space-y-2">
               {updates.map((u) => (
                 <li key={u.id} className="rounded-sm border border-sky-500/30 bg-sky-500/[0.05] p-2.5">
