@@ -73,6 +73,7 @@ export interface ScoreFactor {
   factor: string;
   label: string;
   raw_score: number;
+  signed_score?: number | null;
   base_weight: number;
   effective_weight: number;
   weight_change: number;
