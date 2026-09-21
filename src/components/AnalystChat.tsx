@@ -10,20 +10,20 @@ import { clockET } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 const GENERAL_CHIPS = [
-  'Why is the top-ranked name ranked #1 today?',
-  'Which upcoming catalyst creates the biggest risk?',
-  'What changed in TSLA sentiment today?',
-  "Compare today's NVDA and AMD call setups.",
-  'Which names did the engine flag NO TRADE, and why?',
-  'What is the weakest piece of evidence in the top setup?',
+  'Why is the highest-ranked opportunity first today?',
+  'Which upcoming market event creates the greatest risk?',
+  'What changed in TSLA investor sentiment today?',
+  "Compare today's NVDA and AMD call opportunities.",
+  'Which symbols did URSORA exclude from trading consideration, and why?',
+  'What is the weakest evidence in the highest-ranked opportunity?',
 ];
 
 const THESIS_CHIPS = [
-  'Why shouldn’t I take this trade?',
-  'What evidence would invalidate this thesis?',
-  'What happens to this contract if the stock stays flat for three hours?',
-  'Why is this contract preferred over the aggressive one?',
-  'Which factor moved this score the most?',
+  'What are the strongest reasons not to take this trade?',
+  'What evidence would make this trade analysis no longer valid?',
+  'How would this option likely be affected if the stock remains flat for three hours?',
+  'Why is this contract preferred over the higher-risk alternative?',
+  'Which factor had the greatest effect on this score?',
 ];
 
 export const AnalystChat: React.FC<{
@@ -128,7 +128,7 @@ export const AnalystChat: React.FC<{
           <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-300">
             AI Analyst{symbol ? ` — ${symbol}` : ''}
           </h3>
-          <DemoBadge label="GROUNDED IN STORED DATA" />
+          <DemoBadge label="BASED ON URSORA DATA" />
         </div>
         {messages.length > 0 && (
           <button
@@ -147,9 +147,7 @@ export const AnalystChat: React.FC<{
         {loaded && messages.length === 0 && (
           <div className="rounded-sm border border-zinc-800 bg-black/30 p-3">
             <p className="text-[13px] leading-relaxed text-zinc-400">
-              Ask about any ranked signal, score breakdown, contract candidate, catalyst or risk note. The analyst is
-              restricted to data this platform has actually stored — it cites the rows it used and answers
-              <span className="font-mono text-zinc-300"> DATA UNAVAILABLE</span> rather than guessing.
+              Ask about any opportunity, score rationale, option contract, market event, or risk consideration. The analyst uses only information currently available in URSORA and states when requested information is unavailable.
             </p>
           </div>
         )}
@@ -169,7 +167,7 @@ export const AnalystChat: React.FC<{
                 <span>{clockET(m.created_at)}</span>
                 {m.role === 'assistant' && m.context_used ? (
                   <span className="truncate">
-                    context: {(m.context_used as { tables?: string[] }).tables?.join(', ') ?? 'stored platform data'}
+                    data used: {(m.context_used as { tables?: string[] }).tables?.join(', ') ?? 'stored platform data'}
                   </span>
                 ) : null}
               </div>
@@ -177,7 +175,7 @@ export const AnalystChat: React.FC<{
             {m.role === 'user' && <User className="mt-1 h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden="true" />}
           </div>
         ))}
-        {busy && <Spinner label="Reading stored signals, contracts and news" className="py-3" />}
+        {busy && <Spinner label="Reviewing available URSORA data" className="py-3" />}
         {error && (
           <div className="flex items-start gap-2 rounded-sm border border-red-500/40 bg-red-500/10 p-2 text-[12px] text-red-200">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -221,7 +219,7 @@ export const AnalystChat: React.FC<{
               }
             }}
             rows={2}
-            placeholder={user ? 'Ask about a signal, contract, catalyst or risk…' : 'Sign in to ask the analyst'}
+            placeholder={user ? 'Ask about an opportunity, option contract, market event, or risk…' : 'Sign in to ask the analyst'}
             disabled={!user || busy}
             className="min-h-[46px] flex-1 resize-none rounded-sm border border-zinc-800 bg-black/40 px-2.5 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 focus-visible:border-sky-500/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/40 disabled:opacity-60"
           />
@@ -231,7 +229,7 @@ export const AnalystChat: React.FC<{
           </Button>
         </form>
         <p className="mt-2 text-[10px] leading-snug text-zinc-600">
-          Answers are generated from stored simulated data only. Not investment advice.
+          Answers are based on the data currently available in URSORA. Not investment advice.
         </p>
       </div>
     </div>
