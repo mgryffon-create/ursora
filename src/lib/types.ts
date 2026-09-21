@@ -103,7 +103,16 @@ export interface Signal {
   target_price: number | null;
   invalidation_level: number | null;
   expected_move_pct: number | null;
-  score_breakdown: { factors?: ScoreFactor[]; raw?: Record<string, number> };
+  score_breakdown: {
+    factors?: ScoreFactor[];
+    raw?: Record<string, number>;
+    thesis_state?: 'Rejected' | 'Unsupported' | 'Preliminary' | 'Supported' | 'Strongly Supported';
+    evidence_completeness?: number;
+    evidence_families?: Record<string, boolean>;
+    available_families?: number;
+    total_families?: number;
+    agreement_score?: number;
+  };
   weights: {
     effective?: Record<string, number>;
     base?: Record<string, number>;
