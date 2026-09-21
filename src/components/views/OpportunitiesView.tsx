@@ -67,7 +67,6 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
   const [minScore, setMinScore] = useState(0);
   const [symbolQuery, setSymbolQuery] = useState('');
   const [watchlistOnly, setWatchlistOnly] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
 
   const [compareIds, setCompareIds] = useState<number[]>([]);
   const [comparing, setComparing] = useState(false);
@@ -182,19 +181,25 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
   return (
     <div className="space-y-4">
       <SectionHeading
-        eyebrow="Today"
+        eyebrow="Primary dashboard"
         title="Today's Opportunities"
-        description="A short ranked list of the setups worth examining. Open a thesis when you want the full evidence, contract detail and risk case."
+        description="Ranked by opportunity score. Every row carries its contract line, its risk level and a link to the evidence behind it. Tick two or three rows to put their score breakdowns, contracts, catalysts and risk cases side by side. The engine returns NO TRADE rather than forcing a setup."
         right={
           <div className="flex flex-wrap items-center gap-2">
-            {lastRun && (
-              <span className="hidden font-mono text-[10px] text-zinc-500 lg:inline">
-                Last run {stampET(lastRun.finished_at ?? lastRun.started_at)} · {lastRun.signals_generated} signals
-              </span>
-            )}
+            <div className="rounded-sm border border-zinc-800 bg-black/30 px-2.5 py-1.5 font-mono text-[10px] text-zinc-400">
+              <span className="text-zinc-500">LAST ANALYSIS RUN </span>
+              {lastRun ? (
+                <>
+                  <span className="text-zinc-200">{stampET(lastRun.finished_at ?? lastRun.started_at)}</span>
+                  <span className="text-zinc-500"> · {lastRun.kind} · {lastRun.signals_generated} signals</span>
+                </>
+              ) : (
+                <Unavailable />
+              )}
+            </div>
             <Button size="sm" variant="outline" onClick={runAnalysis} disabled={running} className="gap-1.5 border-zinc-700">
               {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />}
-              {running ? 'Running…' : 'Run analysis'}
+              {running ? 'Running engine…' : 'Run analysis now'}
             </Button>
           </div>
         }
@@ -207,114 +212,117 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2 rounded-md border border-zinc-800 bg-[#111419] px-3 py-2">
-        <button
-          type="button"
-          onClick={() => setShowFilters((value) => !value)}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-sm px-2 py-1 text-[11px] transition-colors',
-            showFilters ? 'bg-sky-500/15 text-sky-200' : 'text-zinc-400 hover:text-zinc-200',
-          )}
-        >
-          <Filter className="h-3.5 w-3.5" aria-hidden="true" />
-          Filters
-        </button>
-        <span className="font-mono text-[10px] text-zinc-500">
-          {filtered.length} tradable · {noTrade.length} no-trade
-        </span>
-        {compareIds.length > 0 && (
-          <span className="font-mono text-[10px] text-sky-300">{compareIds.length} selected to compare</span>
-        )}
-        <span className="ml-auto hidden text-[10px] text-zinc-600 md:inline">Select up to {MAX_COMPARE} rows for side-by-side comparison.</span>
-      </div>
-
-      {showFilters && (
-        <Panel>
-          <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <label htmlFor="flt-dir" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">Direction</label>
-              <select
-                id="flt-dir"
-                value={direction}
-                onChange={(e) => setDirection(e.target.value as (typeof DIRECTIONS)[number])}
-                className="mt-1 rounded-sm border border-zinc-800 bg-black/40 px-2 py-1 text-xs text-zinc-200 focus-visible:border-sky-500/60 focus-visible:outline-none"
-              >
-                {DIRECTIONS.map((d) => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="flt-risk" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">Risk</label>
-              <select
-                id="flt-risk"
-                value={risk}
-                onChange={(e) => setRisk(e.target.value as (typeof RISKS)[number])}
-                className="mt-1 rounded-sm border border-zinc-800 bg-black/40 px-2 py-1 text-xs text-zinc-200 focus-visible:border-sky-500/60 focus-visible:outline-none"
-              >
-                {RISKS.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
-            </div>
-            <div className="min-w-[180px]">
-              <label htmlFor="flt-score" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                Min opportunity: <span className="text-zinc-200">{minScore}</span>
-              </label>
-              <input
-                id="flt-score"
-                type="range"
-                min={0}
-                max={95}
-                step={5}
-                value={minScore}
-                onChange={(e) => setMinScore(Number(e.target.value))}
-                className="mt-2 w-full accent-sky-500"
-              />
-            </div>
-            <div>
-              <label htmlFor="flt-sym" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">Ticker</label>
-              <div className="mt-1 flex items-center gap-1.5 rounded-sm border border-zinc-800 bg-black/40 px-2 focus-within:border-sky-500/60">
-                <Search className="h-3 w-3 text-zinc-500" aria-hidden="true" />
-                <input
-                  id="flt-sym"
-                  value={symbolQuery}
-                  onChange={(e) => setSymbolQuery(e.target.value)}
-                  placeholder="NVDA"
-                  className="w-24 bg-transparent py-1 font-mono text-xs uppercase text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
-                />
-              </div>
-            </div>
-            <label className="flex cursor-pointer items-center gap-2 pb-1 text-[11px] text-zinc-400">
-              <input
-                type="checkbox"
-                checked={watchlistOnly}
-                onChange={(e) => setWatchlistOnly(e.target.checked)}
-                className="h-3.5 w-3.5 accent-sky-500"
-              />
-              Watchlist only
-            </label>
+      {/* FILTER BAR */}
+      <Panel>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+            <Filter className="h-3.5 w-3.5" aria-hidden="true" />
+            filters
           </div>
-        </Panel>
-      )}
+          <div>
+            <label htmlFor="flt-dir" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+              Direction
+            </label>
+            <select
+              id="flt-dir"
+              value={direction}
+              onChange={(e) => setDirection(e.target.value as (typeof DIRECTIONS)[number])}
+              className="mt-1 rounded-sm border border-zinc-800 bg-black/40 px-2 py-1 text-xs text-zinc-200 focus-visible:border-sky-500/60 focus-visible:outline-none"
+            >
+              {DIRECTIONS.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="flt-risk" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+              Risk level
+            </label>
+            <select
+              id="flt-risk"
+              value={risk}
+              onChange={(e) => setRisk(e.target.value as (typeof RISKS)[number])}
+              className="mt-1 rounded-sm border border-zinc-800 bg-black/40 px-2 py-1 text-xs text-zinc-200 focus-visible:border-sky-500/60 focus-visible:outline-none"
+            >
+              {RISKS.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <div className="min-w-[180px]">
+            <label htmlFor="flt-score" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+              Min opportunity score: <span className="text-zinc-200">{minScore}</span>
+            </label>
+            <input
+              id="flt-score"
+              type="range"
+              min={0}
+              max={95}
+              step={5}
+              value={minScore}
+              onChange={(e) => setMinScore(Number(e.target.value))}
+              className="mt-2 w-full accent-sky-500"
+            />
+          </div>
+          <div>
+            <label htmlFor="flt-sym" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+              Ticker
+            </label>
+            <div className="mt-1 flex items-center gap-1.5 rounded-sm border border-zinc-800 bg-black/40 px-2 focus-within:border-sky-500/60">
+              <Search className="h-3 w-3 text-zinc-500" aria-hidden="true" />
+              <input
+                id="flt-sym"
+                value={symbolQuery}
+                onChange={(e) => setSymbolQuery(e.target.value)}
+                placeholder="NVDA"
+                className="w-24 bg-transparent py-1 font-mono text-xs uppercase text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
+              />
+            </div>
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 pb-1 text-[11px] text-zinc-400">
+            <input
+              type="checkbox"
+              checked={watchlistOnly}
+              onChange={(e) => setWatchlistOnly(e.target.checked)}
+              className="h-3.5 w-3.5 accent-sky-500"
+            />
+            My watchlist only
+          </label>
+          <div className="ml-auto pb-1 text-right font-mono text-[10px] text-zinc-500">
+            <div>{filtered.length} of {tradable.length} tradable · {noTrade.length} NO TRADE</div>
+            <div className={cn('mt-0.5', compareIds.length ? 'text-sky-300' : 'text-zinc-600')}>
+              {compareIds.length ? `${compareIds.length} selected for comparison` : `tick up to ${MAX_COMPARE} rows to compare`}
+            </div>
+          </div>
+        </div>
+      </Panel>
 
-      <div className="hidden overflow-hidden rounded-md border border-zinc-800 bg-[#14171c] xl:block">
-        <table className="w-full text-left text-[11px]">
-          <thead className="bg-black/50 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+      {/* DESKTOP TABLE */}
+      <div className="hidden overflow-x-auto rounded-md border border-zinc-800 bg-[#14171c] xl:block">
+        <table className="w-full min-w-[1560px] text-left text-[11px]">
+          <thead className="sticky top-0 bg-black/60 font-mono text-[10px] uppercase tracking-wider text-zinc-500 backdrop-blur">
             <tr>
-              <th scope="col" className="w-9 px-3 py-2"><span className="sr-only">Compare</span><Layers className="h-3.5 w-3.5 text-sky-400" aria-hidden="true" /></th>
-              {['Ticker', 'Price', 'Direction', 'Opportunity', 'Confidence', 'Risk', 'Contract', ''].map((h) => (
-                <th key={h} scope="col" className="whitespace-nowrap px-3 py-2">{h}</th>
+              <th scope="col" className="whitespace-nowrap px-2 py-2">
+                <span className="sr-only">Add to comparison</span>
+                <Layers className="h-3.5 w-3.5 text-sky-400" aria-hidden="true" />
+              </th>
+              {['#', 'Ticker / Company', 'Price', 'Direction', 'Strategy', 'Conf', 'Opp', 'Risk', 'Hold', 'Exp', 'Strike',
+                'Bid', 'Ask', 'Mid', 'Vol', 'OI', 'IV', 'Δ', 'Γ', 'Θ', 'V', 'B/E', 'Premium', 'Max loss', 'Target',
+                'Invalidation', 'Catalyst', ''].map((h, i) => (
+                <th key={`${h}-${i}`} scope="col" className="whitespace-nowrap px-2 py-2">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800/80">
-            {filtered.map((s) => {
+            {filtered.map((s, i) => {
               const c = (candidates[s.id] ?? []).find((x) => x.profile === 'Balanced') ?? (candidates[s.id] ?? [])[0];
               const q = quotes[s.symbol];
               const picked = compareIds.includes(s.id);
-              const contract = s.suggested_expiration && s.suggested_strike
-                ? `${num(s.suggested_strike)} ${s.direction === 'bearish' ? 'PUT' : 'CALL'} · ${s.suggested_expiration}`
-                : c?.contract_symbol ?? null;
               return (
-                <tr key={s.id} className={cn('transition-colors', picked ? 'bg-sky-500/[0.08]' : 'hover:bg-sky-500/[0.04]')}>
-                  <td className="px-3 py-3">
+                <tr
+                  key={s.id}
+                  className={cn(
+                    'group transition-colors',
+                    picked ? 'bg-sky-500/[0.08]' : 'hover:bg-sky-500/[0.04]',
+                  )}
+                >
+                  <td className="px-2 py-2">
                     <CompareToggle
                       symbol={s.symbol}
                       checked={picked}
@@ -322,32 +330,49 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
                       onChange={() => toggleCompare(s.id)}
                     />
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="px-2 py-2 font-mono text-zinc-500">{i + 1}</td>
+                  <td className="whitespace-nowrap px-2 py-2">
                     <div className="font-mono text-[12px] font-semibold text-zinc-100">{s.symbol}</div>
-                    <div className="max-w-[170px] truncate text-[10px] text-zinc-500">{tickers[s.symbol]?.company ?? <Unavailable />}</div>
+                    <div className="max-w-[160px] truncate text-[10px] text-zinc-500">
+                      {tickers[s.symbol]?.company ?? <Unavailable />}
+                    </div>
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="px-2 py-2">
                     <div className="font-mono tabular-nums text-zinc-100">{money(q?.price ?? s.stock_price_at_generation) ?? <Unavailable />}</div>
                     <div className={cn('font-mono text-[10px]', changeColor(q?.change_pct))}>{pct(q?.change_pct) ?? '—'}</div>
                   </td>
-                  <td className="px-3 py-3"><DirectionTag direction={s.direction} /></td>
-                  <td className={cn('px-3 py-3 font-mono text-base font-semibold tabular-nums', scoreColor(s.opportunity_score))}>{s.opportunity_score}</td>
-                  <td className={cn('px-3 py-3 font-mono font-semibold tabular-nums', scoreColor(s.confidence_score))}>{s.confidence_score}</td>
-                  <td className="px-3 py-3"><RiskTag level={s.risk_level} /></td>
-                  <td className="max-w-[260px] px-3 py-3">
-                    {contract ? (
-                      <div>
-                        <div className="font-mono text-[11px] text-zinc-300">{contract}</div>
-                        {(c?.bid || c?.ask) && <div className="mt-0.5 font-mono text-[9px] text-zinc-500">bid {num(c?.bid) ?? '—'} · ask {num(c?.ask) ?? '—'}</div>}
-                      </div>
-                    ) : (
-                      <span className="text-[10px] text-zinc-600">Options data pending</span>
-                    )}
+                  <td className="px-2 py-2"><DirectionTag direction={s.direction} /></td>
+                  <td className="whitespace-nowrap px-2 py-2 text-zinc-300">{s.strategy}</td>
+                  <td className={cn('px-2 py-2 font-mono font-semibold tabular-nums', scoreColor(s.confidence_score))}>{s.confidence_score}</td>
+                  <td className={cn('px-2 py-2 font-mono font-semibold tabular-nums', scoreColor(s.opportunity_score))}>{s.opportunity_score}</td>
+                  <td className="px-2 py-2"><RiskTag level={s.risk_level} /></td>
+                  <td className="max-w-[120px] px-2 py-2 text-[10px] text-zinc-400">{s.holding_period ?? <Unavailable />}</td>
+                  <td className="whitespace-nowrap px-2 py-2 font-mono text-zinc-300">
+                    {s.suggested_expiration ? `${s.suggested_expiration} (${dte(s.suggested_expiration)}d)` : <Unavailable />}
                   </td>
-                  <td className="whitespace-nowrap px-3 py-3 text-right">
+                  <td className="px-2 py-2"><Val value={num(s.suggested_strike)} /></td>
+                  <td className="px-2 py-2"><Val value={num(c?.bid)} className="text-red-300" /></td>
+                  <td className="px-2 py-2"><Val value={num(c?.ask)} className="text-emerald-300" /></td>
+                  <td className="px-2 py-2"><Val value={num(c?.mid)} /></td>
+                  <td className="px-2 py-2"><Val value={compact(c?.volume)} /></td>
+                  <td className="px-2 py-2"><Val value={compact(c?.open_interest)} /></td>
+                  <td className="px-2 py-2"><Val value={ivPct(c?.implied_volatility)} /></td>
+                  <td className="px-2 py-2"><Val value={num(c?.delta, 3)} /></td>
+                  <td className="px-2 py-2"><Val value={num(c?.gamma, 4)} /></td>
+                  <td className="px-2 py-2"><Val value={num(c?.theta, 3)} className="text-amber-300" /></td>
+                  <td className="px-2 py-2"><Val value={num(c?.vega, 3)} /></td>
+                  <td className="px-2 py-2"><Val value={num(s.break_even)} /></td>
+                  <td className="px-2 py-2"><Val value={money(s.est_premium)} /></td>
+                  <td className="px-2 py-2"><Val value={money(s.max_defined_loss)} className="text-red-300" /></td>
+                  <td className="px-2 py-2"><Val value={num(s.target_price)} className="text-emerald-300" /></td>
+                  <td className="px-2 py-2"><Val value={num(s.invalidation_level)} className="text-amber-300" /></td>
+                  <td className="max-w-[260px] px-2 py-2 text-[10px] leading-snug text-zinc-500">
+                    <span className="line-clamp-2">{s.catalyst_summary ?? 'No dated catalyst in store.'}</span>
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-2">
                     <Button size="sm" variant="outline" className="h-7 gap-1 border-zinc-700 text-[10px]" onClick={() => onOpenThesis(s.id)}>
                       <TrendingUp className="h-3 w-3" aria-hidden="true" />
-                      Open thesis
+                      VIEW TRADE THESIS
                     </Button>
                   </td>
                 </tr>
@@ -357,7 +382,10 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
         </table>
         {filtered.length === 0 && (
           <div className="p-4">
-            <EmptyState title="No setup matches these filters" body="Adjust the filters or review the no-trade cases below." />
+            <EmptyState
+              title="No setup matches these filters"
+              body="Loosen the filters, or read the NO TRADE cards below — on a weak tape that is the honest answer rather than a forced setup."
+            />
           </div>
         )}
       </div>
