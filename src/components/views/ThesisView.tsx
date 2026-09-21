@@ -468,9 +468,18 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           </Panel>
 
           <Panel title="Factor weighting rationale" subtitle={"Market environment used for this analysis: " + (signal.regime ?? 'not available')}>
-            <div className="space-y-2">
+            <div
+              className={cn(
+                'grid gap-2',
+                (signal.weights?.decisions?.length ?? 0) >= 5
+                  ? 'grid-cols-1 lg:grid-cols-3'
+                  : (signal.weights?.decisions?.length ?? 0) >= 3
+                    ? 'grid-cols-1 md:grid-cols-2'
+                    : 'grid-cols-1',
+              )}
+            >
               {(signal.weights?.decisions ?? []).map((d, i) => (
-                <div key={i} className="flex gap-2 rounded-sm border border-zinc-800 bg-black/20 p-2.5 text-[12px] leading-relaxed text-zinc-400">
+                <div key={i} className="flex h-full gap-2 rounded-sm border border-zinc-800 bg-black/20 p-2.5 text-[12px] leading-relaxed text-zinc-400">
                   <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-400" aria-hidden="true" />
                   <span>{d}</span>
                 </div>
