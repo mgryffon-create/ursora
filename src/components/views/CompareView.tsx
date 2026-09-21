@@ -31,7 +31,7 @@ const DiffRow: React.FC<{ row: CompareRow; n: number }> = ({ row, n }) => (
   <div
     className={cn(
       'grid border-t border-zinc-800/70 transition-colors',
-      row.agrees ? 'bg-transparent opacity-60 hover:opacity-100' : 'bg-sky-500/[0.03] hover:bg-sky-500/[0.07]',
+      row.same ? 'bg-transparent opacity-60 hover:opacity-100' : 'bg-sky-500/[0.03] hover:bg-sky-500/[0.07]',
     )}
     style={gridTemplate(n)}
     role="row"
@@ -39,15 +39,15 @@ const DiffRow: React.FC<{ row: CompareRow; n: number }> = ({ row, n }) => (
     <div className="flex items-start justify-between gap-1 border-r border-zinc-800/70">
       <RowLabel hint={row.hint}>{row.label}</RowLabel>
       <div className="shrink-0 px-1.5 pt-2">
-        {row.agrees ? (
+        {row.same ? (
           <span className="inline-flex items-center gap-1 font-mono text-[9px] uppercase tracking-wide text-zinc-600">
             <Minus className="h-2.5 w-2.5" aria-hidden="true" />
-            agrees
+            same
           </span>
         ) : row.spread !== null && row.spread > 0 ? (
           <span className="inline-flex items-center gap-1 rounded-sm border border-sky-500/30 bg-sky-500/10 px-1 py-[1px] font-mono text-[9px] uppercase tracking-wide text-sky-300">
             <ArrowLeftRight className="h-2.5 w-2.5" aria-hidden="true" />
-            differs
+            different
           </span>
         ) : null}
       </div>
@@ -60,7 +60,7 @@ const DiffRow: React.FC<{ row: CompareRow; n: number }> = ({ row, n }) => (
           'border-r border-zinc-800/40 px-2.5 py-2 font-mono text-[12px] tabular-nums last:border-r-0',
           cell === null
             ? 'text-zinc-500'
-            : row.bestIndex === i
+            : row.strongestIndex === i
               ? 'font-semibold text-emerald-300'
               : row.worstIndex === i
                 ? 'text-amber-300'
@@ -68,8 +68,8 @@ const DiffRow: React.FC<{ row: CompareRow; n: number }> = ({ row, n }) => (
         )}
       >
         {cell === null ? <Unavailable /> : cell}
-        {row.bestIndex === i && row.spread !== null && row.spread > 0 && (
-          <span className="ml-1.5 font-mono text-[9px] uppercase tracking-wide text-emerald-400/70">best</span>
+        {row.strongestIndex === i && row.spread !== null && row.spread > 0 && (
+          <span className="ml-1.5 font-mono text-[9px] uppercase tracking-wide text-emerald-400/70">strongest</span>
         )}
       </div>
     ))}
@@ -81,10 +81,10 @@ const TextBlockRow: React.FC<{
   n: number;
   cells: React.ReactNode[];
   tone?: 'default' | 'emerald' | 'sky' | 'red';
-  agrees?: boolean;
-}> = ({ label, n, cells, tone = 'default', agrees = false }) => (
+  same?: boolean;
+}> = ({ label, n, cells, tone = 'default', same = false }) => (
   <div
-    className={cn('grid border-t border-zinc-800/70', agrees && 'opacity-70')}
+    className={cn('grid border-t border-zinc-800/70', same && 'opacity-70')}
     style={gridTemplate(n)}
     role="row"
   >
@@ -192,10 +192,10 @@ export const CompareView: React.FC<{
   const risks = useMemo(() => (n >= 2 ? riskRows(columns) : []), [columns, n]);
   const factors = useMemo(() => (n >= 2 ? factorRows(columns) : []), [columns, n]);
 
-  const show = (rows: CompareRow[]) => (diffOnly ? rows.filter((r) => !r.agrees) : rows);
+  const show = (rows: CompareRow[]) => (diffOnly ? rows.filter((r) => !r.same) : rows);
   const differingFactors = useMemo(() => factors.filter((f) => (f.spread ?? 0) > 3 || f.partial).length, [factors]);
 
-  if (loading) return <Spinner label="Loading the columns and aligning the evidence" />;
+  if (loading) return <Spinner label="Preparing the comparison" />;
 
   if (error) {
     return (
@@ -210,7 +210,7 @@ export const CompareView: React.FC<{
     return (
       <EmptyState
         title="Pick two or three signals"
-        body="Comparison needs at least two stored signals. Select them from the board with the compare checkboxes, then open this view."
+        body="Select at least two opportunities to compare their evidence, risk, and contract information side by side."
         action={<Button onClick={onBack}>Back to opportunities</Button>}
       />
     );
@@ -219,9 +219,9 @@ export const CompareView: React.FC<{
   return (
     <div className="space-y-4 animate-fade-in">
       <SectionHeading
-        eyebrow="Side-by-side comparison"
+        eyebrow="Opportunity comparison"
         title={columns.map((c) => c.signal.symbol).join('  vs  ')}
-        description="The same evidence rows for every setup, in aligned columns. Rows that materially differ are lit; rows the setups agree on are dimmed, because they are not what makes the choice."
+        description="The same information is shown for each opportunity so differences in evidence, risk, and contract characteristics are easier to review."
         right={
           <div className="flex flex-wrap items-center gap-2">
             <label className="flex cursor-pointer items-center gap-2 rounded-sm border border-zinc-800 bg-black/30 px-2.5 py-1.5 text-[11px] text-zinc-400 transition-colors hover:border-zinc-700">
@@ -235,7 +235,7 @@ export const CompareView: React.FC<{
             </label>
             <Button size="sm" variant="outline" className="gap-1.5 border-zinc-700" onClick={onBack}>
               <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
-              Back to the board
+              Back to opportunities
             </Button>
           </div>
         }
@@ -243,7 +243,7 @@ export const CompareView: React.FC<{
 
       {/* THE WRITTEN NOTE */}
       <Panel
-        title="What actually differs"
+        title="What actually different"
         subtitle="Derived from the stored records, not restated from the scores. Each line names the specific piece of evidence that separates these setups — or says plainly that a section does not separate them."
         right={<DemoBadge />}
         className="border-sky-500/30"
@@ -349,7 +349,7 @@ export const CompareView: React.FC<{
           {/* HEADLINE */}
           <SectionBar
             title="Headline read"
-            note="The engine's own summary fields, aligned. A row marked agrees is identical on every column."
+            note="The engine's own summary fields, aligned. A row marked same is identical on every column."
             Icon={Sparkles}
           />
           {show(heads).map((r) => <DiffRow key={r.key} row={r} n={n} />)}
@@ -364,20 +364,20 @@ export const CompareView: React.FC<{
           {factors
             .filter((f) => (diffOnly ? (f.spread ?? 0) > 3 || f.partial : true))
             .map((f) => {
-              const agrees = !f.partial && (f.spread ?? 0) <= 3;
+              const same = !f.partial && (f.spread ?? 0) <= 3;
               return (
                 <div
                   key={f.factor}
                   className={cn(
                     'grid border-t border-zinc-800/70 transition-colors',
-                    agrees ? 'opacity-60 hover:opacity-100' : 'bg-sky-500/[0.03] hover:bg-sky-500/[0.07]',
+                    same ? 'opacity-60 hover:opacity-100' : 'bg-sky-500/[0.03] hover:bg-sky-500/[0.07]',
                   )}
                   style={gridTemplate(n)}
                 >
                   <div className="border-r border-zinc-800/70 px-2.5 py-2">
                     <div className="text-[11.5px] font-semibold text-zinc-200">{f.label}</div>
                     <div className="mt-1 font-mono text-[9px] uppercase tracking-wide text-zinc-600">
-                      {agrees ? (
+                      {same ? (
                         <span className="inline-flex items-center gap-1">
                           <Minus className="h-2.5 w-2.5" aria-hidden="true" />
                           within 3 points
@@ -399,7 +399,7 @@ export const CompareView: React.FC<{
                             <span className={cn('font-mono text-[13px] font-semibold tabular-nums', scoreColor(raw))}>
                               {Math.round(raw)}
                             </span>
-                            {f.bestIndex === i && (
+                            {f.strongestIndex === i && (
                               <span className="font-mono text-[9px] uppercase tracking-wide text-emerald-400/80">higher</span>
                             )}
                             {f.worstIndex === i && (
@@ -636,7 +636,7 @@ export const CompareView: React.FC<{
             with the thesis at generation time, under this regime's weights.
           </li>
           <li>
-            Rows marked <span className="font-mono text-zinc-300">agrees</span> are dimmed on purpose. If two setups are
+            Rows marked <span className="font-mono text-zinc-300">same</span> are dimmed on purpose. If two setups are
             separated only by rows nobody would trade on, the comparison has no verdict to give you.
           </li>
           <li>
