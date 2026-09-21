@@ -424,13 +424,13 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
                 <Stat label="Median size" value={signedMoney(baseline.medianPositionSize)?.replace('+', '') ?? '—'} hint={`p90 ${signedMoney(baseline.positionSizeP90)?.replace('+', '') ?? '—'}`} />
                 <Stat label="Median hold" value={minutesLabel(baseline.medianHoldingMinutes) ?? '—'} hint={`W ${minutesLabel(baseline.medianHoldingWinnersMin) ?? '—'} / L ${minutesLabel(baseline.medianHoldingLosersMin) ?? '—'}`} />
                 <Stat label="Win rate" value={baseline.winRate === null ? '—' : `${baseline.winRate}%`} hint={`${baseline.closedSample} closed`} />
-                <Stat label="Expectancy" value={signedMoney(baseline.expectancy) ?? '—'} hint="per closed trade" />
+                <Stat label="Average return per trade" value={signedMoney(baseline.expectancy) ?? '—'} hint="per closed trade" />
                 <Stat label="Payoff ratio" value={baseline.payoffRatio === null ? '—' : multiple(baseline.payoffRatio) ?? '—'} hint={`avg W ${signedMoney(baseline.avgWin) ?? '—'}`} />
-                <Stat label="Max drawdown" value={signedMoney(baseline.maxDrawdown) ?? '—'} tone="text-red-300" />
+                <Stat label="Largest decline" value={signedMoney(baseline.maxDrawdown) ?? '—'} tone="text-red-300" />
                 <Stat label="Median entry score" value={baseline.medianEntryScore?.toFixed(0) ?? 'not recorded'} />
                 <Stat label="Planned share" value={baseline.plannedSharePct === null ? '—' : `${baseline.plannedSharePct}%`} />
-                <Stat label="Avg MFE" value={baseline.avgMfe?.toFixed(1) ?? 'not recorded'} />
-                <Stat label="Avg MAE" value={baseline.avgMae?.toFixed(1) ?? 'not recorded'} />
+                <Stat label="Average best move" value={baseline.avgMfe?.toFixed(1) ?? 'not recorded'} />
+                <Stat label="Average worst move" value={baseline.avgMae?.toFixed(1) ?? 'not recorded'} />
                 <Stat label="Median session P/L" value={signedMoney(baseline.medianSessionPl) ?? '—'} />
               </div>
               <p className="mt-2 font-mono text-[10px] text-zinc-600">
@@ -439,9 +439,9 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
             </Panel>
 
             <div className="grid gap-3 lg:grid-cols-2">
-              <Panel title="By time of day" subtitle="Configurable session windows. Expectancy is per closed trade.">
+              <Panel title="By time of day" subtitle="Results are grouped by time of day. Average return is calculated per closed trade.">
                 <Table
-                  head={['Window', 'Trades', 'Win %', 'Expectancy', 'Avg size']}
+                  head={['Time period', 'Trades', 'Win %', 'Average return', 'Average size']}
                   rows={baseline.byWindow.filter((w) => w.trades > 0).map((w) => [
                     w.label, w.trades, w.winRate === null ? '—' : `${w.winRate}%`,
                     signedMoney(w.expectancy) ?? '—', signedMoney(w.avgSize)?.replace('+', '') ?? '—',
@@ -451,7 +451,7 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
               </Panel>
               <Panel title="By trade origin" subtitle="External signals are never assumed superior. This measures them.">
                 <Table
-                  head={['Origin', 'Trades', 'Win %', 'Expectancy', 'Total P/L']}
+                  head={['Trade source', 'Trades', 'Win %', 'Average return', 'Total profit/loss']}
                   rows={baseline.byOrigin.map((o) => [
                     o.segment, o.trades, o.winRate === null ? '—' : `${o.winRate}%`,
                     signedMoney(o.expectancy) ?? '—', signedMoney(o.totalPl) ?? '—',
@@ -460,33 +460,33 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
               </Panel>
               <Panel title="By strategy and setup">
                 <Table
-                  head={['Setup', 'Trades', 'Win %', 'Expectancy']}
+                  head={['Setup', 'Trades', 'Win %', 'Average return']}
                   rows={baseline.bySetup.slice(0, 8).map((s) => [
                     s.segment, s.trades, s.winRate === null ? '—' : `${s.winRate}%`, signedMoney(s.expectancy) ?? '—',
                   ])}
                 />
               </Panel>
-              <Panel title="By market regime" subtitle="Regime comes from the existing Market Regime engine.">
+              <Panel title="By market environment" subtitle="Results are grouped by the broader market conditions recorded when each trade was opened.">
                 <Table
-                  head={['Regime', 'Trades', 'Win %', 'Expectancy']}
+                  head={['Market environment', 'Trades', 'Win %', 'Average return']}
                   rows={baseline.byRegime.map((s) => [
                     s.segment, s.trades, s.winRate === null ? '—' : `${s.winRate}%`, signedMoney(s.expectancy) ?? '—',
                   ])}
                 />
               </Panel>
               <Panel title="By day of week">
-                <Table head={['Day', 'Trades', 'Win %', 'Expectancy']}
+                <Table head={['Day', 'Trades', 'Win %', 'Average return']}
                   rows={baseline.byDayOfWeek.map((s) => [s.segment, s.trades, s.winRate === null ? '—' : `${s.winRate}%`, signedMoney(s.expectancy) ?? '—'])} />
               </Panel>
               <Panel title="By days to expiration">
-                <Table head={['DTE bucket', 'Trades', 'Win %', 'Expectancy']}
+                <Table head={['Days to expiration', 'Trades', 'Win %', 'Average return']}
                   rows={baseline.byDte.map((s) => [s.segment, s.trades, s.winRate === null ? '—' : `${s.winRate}%`, signedMoney(s.expectancy) ?? '—'])} />
               </Panel>
             </div>
 
             <Panel title="Sequence behaviour" subtitle="What your next trade looks like after a win and after a loss. Phrased as observed behaviour only.">
               <Table
-                head={['Sequence', 'Pairs', 'Median next size', 'Median gap', 'Next expectancy', 'Next win %']}
+                head={['Sequence', 'Trade pairs', 'Typical next size', 'Typical time between trades', 'Next-trade average return', 'Next win %']}
                 rows={[baseline.afterWin, baseline.afterLoss].map((s) => [
                   s.label, s.sample, signedMoney(s.medianNextSize)?.replace('+', '') ?? '—',
                   minutesLabel(s.medianMinutesToNext) ?? '—', signedMoney(s.nextExpectancy) ?? '—',
@@ -524,8 +524,8 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
                 <Stat label="Best window" value={baseline.byWindow.filter((w) => w.trades > 0).sort((a, b) => (b.expectancy ?? -1e9) - (a.expectancy ?? -1e9))[0]?.label ?? 'not recorded'} />
                 <Stat label="Weakest window" value={baseline.byWindow.filter((w) => w.trades > 0).sort((a, b) => (a.expectancy ?? 1e9) - (b.expectancy ?? 1e9))[0]?.label ?? 'not recorded'} />
                 <Stat label="Typical size" value={signedMoney(baseline.medianPositionSize)?.replace('+', '') ?? 'not recorded'} />
-                <Stat label="Best regime" value={baseline.byRegime.slice().sort((a, b) => (b.expectancy ?? -1e9) - (a.expectancy ?? -1e9))[0]?.segment ?? 'not recorded'} />
-                <Stat label="Worst regime" value={baseline.byRegime.slice().sort((a, b) => (a.expectancy ?? 1e9) - (b.expectancy ?? 1e9))[0]?.segment ?? 'not recorded'} />
+                <Stat label="Best market environment" value={baseline.byRegime.slice().sort((a, b) => (b.expectancy ?? -1e9) - (a.expectancy ?? -1e9))[0]?.segment ?? 'not recorded'} />
+                <Stat label="Weakest market environment" value={baseline.byRegime.slice().sort((a, b) => (a.expectancy ?? 1e9) - (b.expectancy ?? 1e9))[0]?.segment ?? 'not recorded'} />
                 <Stat label="Best origin" value={baseline.byOrigin.slice().sort((a, b) => (b.expectancy ?? -1e9) - (a.expectancy ?? -1e9))[0]?.segment ?? 'not recorded'} />
               </div>
               <p className="mt-2 text-[11px] leading-relaxed text-zinc-500" style={{ textWrap: 'pretty' }}>
@@ -689,9 +689,9 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
               </ul>
             </Panel>
 
-            <Panel title="Progress over time" subtitle="Lower frequency is not treated as improvement unless your own expectancy data supports it.">
+            <Panel title="Progress over time" subtitle="Trading less often is not treated as an improvement unless your own results support that conclusion.">
               <Table
-                head={['Window', 'Sessions', 'Trades', 'Expectancy', 'Giveback', 'Unplanned']}
+                head={['Period', 'Sessions', 'Trades', 'Average return', 'Profit given back', 'Unplanned trades']}
                 rows={[30, 90, 180, 365].map((days) => {
                   const cutoff = Date.now() - days * 86400000;
                   const within = sessions.filter((s) => new Date(`${s.sessionDate}T20:00:00Z`).getTime() >= cutoff);
