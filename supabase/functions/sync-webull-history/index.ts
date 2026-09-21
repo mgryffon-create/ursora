@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import md5 from 'npm:blueimp-md5@2.19.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -45,68 +46,161 @@ async function requireUser(req: Request) {
   return { user, db };
 }
 
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+function encodeWebull(value: string): string {
+  return encodeURIComponent(value);
+}
+
+function canonicalQuery(params: Record<string, string | number | boolean | null | undefined>): URLSearchParams {
+  const result = new URLSearchParams();
+  Object.entries(params)
+    .filter(([, v]) => v !== undefined && v !== null)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .forEach(([k, v]) => result.append(k, String(v)));
+  return result;
+}
+
+async function hmacSha1Base64(secret: string, value: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(`${secret}&`),
+    { name: 'HMAC', hash: 'SHA-1' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, enc.encode(value));
+  return bytesToBase64(new Uint8Array(signature));
+}
+
 function webullConfig() {
-  const appKey = Deno.env.get('WEBULL_APP_KEY');
-  const appSecret = Deno.env.get('WEBULL_APP_SECRET');
-  const environment = (Deno.env.get('WEBULL_ENVIRONMENT') || 'sandbox').toLowerCase();
-  if (!appKey || !appSecret) throw new Error('Webull credentials are missing.');
-  const baseUrl = environment === 'sandbox'
-    ? 'https://api.sandbox.webull.com'
-    : 'https://api.webull.com';
-  return { appKey, appSecret, environment, baseUrl };
+  const appKey = Deno.env.get('WEBULL_APP_KEY')?.trim();
+  const appSecret = Deno.env.get('WEBULL_APP_SECRET')?.trim();
+  if (!appKey || !appSecret) {
+    throw new Error('WEBULL_APP_KEY and WEBULL_APP_SECRET must be configured as Supabase Edge Function secrets.');
+  }
+  const environment = (Deno.env.get('WEBULL_ENVIRONMENT')?.trim().toLowerCase() === 'production')
+    ? 'production'
+    : 'sandbox';
+  const host = environment === 'production' ? 'api.webull.com' : 'api.sandbox.webull.com';
+  return { appKey, appSecret, host, environment };
 }
 
 function summarizeWebullError(error: unknown) {
   return { message: error instanceof Error ? error.message : String(error) };
 }
 
-async function signWebullRequest(method: string, path: string, query: URLSearchParams, bodyText: string) {
-  const { appKey, appSecret } = webullConfig();
-  const timestamp = new Date().toISOString();
-  const canonicalQuery = [...query.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-    .join('&');
-  const canonical = [method.toUpperCase(), path, canonicalQuery, appKey, timestamp, bodyText].join('\n');
-
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(appSecret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const bytes = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(canonical));
-  const signature = Array.from(new Uint8Array(bytes)).map((b) => b.toString(16).padStart(2, '0')).join('');
-  return { 'X-App-Key': appKey, 'X-Timestamp': timestamp, 'X-Signature': signature };
-}
-
-async function webullGet<T = unknown>(path: string, params: Record<string, string | number | boolean> = {}): Promise<T> {
+async function webullGet<T = unknown>(
+  path: string,
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<T> {
   const config = webullConfig();
-  const query = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) query.set(k, String(v));
-  const headers = await signWebullRequest('GET', path, query, '');
-  const url = `${config.baseUrl}${path}${query.toString() ? `?${query.toString()}` : ''}`;
-  const res = await fetch(url, { method: 'GET', headers });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`Webull returned HTTP ${res.status}: ${text.slice(0, 500)}`);
-  return text ? JSON.parse(text) as T : {} as T;
-}
+  const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const nonce = crypto.randomUUID().replaceAll('-', '');
+  const queryParams = canonicalQuery(query);
 
-async function webullPost<T = unknown>(path: string, body: Record<string, unknown>): Promise<T> {
-  const config = webullConfig();
-  const query = new URLSearchParams();
-  const bodyText = JSON.stringify(body);
-  const headers = await signWebullRequest('POST', path, query, bodyText);
-  const res = await fetch(`${config.baseUrl}${path}`, {
-    method: 'POST',
-    headers: { ...headers, 'Content-Type': 'application/json' },
-    body: bodyText,
+  const signingPairs: Array<[string, string]> = [
+    ...Array.from(queryParams.entries()),
+    ['host', config.host],
+    ['x-app-key', config.appKey],
+    ['x-signature-algorithm', 'HMAC-SHA1'],
+    ['x-signature-nonce', nonce],
+    ['x-signature-version', '1.0'],
+    ['x-timestamp', timestamp],
+  ].sort(([a], [b]) => a.localeCompare(b));
+
+  const str1 = signingPairs.map(([k, v]) => `${k}=${v}`).join('&');
+  const signingString = encodeWebull(`${path}&${str1}`);
+  const signature = await hmacSha1Base64(config.appSecret, signingString);
+
+  const url = new URL(`https://${config.host}${path}`);
+  for (const [k, v] of queryParams.entries()) url.searchParams.append(k, v);
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'x-app-key': config.appKey,
+      'x-timestamp': timestamp,
+      'x-signature-algorithm': 'HMAC-SHA1',
+      'x-signature-version': '1.0',
+      'x-signature-nonce': nonce,
+      'x-version': 'v3',
+      'x-signature': signature,
+      'Accept': 'application/json',
+    },
   });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`Webull returned HTTP ${res.status}: ${text.slice(0, 500)}`);
-  return text ? JSON.parse(text) as T : {} as T;
+
+  const raw = await response.text();
+  let body: unknown = raw;
+  try { body = raw ? JSON.parse(raw) : null; } catch {}
+  if (!response.ok) {
+    throw new Error(`Webull returned HTTP ${response.status}: ${typeof body === 'string' ? body : JSON.stringify(body)}`);
+  }
+  return body as T;
 }
+
+async function webullPost<T = unknown>(
+  path: string,
+  body: Record<string, unknown>,
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<T> {
+  const config = webullConfig();
+  const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const nonce = crypto.randomUUID().replaceAll('-', '');
+  const queryParams = canonicalQuery(query);
+  const bodyString = JSON.stringify(body);
+
+  const signingPairs: Array<[string, string]> = [
+    ...Array.from(queryParams.entries()),
+    ['host', config.host],
+    ['x-app-key', config.appKey],
+    ['x-signature-algorithm', 'HMAC-SHA1'],
+    ['x-signature-nonce', nonce],
+    ['x-signature-version', '1.0'],
+    ['x-timestamp', timestamp],
+  ].sort(([a], [b]) => a.localeCompare(b));
+
+  const str1 = signingPairs.map(([k, v]) => `${k}=${v}`).join('&');
+  const bodyHash = String(md5(bodyString)).toUpperCase();
+  const signingString = encodeWebull(`${path}&${str1}&${bodyHash}`);
+  const signature = await hmacSha1Base64(config.appSecret, signingString);
+
+  const url = new URL(`https://${config.host}${path}`);
+  for (const [k, v] of queryParams.entries()) url.searchParams.append(k, v);
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'x-app-key': config.appKey,
+      'x-timestamp': timestamp,
+      'x-signature-algorithm': 'HMAC-SHA1',
+      'x-signature-version': '1.0',
+      'x-signature-nonce': nonce,
+      'x-version': 'v3',
+      'x-signature': signature,
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: bodyString,
+  });
+
+  const raw = await response.text();
+  let parsed: unknown = raw;
+  try { parsed = raw ? JSON.parse(raw) : null; } catch {}
+  if (!response.ok) {
+    throw new Error(`Webull returned HTTP ${response.status}: ${typeof parsed === 'string' ? parsed : JSON.stringify(parsed)}`);
+  }
+  return parsed as T;
+}
+
 
 type AnyRow = Record<string, any>;
 
