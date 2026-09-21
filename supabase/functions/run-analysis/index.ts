@@ -847,7 +847,16 @@ Deno.serve(async (req) => {
       const tradeEligible =
         (thesisState === 'Supported' || thesisState === 'Strongly Supported') &&
         tradeBlockers.length === 0;
-      const suggested = tradeEligible ? candidatePool[0] ?? null : null;
+
+      const suggestionEligible =
+        tradeEligible &&
+        agreement !== null &&
+        agreement >= 70 &&
+        independentDirectionalFamilies >= 3 &&
+        directionalCompleteness >= 65 &&
+        directionalUncertainty <= 45;
+
+      const suggested = suggestionEligible ? candidatePool[0] ?? null : null;
 
       const riskLevel =
         eventInsideHoldingWindow ||
@@ -877,7 +886,7 @@ Deno.serve(async (req) => {
         symbol,
         trading_day: new Date().toISOString().slice(0, 10),
         direction,
-        strategy: tradeEligible ? 'directional option' : 'No Trade',
+        strategy: suggestionEligible ? 'directional option' : 'No Trade',
         confidence_score: confidence,
         opportunity_score: opportunity,
         risk_level: riskLevel,
@@ -922,6 +931,7 @@ Deno.serve(async (req) => {
           thesis_blockers: thesisBlockers,
           trade_blockers: tradeBlockers,
           trade_eligible: tradeEligible,
+          suggestion_eligible: suggestionEligible,
         },
         weights: {
           method: 'AHP baseline weighting + reliability discounting + Bayesian thesis update',
@@ -941,6 +951,9 @@ Deno.serve(async (req) => {
             `AHP consistency ratio: ${(ahp.consistency_ratio * 100).toFixed(2)}%.`,
             thesisBlockers.length ? `Thesis constraints: ${thesisBlockers.join(' ')}` : 'No thesis-level directional constraints were identified.',
             tradeBlockers.length ? `Trade constraints: ${tradeBlockers.join(' ')}` : 'No hard trade constraints were identified from the data currently available.',
+            suggestionEligible
+              ? 'Suggestion eligibility: eligible for proactive contract suggestion.'
+              : 'Suggestion eligibility: not eligible for proactive suggestion unless the thesis is supported, directional agreement is sufficient, and trade constraints are clear.',
             'Observed and derived evidence are reliability-discounted for freshness, source quality, and redundancy. Imputed evidence receives an additional imputation-confidence discount. Unavailable evidence contributes no directional support.',
           ],
         },
