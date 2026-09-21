@@ -77,15 +77,14 @@ export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' 
         <FullLockup className="h-14" />
       </div>
       <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-sky-400/80">
-        {mode === 'signup' ? 'Create workstation account' : 'Return to workstation'}
+        {mode === 'signup' ? 'Create account' : 'Welcome back'}
       </div>
       <h2 className="mt-1.5 text-lg font-semibold text-zinc-100">
-        {mode === 'signup' ? 'Set up your research workspace' : 'Sign in to URSORA'}
+        {mode === 'signup' ? 'Create your URSORA account' : 'Sign in to URSORA'}
 
       </h2>
       <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
-        Your account holds a personal watchlist, alert thresholds, a paper-trading ledger and your AI analyst history.
-        Each is private to you at the database level.
+        Your account stores your watchlist, alert preferences, paper-trading history, and AI analyst conversations. These records are private to your account.
       </p>
 
       <form onSubmit={submit} className="mt-4 space-y-3">
@@ -138,7 +137,7 @@ export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' 
             <span>
               <span className="block text-[12px] text-zinc-300">Remember me</span>
               <span className="mt-0.5 block text-[10px] leading-relaxed text-zinc-600">
-                Keep this session active on this site and remember my email for faster sign-in.
+                Keep me signed in on this site and remember my email.
               </span>
             </span>
           </label>
