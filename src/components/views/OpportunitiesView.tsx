@@ -142,12 +142,12 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
     });
   }, []);
 
-  const tradable = useMemo(() => signals.filter((s) => s.strategy !== 'No Trade'), [signals]);
+  const meeting criteria = useMemo(() => signals.filter((s) => s.strategy !== 'No Trade'), [signals]);
   const noTrade = useMemo(() => signals.filter((s) => s.strategy === 'No Trade'), [signals]);
 
   const filtered = useMemo(
     () =>
-      tradable.filter((s) => {
+      meeting criteria.filter((s) => {
         if (direction !== 'any' && s.direction !== direction) return false;
         if (risk !== 'any' && s.risk_level !== risk) return false;
         if (s.opportunity_score < minScore) return false;
@@ -155,7 +155,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
         if (watchlistOnly && !watchlist.includes(s.symbol)) return false;
         return true;
       }),
-    [tradable, direction, risk, minScore, symbolQuery, watchlistOnly, watchlist],
+    [meeting criteria, direction, risk, minScore, symbolQuery, watchlistOnly, watchlist],
   );
 
   const selected = useMemo(
@@ -184,7 +184,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
       <SectionHeading
         eyebrow="Today"
         title="Today's Opportunities"
-        description="A short ranked list of the setups worth examining. Open a thesis when you want the full evidence, contract detail and risk case."
+        description="A ranked list of opportunities identified by URSORA. Open an analysis to review the supporting evidence, available contract information, and risk considerations."
         right={
           <div className="flex flex-wrap items-center gap-2">
             {lastRun && (
@@ -220,7 +220,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
           Filters
         </button>
         <span className="font-mono text-[10px] text-zinc-500">
-          {filtered.length} tradable · {noTrade.length} no-trade
+          {filtered.length} meeting criteria · {noTrade.length} not selected
         </span>
         {compareIds.length > 0 && (
           <span className="font-mono text-[10px] text-sky-300">{compareIds.length} selected to compare</span>
@@ -347,7 +347,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
                   <td className="whitespace-nowrap px-3 py-3 text-right">
                     <Button size="sm" variant="outline" className="h-7 gap-1 border-zinc-700 text-[10px]" onClick={() => onOpenThesis(s.id)}>
                       <TrendingUp className="h-3 w-3" aria-hidden="true" />
-                      Open thesis
+                      Open analysis
                     </Button>
                   </td>
                 </tr>
@@ -357,7 +357,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
         </table>
         {filtered.length === 0 && (
           <div className="p-4">
-            <EmptyState title="No setup matches these filters" body="Adjust the filters or review the no-trade cases below." />
+            <EmptyState title="No opportunity matches these filters" body="Adjust the filters or review the opportunities that did not meet the minimum criteria." />
           </div>
         )}
       </div>
