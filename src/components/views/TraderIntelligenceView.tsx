@@ -181,12 +181,12 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
     <div className="space-y-4">
       <SectionHeading
         eyebrow="Trader Intelligence"
-        title="How you observably make decisions"
-        description="URSORA examines your recorded trades only. It measures deviation from your own plan and your own baseline. It does not assess the market here, and it does not diagnose emotions or psychological states."
+        title="Patterns in your trading decisions"
+        description="URSORA reviews your recorded trading behavior to identify patterns in planning, execution, and consistency. This section evaluates your trading process rather than market conditions and does not make psychological or clinical judgments."
         right={
           <span className={cn('inline-flex items-center gap-1.5 rounded-sm border px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-wider', bandTone(risk.band))}>
             <Brain className="h-3 w-3" aria-hidden="true" />
-            behavioral risk: {risk.band}
+            process risk: {risk.band}
           </span>
         }
       />
@@ -204,19 +204,19 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
         <div className="rounded-md border border-zinc-800 bg-[#14171c] p-3">
           <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Market intelligence</div>
           <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-            What the market is doing. Lives in Today&apos;s Opportunities and the Command Center — unaffected by anything on this page.
+            Summarizes current market conditions and opportunities. These measures are separate from your personal trading behavior.
           </p>
         </div>
         <div className="rounded-md border border-zinc-800 bg-[#14171c] p-3">
           <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Trade intelligence</div>
           <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-            What is happening to a specific trade and its thesis. Lives in Trade Thesis and Signal History.
+            Summarizes the evidence, risk, and changes associated with a specific trade analysis.
           </p>
         </div>
         <div className="rounded-md border border-sky-500/30 bg-sky-500/[0.05] p-3">
           <div className="font-mono text-[9px] uppercase tracking-wider text-sky-400">Trader intelligence</div>
           <p className="mt-1 text-[11px] leading-relaxed text-zinc-400">
-            How you observably decide. A low behavioural risk does not make a weak trade good, and an elevated one does not lower the market score.
+            Evaluates how consistently your recorded decisions follow your stated trading process. This does not alter the market score for a trade.
           </p>
         </div>
       </div>
