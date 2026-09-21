@@ -60,6 +60,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pipelineWarnings, setPipelineWarnings] = useState<string[]>([]);
   const [tradedIds, setTradedIds] = useState<number[]>([]);
 
   const [direction, setDirection] = useState<(typeof DIRECTIONS)[number]>('any');
@@ -108,9 +109,11 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
   const runAnalysis = useCallback(async () => {
     setRunning(true);
     setError(null);
+    setPipelineWarnings([]);
     try {
       const res = await runFreshAnalysis({ kind: 'manual' });
       track('analysis_run', { signals: res.signals ?? 0, updates: res.updates ?? 0 });
+      setPipelineWarnings(res.warnings);
       if (res.warnings.length) {
         console.warn('URSORA completed analysis with data-refresh warnings:', res.warnings);
       }
@@ -207,6 +210,15 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
         <div className="flex items-start gap-2 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-[12px] text-red-200">
           <AlertOctagon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span className="break-words">{error}</span>
+        </div>
+      )}
+
+      {pipelineWarnings.length > 0 && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-[12px] text-amber-100">
+          <div className="font-medium">Analysis completed, but some data refreshes did not complete:</div>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-amber-200/90">
+            {pipelineWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+          </ul>
         </div>
       )}
 
