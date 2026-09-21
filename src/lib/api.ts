@@ -123,6 +123,22 @@ export async function fetchWebullPaperDashboard(): Promise<WebullPaperDashboard>
 }
 
 
+function friendlyPipelineWarning(label: string, error: unknown): string {
+  const raw = describeUnknownError(error);
+
+  if (/bigint|22P02|invalid input syntax/i.test(raw)) {
+    return `${label}: some historical values could not be stored correctly.`;
+  }
+  if (/429|rate limit|thrott/i.test(raw)) {
+    return `${label}: provider temporarily rate-limited this request.`;
+  }
+  if (/401|signature|authentication/i.test(raw)) {
+    return `${label}: provider authentication failed.`;
+  }
+
+  return `${label}: refresh did not complete.`;
+}
+
 function describeUnknownError(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
@@ -163,7 +179,7 @@ export async function runFreshAnalysis(
       await callEdge(stage.slug, stage.payload);
     } catch (error) {
       warnings.push(
-        `${stage.label}: ${describeUnknownError(error)}`,
+        friendlyPipelineWarning(stage.label, error),
       );
     }
   }
