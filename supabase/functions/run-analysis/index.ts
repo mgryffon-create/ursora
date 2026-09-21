@@ -4,6 +4,8 @@ import { handleOptions, json } from '../_shared/http.ts';
 type AnyRow = Record<string, any>;
 type ThesisState = 'Rejected' | 'Unsupported' | 'Preliminary' | 'Supported' | 'Strongly Supported';
 
+type EvidenceProvenance = 'observed' | 'derived' | 'imputed' | 'unavailable';
+
 type FactorSpec = {
   factor: string;
   label: string;
@@ -11,6 +13,12 @@ type FactorSpec = {
   signedScore: number | null; // -100 opposing, +100 supporting the proposed direction
   explanation: string;
   directional: boolean;
+  provenance: EvidenceProvenance;
+  confidence: number;            // 0-1
+  freshness: number;             // 0-1
+  sourceQuality: number;         // 0-1
+  imputationConfidence: number;  // 0-1
+  independence: number;          // 0-1
 };
 
 const clamp = (v: number, lo = -100, hi = 100) => Math.max(lo, Math.min(hi, v));
@@ -53,14 +61,35 @@ function factorRow(spec: FactorSpec) {
   const signed = spec.signedScore ?? 0;
   const strength = spec.signedScore === null ? 0 : Math.abs(signed);
   const meaningful = strength >= 25;
+  const reliability = spec.signedScore === null
+    ? 0
+    : clamp(
+        spec.confidence *
+        spec.freshness *
+        spec.sourceQuality *
+        spec.imputationConfidence *
+        spec.independence,
+        0,
+        1,
+      );
+  const effectiveWeight = spec.baseWeight * reliability;
+
   return {
     factor: spec.factor,
     label: spec.label,
     raw_score: Math.round(strength * 10) / 10,
+    signed_score: spec.signedScore,
+    provenance: spec.provenance,
+    confidence: Math.round(spec.confidence * 1000) / 1000,
+    freshness: Math.round(spec.freshness * 1000) / 1000,
+    source_quality: Math.round(spec.sourceQuality * 1000) / 1000,
+    imputation_confidence: Math.round(spec.imputationConfidence * 1000) / 1000,
+    independence: Math.round(spec.independence * 1000) / 1000,
+    reliability: Math.round(reliability * 1000) / 1000,
     base_weight: spec.baseWeight,
-    effective_weight: spec.baseWeight,
-    weight_change: 0,
-    contribution: spec.signedScore === null ? 0 : signed * spec.baseWeight,
+    effective_weight: Math.round(effectiveWeight * 10000) / 10000,
+    weight_change: Math.round((effectiveWeight - spec.baseWeight) * 10000) / 10000,
+    contribution: spec.signedScore === null ? 0 : signed * effectiveWeight,
     effect: !meaningful ? 'NEUTRAL' : signed > 0 ? 'INCREASED' : signed < 0 ? 'DECREASED' : 'NEUTRAL',
     explanation: spec.explanation,
   };
@@ -74,6 +103,78 @@ function impactMultiplier(impact: string | null | undefined): number {
     case 'low': return 0.25;
     default: return 0.35;
   }
+}
+
+
+function freshnessFrom(timestamp: unknown, halfLifeHours: number, nowMs: number): number {
+  if (!timestamp) return 0.55;
+  const ts = new Date(String(timestamp)).getTime();
+  if (!Number.isFinite(ts)) return 0.55;
+  const ageHours = Math.max(0, (nowMs - ts) / 3600000);
+  return clamp(Math.exp(-Math.log(2) * ageHours / halfLifeHours), 0.15, 1);
+}
+
+const AHP_FACTOR_ORDER = [
+  'price_trend',
+  'momentum',
+  'market_alignment',
+  'options_market',
+  'catalysts_news',
+  'liquidity',
+  'risk_reward',
+] as const;
+
+// Initial v4 expert priorities encoded as a perfectly reciprocal pairwise matrix.
+// These are intentionally explicit and should be re-calibrated against backtest data later.
+const AHP_PRIORITY = {
+  price_trend: 0.23,
+  momentum: 0.15,
+  market_alignment: 0.13,
+  options_market: 0.17,
+  catalysts_news: 0.13,
+  liquidity: 0.10,
+  risk_reward: 0.09,
+} as const;
+
+function deriveAhpWeights() {
+  const raw = AHP_FACTOR_ORDER.map((rowKey) =>
+    AHP_FACTOR_ORDER.map((colKey) => AHP_PRIORITY[rowKey] / AHP_PRIORITY[colKey])
+  );
+
+  const geometricMeans = raw.map((row) =>
+    Math.pow(row.reduce((product, value) => product * value, 1), 1 / row.length)
+  );
+  const gmTotal = geometricMeans.reduce((a, b) => a + b, 0);
+  const weights = geometricMeans.map((value) => value / gmTotal);
+
+  const weightedSums = raw.map((row) =>
+    row.reduce((sum, value, index) => sum + value * weights[index], 0)
+  );
+  const lambdaMax = weightedSums.reduce(
+    (sum, value, index) => sum + value / weights[index],
+    0,
+  ) / weights.length;
+  const consistencyIndex = (lambdaMax - weights.length) / (weights.length - 1);
+  const randomIndex = 1.32; // Saaty RI for n=7
+  const consistencyRatio = randomIndex > 0 ? consistencyIndex / randomIndex : 0;
+
+  return {
+    matrix: raw,
+    weights: Object.fromEntries(
+      AHP_FACTOR_ORDER.map((key, index) => [key, weights[index]])
+    ) as Record<(typeof AHP_FACTOR_ORDER)[number], number>,
+    consistency_ratio: Math.max(0, consistencyRatio),
+  };
+}
+
+function logistic(logOdds: number): number {
+  return 1 / (1 + Math.exp(-logOdds));
+}
+
+function uncertaintyLabel(value: number): 'Low' | 'Moderate' | 'High' {
+  if (value <= 30) return 'Low';
+  if (value <= 50) return 'Moderate';
+  return 'High';
 }
 
 
@@ -113,6 +214,7 @@ Deno.serve(async (req) => {
     const runId = crypto.randomUUID();
     const started = new Date().toISOString();
     const nowMs = Date.now();
+    const ahp = deriveAhpWeights();
 
     const { data: snapshot } = await db
       .from('market_snapshots')
@@ -365,33 +467,70 @@ Deno.serve(async (req) => {
       const agreement = directionalEvidence.length
         ? Math.round((Math.max(supportingCount, opposingCount) / directionalEvidence.length) * 100)
         : 50;
-      const agreementEvidence = directionalEvidence.length >= 3
-        ? clamp((agreement - 50) * 2)
-        : null;
-
       const nextEarnings = (earningsBySymbol.get(symbol) ?? [])[0] ?? null;
       const hoursToEarnings = nextEarnings?.report_time
         ? (new Date(nextEarnings.report_time).getTime() - nowMs) / 3600000
         : null;
       const eventInsideHoldingWindow = hoursToEarnings !== null && hoursToEarnings >= 0 && hoursToEarnings <= 5 * 24;
 
+      const quoteFreshness = freshnessFrom(q.retrieved_at ?? q.as_of, 18, nowMs);
+      const quoteConfidence = clamp(n(q.confidence) ?? 0.78, 0.35, 1);
+      const marketFreshness = avg([spy, qqq].map((row) => row ? freshnessFrom(row.retrieved_at ?? row.as_of, 18, nowMs) : null)) ?? 0.45;
+      const optionFreshness = symbolOptions.length
+        ? avg(symbolOptions.slice(0, 50).map((row) => freshnessFrom(row.retrieved_at, 12, nowMs))) ?? 0.5
+        : 0;
+      const newsFreshness = symbolNews.length
+        ? avg(symbolNews.slice(0, 12).map((row) => freshnessFrom(row.published_at, 24, nowMs))) ?? 0.5
+        : 0;
+
+      const priceProvenance: EvidenceProvenance = priceEvidence === null ? 'unavailable' : 'derived';
+      const momentumProvenance: EvidenceProvenance = momentumEvidence === null ? 'unavailable' : 'derived';
+      const marketProvenance: EvidenceProvenance = marketEvidence === null ? 'unavailable' : 'observed';
+      const optionsProvenance: EvidenceProvenance = optionsEvidence === null
+        ? 'unavailable'
+        : symbolOptions.length ? 'observed' : 'imputed';
+      const newsProvenance: EvidenceProvenance = newsEvidence === null ? 'unavailable' : 'observed';
+      const liquidityProvenance: EvidenceProvenance = liquidityEvidence === null ? 'unavailable' : 'observed';
+      const riskRewardProvenance: EvidenceProvenance = riskRewardEvidence === null ? 'unavailable' : 'derived';
+
+      // Redundancy penalties keep correlated evidence from being counted as independent confirmation.
+      const priceIndependence = 1.0;
+      const momentumIndependence = priceEvidence !== null ? 0.68 : 1.0;
+      const marketIndependence = 0.88;
+      const optionsIndependence = 0.95;
+      const newsIndependence = 1.0;
+      const liquidityIndependence = optionsEvidence !== null ? 0.82 : 1.0;
+      const riskRewardIndependence = priceEvidence !== null ? 0.78 : 1.0;
+
       const factorSpecs: FactorSpec[] = [
         {
           factor: 'price_trend',
           label: 'Price trend',
-          baseWeight: 0.23,
+          baseWeight: ahp.weights.price_trend,
           signedScore: priceEvidence,
           directional: true,
+          provenance: priceProvenance,
+          confidence: priceEvidence === null ? 0 : quoteConfidence,
+          freshness: priceEvidence === null ? 0 : quoteFreshness,
+          sourceQuality: priceEvidence === null ? 0 : 0.88,
+          imputationConfidence: 1,
+          independence: priceIndependence,
           explanation: priceEvidence === null
             ? 'There is not enough historical price information to evaluate trend structure.'
-            : `Current price movement, trend direction, and available moving-average structure provide ${Math.abs(priceEvidence) < 25 ? 'limited' : priceEvidence > 0 ? 'supporting' : 'opposing'} evidence for the proposed ${direction} direction.`,
+            : `Current price movement, trend direction, and moving-average structure provide ${Math.abs(priceEvidence) < 25 ? 'limited' : priceEvidence > 0 ? 'supporting' : 'opposing'} evidence for the proposed ${direction} direction.`,
         },
         {
           factor: 'momentum',
           label: 'Momentum',
-          baseWeight: 0.15,
+          baseWeight: ahp.weights.momentum,
           signedScore: momentumEvidence,
           directional: true,
+          provenance: momentumProvenance,
+          confidence: momentumEvidence === null ? 0 : 0.82,
+          freshness: momentumEvidence === null ? 0 : quoteFreshness,
+          sourceQuality: momentumEvidence === null ? 0 : 0.86,
+          imputationConfidence: 1,
+          independence: momentumIndependence,
           explanation: momentum === null
             ? 'A momentum reading is not currently available.'
             : `The momentum reading is ${momentum.toFixed(1)}/100 and provides ${Math.abs(momentumEvidence ?? 0) < 25 ? 'limited directional evidence' : (momentumEvidence ?? 0) > 0 ? 'meaningful confirmation' : 'meaningful contradiction'}.`,
@@ -399,9 +538,15 @@ Deno.serve(async (req) => {
         {
           factor: 'market_alignment',
           label: 'Broader market alignment',
-          baseWeight: 0.13,
+          baseWeight: ahp.weights.market_alignment,
           signedScore: marketEvidence,
           directional: true,
+          provenance: marketProvenance,
+          confidence: marketEvidence === null ? 0 : 0.80,
+          freshness: marketEvidence === null ? 0 : marketFreshness,
+          sourceQuality: marketEvidence === null ? 0 : 0.86,
+          imputationConfidence: 1,
+          independence: marketIndependence,
           explanation: marketEvidence === null
             ? 'Broader index data are not currently available.'
             : `SPY and QQQ context is ${Math.abs(marketEvidence) < 25 ? 'largely neutral' : marketEvidence > 0 ? 'aligned with' : 'opposed to'} the proposed direction.`,
@@ -409,9 +554,15 @@ Deno.serve(async (req) => {
         {
           factor: 'options_market',
           label: 'Options market',
-          baseWeight: 0.17,
+          baseWeight: ahp.weights.options_market,
           signedScore: optionsEvidence,
           directional: true,
+          provenance: optionsProvenance,
+          confidence: optionsEvidence === null ? 0 : symbolOptions.length ? 0.86 : 0.45,
+          freshness: optionsEvidence === null ? 0 : symbolOptions.length ? optionFreshness : quoteFreshness,
+          sourceQuality: optionsEvidence === null ? 0 : symbolOptions.length ? 0.88 : 0.60,
+          imputationConfidence: optionsEvidence === null ? 0 : symbolOptions.length ? 1 : 0.45,
+          independence: optionsIndependence,
           explanation: optionsEvidence === null
             ? 'Current option-chain activity is not available for this symbol.'
             : `Observed call and put activity produces a put/call volume ratio of ${putCallRatio?.toFixed(2) ?? 'unavailable'}, which ${Math.abs(optionsEvidence) < 25 ? 'does not provide meaningful directional confirmation' : optionsEvidence > 0 ? 'supports' : 'opposes'} the proposed direction.`,
@@ -419,9 +570,15 @@ Deno.serve(async (req) => {
         {
           factor: 'catalysts_news',
           label: 'News and market events',
-          baseWeight: 0.13,
+          baseWeight: ahp.weights.catalysts_news,
           signedScore: newsEvidence,
           directional: true,
+          provenance: newsProvenance,
+          confidence: newsEvidence === null ? 0 : clamp(avg(symbolNews.map((item) => n(item.confidence))) ?? 0.60, 0.25, 1),
+          freshness: newsEvidence === null ? 0 : newsFreshness,
+          sourceQuality: newsEvidence === null ? 0 : 0.78,
+          imputationConfidence: 1,
+          independence: newsIndependence,
           explanation: newsEvidence === null
             ? (eventInsideHoldingWindow
               ? 'A scheduled earnings event falls inside the expected holding period, but no directional news evidence is currently available.'
@@ -431,9 +588,15 @@ Deno.serve(async (req) => {
         {
           factor: 'liquidity',
           label: 'Option liquidity',
-          baseWeight: 0.10,
+          baseWeight: ahp.weights.liquidity,
           signedScore: liquidityEvidence,
           directional: false,
+          provenance: liquidityProvenance,
+          confidence: liquidityEvidence === null ? 0 : 0.90,
+          freshness: liquidityEvidence === null ? 0 : optionFreshness,
+          sourceQuality: liquidityEvidence === null ? 0 : 0.90,
+          imputationConfidence: 1,
+          independence: liquidityIndependence,
           explanation: liquidityEvidence === null
             ? 'Option bid/ask, volume, and open-interest data are not available.'
             : `Available ${desiredOptionType.toLowerCase()} contracts show a median spread of ${spreadMedian?.toFixed(1) ?? 'unavailable'}%, median open interest of ${oiMedian?.toFixed(0) ?? 'unavailable'}, and median daily volume of ${volumeMedian?.toFixed(0) ?? 'unavailable'}.`,
@@ -441,43 +604,92 @@ Deno.serve(async (req) => {
         {
           factor: 'risk_reward',
           label: 'Risk and reward structure',
-          baseWeight: 0.09,
+          baseWeight: ahp.weights.risk_reward,
           signedScore: riskRewardEvidence,
           directional: false,
+          provenance: riskRewardProvenance,
+          confidence: riskRewardEvidence === null ? 0 : 0.84,
+          freshness: riskRewardEvidence === null ? 0 : quoteFreshness,
+          sourceQuality: riskRewardEvidence === null ? 0 : 0.86,
+          imputationConfidence: 1,
+          independence: riskRewardIndependence,
           explanation: riskRewardEvidence === null
             ? 'Support, resistance, and volatility data are not sufficient to estimate the trade structure.'
             : `The estimated reward-to-risk relationship is approximately ${estimatedRatio?.toFixed(2) ?? 'unavailable'} to 1 using current support/resistance and ATR derived from stored daily price history.`,
         },
       ];
 
-      const availableSpecs = factorSpecs.filter((f) => f.signedScore !== null);
+      const availableSpecs = factorSpecs.filter((factor) => factor.signedScore !== null);
       const factors = factorSpecs.map((spec) => factorRow(spec));
 
-      // Fixed-weight scoring: missing evidence contributes zero but does not donate its
-      // weight to the remaining factors. This keeps the opportunity score comparable
-      // across runs with different evidence completeness.
-      const netSupport = factorSpecs.reduce(
-        (total, factor) => total + (factor.signedScore === null ? 0 : Number(factor.signedScore) * factor.baseWeight),
+      const totalBaseWeight = factorSpecs.reduce((sum, factor) => sum + factor.baseWeight, 0);
+      const netSupport = factors.reduce(
+        (total, factor) => total + Number(factor.contribution ?? 0),
         0,
       );
-      const opportunity = Math.round(clamp(50 + netSupport / 2, 0, 100));
+      const opportunity = Math.round(clamp(50 + (netSupport / Math.max(totalBaseWeight, 0.0001)) / 2, 0, 100));
 
-      const evidenceFamilies = Object.fromEntries(factorSpecs.map((f) => [f.factor, f.signedScore !== null]));
+      const evidenceFamilies = Object.fromEntries(
+        factors.map((factor) => [factor.factor, {
+          available: factor.provenance !== 'unavailable',
+          provenance: factor.provenance,
+          reliability: factor.reliability,
+          effective_weight: factor.effective_weight,
+        }]),
+      );
+
       const availableFamilies = availableSpecs.length;
       const totalFamilies = factorSpecs.length;
-      const evidenceCompleteness = Math.round((availableFamilies / totalFamilies) * 100);
+      const weightedAvailable = factorSpecs.reduce(
+        (sum, factor) => sum + (factor.signedScore === null ? 0 : factor.baseWeight),
+        0,
+      );
+      const evidenceCompleteness = Math.round(clamp((weightedAvailable / totalBaseWeight) * 100, 0, 100));
 
-      const directionalFamiliesAvailable = factorSpecs.filter((f) => f.directional && f.signedScore !== null).length;
-      const sourceQuality = avg([
-        n(q.confidence) !== null ? Number(q.confidence) * 100 : null,
-        symbolOptions.length ? 65 : null,
-        symbolNews.length ? avg(symbolNews.map((x) => n(x.confidence) !== null ? Number(x.confidence) * 100 : 55)) : null,
-      ]) ?? 50;
+      const reliabilityCoverage = factors.reduce(
+        (sum, factor) => sum + Number(factor.effective_weight ?? 0),
+        0,
+      ) / Math.max(totalBaseWeight, 0.0001);
+      const evidenceUncertainty = Math.round(clamp((1 - reliabilityCoverage) * 100, 0, 100));
+      const evidenceUncertaintyLabel = uncertaintyLabel(evidenceUncertainty);
+
+      const directionalFactors = factors.filter((factor) =>
+        factorSpecs.find((spec) => spec.factor === factor.factor)?.directional
+      );
+      const independentDirectionalFamilies = directionalFactors.filter(
+        (factor) => factor.provenance !== 'unavailable' && Number(factor.reliability ?? 0) >= 0.35,
+      ).length;
+
+      // Bayesian thesis support: evidence updates neutral prior odds.
+      // Baseline importance, reliability and redundancy are all preserved in the update.
+      const directionalBaseWeight = factorSpecs
+        .filter((factor) => factor.directional)
+        .reduce((sum, factor) => sum + factor.baseWeight, 0);
+      const BAYES_SCALE = 4.0;
+      let posteriorLogOdds = 0; // neutral 50% prior
+      for (const factor of factors) {
+        const spec = factorSpecs.find((item) => item.factor === factor.factor);
+        if (!spec?.directional || factor.signed_score === null) continue;
+        posteriorLogOdds +=
+          (Number(factor.signed_score) / 100) *
+          Number(factor.reliability ?? 0) *
+          (spec.baseWeight / Math.max(directionalBaseWeight, 0.0001)) *
+          BAYES_SCALE;
+      }
+      const thesisSupport = Math.round(logistic(posteriorLogOdds) * 1000) / 10;
+
+      const sourceQuality = Math.round(
+        (factors.reduce(
+          (sum, factor) => sum + Number(factor.source_quality ?? 0) * Number(factor.base_weight ?? 0),
+          0,
+        ) / Math.max(totalBaseWeight, 0.0001)) * 100,
+      );
 
       const confidence = Math.round(clamp(
-        (evidenceCompleteness * 0.45) +
-        (agreement * 0.35) +
-        (sourceQuality * 0.20),
+        (thesisSupport * 0.35) +
+        (evidenceCompleteness * 0.25) +
+        ((100 - evidenceUncertainty) * 0.25) +
+        (agreement * 0.15),
         0,
         100,
       ));
@@ -490,12 +702,27 @@ Deno.serve(async (req) => {
 
       let thesisState: ThesisState;
       if (direction === 'neutral') thesisState = 'Unsupported';
-      else if (opportunity < 35 && evidenceCompleteness >= 50) thesisState = 'Rejected';
-      else if (evidenceCompleteness < 50 || directionalFamiliesAvailable < 3) thesisState = 'Preliminary';
+      else if (thesisSupport < 35 && evidenceCompleteness >= 60) thesisState = 'Rejected';
+      else if (
+        evidenceCompleteness < 55 ||
+        evidenceUncertainty > 55 ||
+        independentDirectionalFamilies < 3
+      ) thesisState = 'Preliminary';
       else if (blockers.length) thesisState = 'Unsupported';
-      else if (opportunity >= 75 && agreement >= 75 && evidenceCompleteness >= 63) thesisState = 'Strongly Supported';
-      else if (opportunity >= 60 && agreement >= 60) thesisState = 'Supported';
-      else if (opportunity < 35) thesisState = 'Rejected';
+      else if (
+        thesisSupport >= 78 &&
+        evidenceCompleteness >= 75 &&
+        evidenceUncertainty <= 35 &&
+        agreement >= 70 &&
+        opportunity >= 65
+      ) thesisState = 'Strongly Supported';
+      else if (
+        thesisSupport >= 65 &&
+        evidenceCompleteness >= 65 &&
+        evidenceUncertainty <= 45 &&
+        agreement >= 60
+      ) thesisState = 'Supported';
+      else if (thesisSupport < 35) thesisState = 'Rejected';
       else thesisState = 'Unsupported';
 
       const candidatePool = relevantOptions
@@ -529,7 +756,7 @@ Deno.serve(async (req) => {
 
       const noTradeReason =
         thesisState === 'Preliminary'
-          ? `The analysis is preliminary because only ${availableFamilies} of ${totalFamilies} primary evidence categories are available. URSORA requires broader independent confirmation before classifying the thesis as supported.`
+          ? `The analysis is preliminary because evidence completeness is ${evidenceCompleteness}% and uncertainty is ${evidenceUncertainty}%. URSORA requires at least three sufficiently independent directional evidence families before classifying the thesis as supported.`
           : thesisState === 'Unsupported'
             ? (blockers.length ? blockers.join(' ') : 'The available evidence does not provide sufficient agreement and strength to support this trade analysis.')
             : thesisState === 'Rejected'
@@ -566,29 +793,41 @@ Deno.serve(async (req) => {
             put_call_ratio: putCallRatio,
             relative_volume: relVolume,
             reward_risk_ratio: estimatedRatio,
+            posterior_log_odds: posteriorLogOdds,
           },
           thesis_state: thesisState,
+          thesis_support: thesisSupport,
           evidence_completeness: evidenceCompleteness,
+          evidence_uncertainty: evidenceUncertainty,
+          evidence_uncertainty_label: evidenceUncertaintyLabel,
           evidence_families: evidenceFamilies,
           available_families: availableFamilies,
           total_families: totalFamilies,
           agreement_score: agreement,
+          independent_directional_families: independentDirectionalFamilies,
+          reliability_coverage: Math.round(reliabilityCoverage * 1000) / 10,
+          source_quality: sourceQuality,
           blockers,
         },
         weights: {
+          method: 'AHP baseline weighting + reliability discounting + Bayesian thesis update',
+          ahp_consistency_ratio: Math.round(ahp.consistency_ratio * 10000) / 10000,
           base: Object.fromEntries(factorSpecs.map((x) => [x.factor, x.baseWeight])),
           effective: Object.fromEntries(factors.map((x) => [x.factor, x.effective_weight])),
           decisions: [
             `Thesis classification: ${thesisState}.`,
+            `Bayesian thesis support: ${thesisSupport}% from a neutral 50% prior.`,
             `Evidence completeness: ${evidenceCompleteness}% (${availableFamilies} of ${totalFamilies} primary categories available).`,
+            `Evidence uncertainty: ${evidenceUncertainty}% (${evidenceUncertaintyLabel}).`,
             `Evidence agreement: ${agreement}% among meaningful directional categories.`,
+            `AHP consistency ratio: ${(ahp.consistency_ratio * 100).toFixed(2)}%.`,
             blockers.length ? `Trade constraints: ${blockers.join(' ')}` : 'No hard trade constraints were identified from the data currently available.',
-            'Missing evidence contributes zero to the opportunity score and retains its baseline weight; available factors are not reweighted upward.',
+            'Observed and derived evidence are reliability-discounted for freshness, source quality, and redundancy. Imputed evidence receives an additional imputation-confidence discount. Unavailable evidence contributes no directional support.',
           ],
         },
         regime: snapshot?.regime ?? 'Mixed',
         regime_explanation: snapshot?.regime_note ?? 'Broader market conditions derived from the latest stored market data.',
-        engine_version: 'tradecycle-3.1',
+        engine_version: 'tradecycle-4',
         is_demo: Boolean(q.is_demo ?? true),
         generated_at: started,
       });
@@ -610,7 +849,7 @@ Deno.serve(async (req) => {
       feed_events: 0,
       regime: snapshot?.regime ?? null,
       notes: signalCount
-        ? `TradeCycle v3 multi-evidence analysis completed for authenticated user ${user.id}.`
+        ? `TradeCycle v4 probabilistic evidence analysis completed for authenticated user ${user.id}.`
         : 'No stored quote data were available; no signals were generated.',
       started_at: started,
       finished_at: new Date().toISOString(),
@@ -622,7 +861,7 @@ Deno.serve(async (req) => {
       signals: signalCount,
       updates: 0,
       run_id: runId,
-      engine_version: 'tradecycle-3.1',
+      engine_version: 'tradecycle-4',
       note: signalCount ? 'Signals generated using all currently available evidence categories.' : 'No stored quote data available.',
     });
   } catch (e) {
