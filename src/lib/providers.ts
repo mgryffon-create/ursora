@@ -31,7 +31,7 @@ export interface ProvenanceStamp {
   source_type: string;
   /** When the upstream published the datum (null when the vendor omits it). */
   published_at: string | null;
-  /** When URSORA fetched it. Always set by the ingestion layer. */
+  /** When URSORA fetched it. At all times set by the ingestion layer. */
   retrieved_at: string;
   /** 0..1 quality metadata. Demo rows are capped low on purpose. */
   confidence: number | null;
@@ -95,32 +95,32 @@ export const FACTOR_DEFINITIONS: {
   base_weight: number;
   measures: string;
 }[] = [
-  { key: 'technical_momentum', label: 'Technical Momentum', base_weight: 0.2, measures: 'Price versus session VWAP, 20/50/200-day structure, intraday momentum, ATR-normalised extension.' },
-  { key: 'catalyst_strength', label: 'Catalyst Strength', base_weight: 0.16, measures: 'Dated catalysts weighted by impact rating and exponential publication-age decay, plus proximity of earnings and macro prints.' },
-  { key: 'news_sentiment', label: 'News Sentiment', base_weight: 0.14, measures: 'Recency-weighted tone of stored headlines from verified and company sources. Social posts are excluded from this factor entirely.' },
-  { key: 'options_flow', label: 'Options Flow', base_weight: 0.16, measures: 'Put/call volume ratio, volume against open interest, unusual-activity screen. Flow is never auto-read as directional.' },
-  { key: 'market_alignment', label: 'Market Alignment', base_weight: 0.12, measures: 'Agreement between the single name, its sector and the index tape, scaled by VIX and breadth.' },
-  { key: 'liquidity_quality', label: 'Liquidity Quality', base_weight: 0.1, measures: 'At-the-money spread as a share of mid, open interest, contract volume. Poor liquidity can veto an otherwise good thesis.' },
-  { key: 'risk_reward', label: 'Risk / Reward', base_weight: 0.08, measures: 'Distance to the next structural level against ATR and the modelled expected move.' },
-  { key: 'signal_agreement', label: 'Signal Agreement', base_weight: 0.04, measures: 'Dispersion across the core factors. Disagreement is penalised rather than averaged away.' },
-  { key: 'social_sentiment', label: 'Social Sentiment (hard-capped)', base_weight: 0.05, measures: 'Retail cohort readings, permanently capped at 5% of the final score in every regime. Popularity is not evidence.' },
+  { key: 'technical_momentum', label: 'Technical Momentum', base_weight: 0.2, measures: 'How price is moving relative to recent trends, typical trading ranges, and the current session.' },
+  { key: 'catalyst_strength', label: 'Catalyst Strength', base_weight: 0.16, measures: 'The importance and timing of earnings, economic reports, company announcements, and other scheduled market events.' },
+  { key: 'news_sentiment', label: 'News Sentiment', base_weight: 0.14, measures: 'The tone and timing of recent verified news and company announcements. Social-media discussion is evaluated separately.' },
+  { key: 'options_flow', label: 'Options Flow', base_weight: 0.16, measures: 'Whether options trading activity is unusually strong and whether calls or puts are receiving greater attention. Activity alone is not treated as directional proof.' },
+  { key: 'market_alignment', label: 'Market Alignment', base_weight: 0.12, measures: 'Whether the symbol is moving consistently with its sector and the broader market, including current volatility and overall market participation.' },
+  { key: 'liquidity_quality', label: 'Liquidity Quality', base_weight: 0.1, measures: 'How easily an option contract could reasonably be entered or exited based on its spread, trading volume, and open interest.' },
+  { key: 'risk_reward', label: 'Risk / Reward', base_weight: 0.08, measures: 'The potential reward relative to the amount of price movement and risk required for the trade to work.' },
+  { key: 'signal_agreement', label: 'Signal Agreement', base_weight: 0.04, measures: 'How consistently the major evidence categories support the same conclusion. Conflicting evidence reduces the score.' },
+  { key: 'social_sentiment', label: 'Social Sentiment (hard-capped)', base_weight: 0.05, measures: 'Retail-investor sentiment. This factor has a limited effect on the overall score because popularity alone is not reliable evidence.' },
 ];
 
 export const WEIGHTING_RULES: { trigger: string; effect: string }[] = [
-  { trigger: 'A verified headline published inside the last four hours', effect: 'News and catalyst weight rise by up to 75%, decaying exponentially with the age of the freshest item.' },
-  { trigger: 'No headline inside 24 hours', effect: 'News weight is cut 30% — stale news is not a catalyst.' },
-  { trigger: 'Relative volume below 1.0x', effect: 'Options-flow weight is cut 45%, because flow readings on thin tape are noise.' },
-  { trigger: 'Unusual options volume on real volume', effect: 'Options-flow weight rises 25%.' },
-  { trigger: 'Earnings or a critical macro print inside the holding window', effect: 'Technical weight is cut 45% and risk/reward weight rises 25% — chart structure does not survive a gap.' },
-  { trigger: 'VIX above 20 (above 16)', effect: 'Market-alignment weight rises 50% (18%) — in volatile sessions single names follow the index.' },
-  { trigger: 'Chain liquidity below 55/100', effect: 'Liquidity weight rises 60%, so an untradeable contract cannot be scored as an opportunity.' },
-  { trigger: 'Always', effect: 'Social sentiment is capped at 5%; price, volume, verified news and options data always outweigh it.' },
+  { trigger: 'Important verified news published within the last four hours', effect: 'Recent verified news and scheduled-event information receive greater emphasis while they are most relevant.' },
+  { trigger: 'No recent verified news within 24 hours', effect: 'Older news receives less emphasis because its effect may already be reflected in the market.' },
+  { trigger: 'Trading volume is below its normal level', effect: 'Options activity receives less emphasis when overall trading activity is unusually light.' },
+  { trigger: 'Options activity is unusually high while the underlying stock is actively trading', effect: 'Options activity receives greater emphasis.' },
+  { trigger: 'Earnings or a major economic report occurs during the expected holding period', effect: 'Price-pattern evidence receives less emphasis while event-related risk receives more emphasis.' },
+  { trigger: 'Market volatility is elevated', effect: 'Broader market conditions receive more emphasis when volatility is elevated.' },
+  { trigger: 'Available option contracts have limited liquidity', effect: 'Contract liquidity receives greater emphasis so difficult-to-trade options do not appear more attractive than they are.' },
+  { trigger: 'At all times', effect: 'Retail sentiment remains a minor factor; price, volume, verified news, and options data carry substantially more weight.' },
 ];
 
 export const NO_TRADE_RULES: string[] = [
-  'Opportunity score below 55 — the engine will not name a contract on weak evidence.',
-  'Directional factors conflict (technical, news and flow disagree) — there is no thesis to express.',
-  'Liquidity quality below 45/100 — spreads would consume the edge before the thesis resolves.',
-  'Factor agreement below 45/100 — the evidence is internally inconsistent.',
-  'No contract cleared the contract-selection filters.',
+  'Opportunity score below the minimum threshold — URSORA does not identify a contract when the supporting evidence is too weak.',
+  'Major evidence categories point in different directions, so there is not enough agreement to support a trade.',
+  'Available option contracts are too difficult or expensive to trade efficiently.',
+  'The available evidence is too inconsistent to support a clear conclusion.',
+  'No available option contract met the minimum trading criteria.',
 ];
