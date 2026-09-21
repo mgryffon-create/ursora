@@ -1,162 +1,586 @@
 import { AuthError, requireUser } from '../_shared/auth.ts';
 import { handleOptions, json } from '../_shared/http.ts';
 
+type AnyRow = Record<string, any>;
+type ThesisState = 'Rejected' | 'Unsupported' | 'Preliminary' | 'Supported' | 'Strongly Supported';
+
+type FactorSpec = {
+  factor: string;
+  label: string;
+  baseWeight: number;
+  signedScore: number | null; // -100 opposing, +100 supporting the proposed direction
+  explanation: string;
+  directional: boolean;
+};
+
+const clamp = (v: number, lo = -100, hi = 100) => Math.max(lo, Math.min(hi, v));
+
+function n(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function avg(values: Array<number | null | undefined>): number | null {
+  const valid = values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  return valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : null;
+}
+
+function median(values: Array<number | null | undefined>): number | null {
+  const valid = values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v)).sort((a, b) => a - b);
+  if (!valid.length) return null;
+  const mid = Math.floor(valid.length / 2);
+  return valid.length % 2 ? valid[mid] : (valid[mid - 1] + valid[mid]) / 2;
+}
+
+function pctStrength(changePct: number | null): number | null {
+  if (changePct === null) return null;
+  return clamp(Math.abs(changePct) * 22, 0, 100);
+}
+
+function directionName(v: number): 'bullish' | 'bearish' | 'neutral' {
+  if (v >= 15) return 'bullish';
+  if (v <= -15) return 'bearish';
+  return 'neutral';
+}
+
+function relativeToDirection(absoluteOrientation: number | null, direction: string): number | null {
+  if (absoluteOrientation === null || direction === 'neutral') return absoluteOrientation === null ? null : 0;
+  return direction === 'bullish' ? absoluteOrientation : -absoluteOrientation;
+}
+
+function factorRow(spec: FactorSpec, effectiveWeight: number) {
+  const signed = spec.signedScore ?? 0;
+  const strength = spec.signedScore === null ? 0 : Math.abs(signed);
+  const meaningful = strength >= 25;
+  return {
+    factor: spec.factor,
+    label: spec.label,
+    raw_score: Math.round(strength * 10) / 10,
+    base_weight: spec.baseWeight,
+    effective_weight: effectiveWeight,
+    weight_change: effectiveWeight - spec.baseWeight,
+    contribution: spec.signedScore === null ? 0 : signed * effectiveWeight,
+    effect: !meaningful ? 'NEUTRAL' : signed > 0 ? 'INCREASED' : signed < 0 ? 'DECREASED' : 'NEUTRAL',
+    explanation: spec.explanation,
+  };
+}
+
+function impactMultiplier(impact: string | null | undefined): number {
+  switch (String(impact ?? '').toLowerCase()) {
+    case 'critical': return 1;
+    case 'high': return 0.8;
+    case 'medium': return 0.5;
+    case 'low': return 0.25;
+    default: return 0.35;
+  }
+}
+
 Deno.serve(async (req) => {
   const preflight = handleOptions(req); if (preflight) return preflight;
   if (req.method !== 'POST') return json({ error: 'POST required' }, 405);
+
   try {
     const { user, db } = await requireUser(req);
     const body = await req.json().catch(() => ({}));
     const kind = typeof body.kind === 'string' ? body.kind : 'manual';
     const runId = crypto.randomUUID();
     const started = new Date().toISOString();
+    const nowMs = Date.now();
 
-    const { data: snapshot } = await db.from('market_snapshots').select('regime').order('as_of', { ascending: false }).limit(1).maybeSingle();
-    const { data: latestQuotes, error: quoteError } = await db.from('quotes').select('*').order('as_of', { ascending: false }).limit(500);
+    const { data: snapshot } = await db
+      .from('market_snapshots')
+      .select('*')
+      .order('as_of', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const { data: latestQuotes, error: quoteError } = await db
+      .from('quotes')
+      .select('*')
+      .order('as_of', { ascending: false })
+      .limit(500);
     if (quoteError) throw quoteError;
 
-    const bySymbol = new Map<string, Record<string, any>>();
-    for (const q of latestQuotes ?? []) if (!bySymbol.has(q.symbol)) bySymbol.set(q.symbol, q);
+    const bySymbol = new Map<string, AnyRow>();
+    for (const q of latestQuotes ?? []) {
+      const symbol = String(q.symbol ?? '').toUpperCase();
+      if (symbol && !bySymbol.has(symbol)) bySymbol.set(symbol, q);
+    }
 
-    const created: Record<string, any>[] = [];
+    // Optional evidence tables. Missing integrations reduce completeness rather than failing the run.
+    let optionRows: AnyRow[] = [];
+    try {
+      const { data } = await db
+        .from('option_market_snapshots')
+        .select('*')
+        .gte('retrieved_at', new Date(nowMs - 36 * 3600000).toISOString())
+        .order('retrieved_at', { ascending: false })
+        .limit(4000);
+      optionRows = data ?? [];
+    } catch { optionRows = []; }
+
+    let recentNews: AnyRow[] = [];
+    try {
+      const { data } = await db
+        .from('news_items')
+        .select('symbol,headline,sentiment,sentiment_score,impact,published_at,is_demo')
+        .gte('published_at', new Date(nowMs - 72 * 3600000).toISOString())
+        .order('published_at', { ascending: false })
+        .limit(500);
+      recentNews = data ?? [];
+    } catch { recentNews = []; }
+
+    let earnings: AnyRow[] = [];
+    try {
+      const { data } = await db
+        .from('earnings_events')
+        .select('symbol,report_time,session,confirmed,expected_move_pct')
+        .gte('report_time', new Date(nowMs - 12 * 3600000).toISOString())
+        .lte('report_time', new Date(nowMs + 14 * 86400000).toISOString())
+        .order('report_time', { ascending: true })
+        .limit(300);
+      earnings = data ?? [];
+    } catch { earnings = []; }
+
+    const spy = bySymbol.get('SPY');
+    const qqq = bySymbol.get('QQQ');
+
+    const indexOrientationParts: number[] = [];
+    for (const indexQuote of [spy, qqq]) {
+      if (!indexQuote) continue;
+      const ch = n(indexQuote.change_pct);
+      if (ch !== null) indexOrientationParts.push(Math.sign(ch) * Math.min(100, Math.abs(ch) * 30));
+      const tr = String(indexQuote.trend ?? '').toLowerCase();
+      if (tr.includes('up')) indexOrientationParts.push(55);
+      if (tr.includes('down')) indexOrientationParts.push(-55);
+    }
+    const broadMarketOrientation = avg(indexOrientationParts);
+
+    const optionByUnderlying = new Map<string, AnyRow[]>();
+    for (const row of optionRows) {
+      const s = String(row.underlying_symbol ?? '').toUpperCase();
+      if (!s) continue;
+      const list = optionByUnderlying.get(s) ?? [];
+      list.push(row);
+      optionByUnderlying.set(s, list);
+    }
+
+    const newsBySymbol = new Map<string, AnyRow[]>();
+    for (const row of recentNews) {
+      const s = String(row.symbol ?? '').toUpperCase();
+      if (!s) continue;
+      const list = newsBySymbol.get(s) ?? [];
+      list.push(row);
+      newsBySymbol.set(s, list);
+    }
+
+    const earningsBySymbol = new Map<string, AnyRow[]>();
+    for (const row of earnings) {
+      const s = String(row.symbol ?? '').toUpperCase();
+      if (!s) continue;
+      const list = earningsBySymbol.get(s) ?? [];
+      list.push(row);
+      earningsBySymbol.set(s, list);
+    }
+
+    const created: AnyRow[] = [];
+
     for (const [symbol, q] of bySymbol) {
-      const momentum = Number(q.momentum_score ?? 50);
-      const change = Number(q.change_pct ?? 0);
+      // Skip broad-market context instruments as trade candidates only when explicitly requested.
+      if (body?.symbols && Array.isArray(body.symbols) && !body.symbols.map((x: unknown) => String(x).toUpperCase()).includes(symbol)) {
+        continue;
+      }
+
+      const price = n(q.price);
+      const change = n(q.change_pct);
+      const momentum = n(q.momentum_score);
       const trend = String(q.trend ?? '').toLowerCase();
-      const bullish = change > 0 || trend.includes('up') || momentum >= 55;
-      const bearish = change < 0 || trend.includes('down') || momentum <= 45;
-      const direction = bullish && !bearish ? 'bullish' : bearish && !bullish ? 'bearish' : 'neutral';
-      // Quote-only provisional scoring. The score is derived directly from the factors shown in the UI.
-      // No fixed floor is added: weak evidence must remain weak evidence.
-      const priceStrength = Math.max(0, Math.min(100, Math.abs(change) * 25));
-      const momentumStrength = Math.max(0, Math.min(100, Math.abs(momentum - 50) * 4));
+      const sma20 = n(q.sma20);
+      const sma50 = n(q.sma50);
+      const sma200 = n(q.sma200);
+      const support = n(q.support);
+      const resistance = n(q.resistance);
+      const atr = n(q.atr);
+      const relVolume = n(q.rel_volume);
 
-      const priceSupportsDirection =
-        direction === 'bullish' ? change > 0 :
-        direction === 'bearish' ? change < 0 : false;
-      const momentumSupportsDirection =
-        direction === 'bullish' ? momentum > 50 :
-        direction === 'bearish' ? momentum < 50 : false;
+      // ----- Absolute market orientations (-100 bearish, +100 bullish) -----
+      const priceParts: number[] = [];
+      if (change !== null) priceParts.push(Math.sign(change) * Math.min(100, Math.abs(change) * 24));
+      if (trend.includes('up')) priceParts.push(60);
+      else if (trend.includes('down')) priceParts.push(-60);
+      if (price !== null && sma20 !== null) priceParts.push(price >= sma20 ? 30 : -30);
+      if (sma20 !== null && sma50 !== null) priceParts.push(sma20 >= sma50 ? 45 : -45);
+      if (sma50 !== null && sma200 !== null) priceParts.push(sma50 >= sma200 ? 55 : -55);
+      const priceOrientation = avg(priceParts);
 
-      const priceEvidence = direction === 'neutral' ? 0 : (priceSupportsDirection ? priceStrength : -priceStrength);
-      const momentumEvidence = direction === 'neutral' ? 0 : (momentumSupportsDirection ? momentumStrength : -momentumStrength);
+      const momentumOrientation = momentum === null ? null : clamp((momentum - 50) * 2.5);
 
-      // With only two quote-derived factors available, normalize their displayed 35% + 35% weights
-      // so the resulting opportunity score is mathematically reconstructable from the factor table.
-      const displayedWeightTotal = 0.70;
-      const weightedContribution = (priceEvidence * 0.35) + (momentumEvidence * 0.35);
-      const opportunity = Math.max(0, Math.min(100, Math.round(weightedContribution / displayedWeightTotal)));
+      const symbolOptions = optionByUnderlying.get(symbol) ?? [];
+      const callVolume = symbolOptions.filter((r) => String(r.option_type).toUpperCase() === 'CALL')
+        .reduce((a, r) => a + Number(r.volume ?? 0), 0);
+      const putVolume = symbolOptions.filter((r) => String(r.option_type).toUpperCase() === 'PUT')
+        .reduce((a, r) => a + Number(r.volume ?? 0), 0);
+      const putCallRatio = callVolume > 0 ? putVolume / callVolume : n(q.put_call_ratio);
 
-      const agreement = direction === 'neutral'
-        ? 0
-        : (priceSupportsDirection === momentumSupportsDirection ? 100 : 0);
+      let optionOrientation: number | null = null;
+      if (putCallRatio !== null) {
+        // ~1.0 is neutral; ratios below 1 favor calls, above 1 favor puts.
+        optionOrientation = clamp((1 - putCallRatio) * 85);
+      }
 
-      // Thesis classification is separate from the numeric score.
-      // Quote-only analysis covers 2 of the 8 primary evidence families URSORA expects.
-      const evidenceFamilies = {
-        price_trend: true,
-        momentum: true,
-        market_alignment: false,
-        options_market: false,
-        catalysts_news: false,
-        liquidity: false,
-        risk_reward: false,
-        cross_factor_agreement: false,
-      };
-      const availableFamilies = Object.values(evidenceFamilies).filter(Boolean).length;
-      const totalFamilies = Object.keys(evidenceFamilies).length;
-      const evidenceCompleteness = Math.round((availableFamilies / totalFamilies) * 100);
+      const symbolNews = newsBySymbol.get(symbol) ?? [];
+      const newsScores: number[] = [];
+      for (const item of symbolNews.slice(0, 12)) {
+        let signed = n(item.sentiment_score);
+        if (signed === null) {
+          const label = String(item.sentiment ?? '').toLowerCase();
+          signed = label === 'bullish' ? 60 : label === 'bearish' ? -60 : 0;
+        } else if (Math.abs(signed) <= 1) {
+          signed *= 100;
+        }
+        const ageHours = Math.max(0, (nowMs - new Date(item.published_at).getTime()) / 3600000);
+        const recency = Math.exp(-ageHours / 36);
+        newsScores.push(clamp(signed) * impactMultiplier(item.impact) * recency);
+      }
+      const newsOrientation = newsScores.length ? clamp(newsScores.reduce((a, b) => a + b, 0) / newsScores.length) : null;
 
-      // A thesis cannot be classified as supported from only two evidence families,
-      // regardless of the numeric score produced by those available inputs.
-      let thesisState: 'Rejected' | 'Unsupported' | 'Preliminary' | 'Supported' | 'Strongly Supported';
-      if (direction === 'neutral' || agreement === 0) thesisState = 'Unsupported';
-      else if (availableFamilies < 4) thesisState = 'Preliminary';
-      else if (opportunity >= 75) thesisState = 'Strongly Supported';
-      else if (opportunity >= 60) thesisState = 'Supported';
-      else if (opportunity < 35) thesisState = 'Rejected';
-      else thesisState = 'Unsupported';
+      // Determine proposed direction from independent directional evidence.
+      const orientationInputs = [priceOrientation, momentumOrientation, broadMarketOrientation, optionOrientation, newsOrientation]
+        .filter((v): v is number => v !== null);
+      const compositeOrientation = orientationInputs.length ? orientationInputs.reduce((a, b) => a + b, 0) / orientationInputs.length : 0;
+      const direction = directionName(compositeOrientation);
 
-      // Confidence combines agreement and data completeness. It is deliberately
-      // constrained while major evidence families are unavailable.
-      const confidence = Math.max(
-        0,
-        Math.min(100, Math.round((agreement * 0.55) + (evidenceCompleteness * 0.45))),
-      );
+      // ----- Relative evidence scores: positive supports proposed direction -----
+      const priceEvidence = relativeToDirection(priceOrientation, direction);
+      const momentumEvidence = relativeToDirection(momentumOrientation, direction);
+      const marketEvidence = relativeToDirection(broadMarketOrientation, direction);
+      const optionsEvidence = relativeToDirection(optionOrientation, direction);
+      const newsEvidence = relativeToDirection(newsOrientation, direction);
 
-      const factors = [
+      // Liquidity/execution quality from option contracts in the proposed direction.
+      const desiredOptionType = direction === 'bearish' ? 'PUT' : 'CALL';
+      const relevantOptions = direction === 'neutral'
+        ? []
+        : symbolOptions.filter((r) => String(r.option_type).toUpperCase() === desiredOptionType);
+
+      const spreadMedian = median(relevantOptions.map((r) => n(r.spread_pct)));
+      const oiMedian = median(relevantOptions.map((r) => n(r.open_interest)));
+      const volumeMedian = median(relevantOptions.map((r) => n(r.volume)));
+
+      let liquidityEvidence: number | null = null;
+      if (relevantOptions.length) {
+        let score = 0;
+        let pieces = 0;
+        if (spreadMedian !== null) {
+          score += spreadMedian <= 5 ? 85 : spreadMedian <= 10 ? 55 : spreadMedian <= 20 ? 10 : -70;
+          pieces++;
+        }
+        if (oiMedian !== null) {
+          score += oiMedian >= 500 ? 75 : oiMedian >= 100 ? 45 : oiMedian >= 20 ? 10 : -40;
+          pieces++;
+        }
+        if (volumeMedian !== null) {
+          score += volumeMedian >= 100 ? 70 : volumeMedian >= 20 ? 40 : volumeMedian >= 5 ? 10 : -30;
+          pieces++;
+        }
+        liquidityEvidence = pieces ? clamp(score / pieces) : null;
+      }
+
+      // Risk/reward from technical structure when historical bars are available.
+      let riskRewardEvidence: number | null = null;
+      let estimatedRatio: number | null = null;
+      if (price !== null && atr !== null && atr > 0 && direction !== 'neutral') {
+        const targetDistance = direction === 'bullish'
+          ? (resistance !== null && resistance > price ? resistance - price : atr * 1.5)
+          : (support !== null && support < price ? price - support : atr * 1.5);
+        const riskDistance = direction === 'bullish'
+          ? (support !== null && support < price ? price - support : atr)
+          : (resistance !== null && resistance > price ? resistance - price : atr);
+        if (riskDistance > 0) {
+          estimatedRatio = targetDistance / riskDistance;
+          riskRewardEvidence = clamp((estimatedRatio - 1) * 70);
+        }
+      }
+
+      // Cross-factor agreement only considers independent directional factors with meaningful strength.
+      const directionalEvidence = [priceEvidence, momentumEvidence, marketEvidence, optionsEvidence, newsEvidence]
+        .filter((v): v is number => v !== null && Math.abs(v) >= 25);
+      const supportingCount = directionalEvidence.filter((v) => v > 0).length;
+      const opposingCount = directionalEvidence.filter((v) => v < 0).length;
+      const agreement = directionalEvidence.length
+        ? Math.round((Math.max(supportingCount, opposingCount) / directionalEvidence.length) * 100)
+        : 50;
+      const agreementEvidence = directionalEvidence.length >= 3
+        ? clamp((agreement - 50) * 2)
+        : null;
+
+      const nextEarnings = (earningsBySymbol.get(symbol) ?? [])[0] ?? null;
+      const hoursToEarnings = nextEarnings?.report_time
+        ? (new Date(nextEarnings.report_time).getTime() - nowMs) / 3600000
+        : null;
+      const eventInsideHoldingWindow = hoursToEarnings !== null && hoursToEarnings >= 0 && hoursToEarnings <= 5 * 24;
+
+      const factorSpecs: FactorSpec[] = [
         {
-          factor: 'price_change',
-          label: 'Price movement',
-          raw_score: priceStrength,
-          base_weight: .35,
-          effective_weight: .35,
-          weight_change: 0,
-          contribution: priceEvidence * .35,
-          effect: Math.abs(priceEvidence) < 25 ? 'NEUTRAL' : priceEvidence > 0 ? 'INCREASED' : priceEvidence < 0 ? 'DECREASED' : 'NEUTRAL',
-          explanation: Math.abs(priceEvidence) < 25
-            ? `The latest stored price move is ${change >= 0 ? '+' : ''}${change.toFixed(2)}%. It is directionally aligned with the proposed trade, but the move is too small to count as meaningful confirmation.`
-            : `The latest stored price move is ${change >= 0 ? '+' : ''}${change.toFixed(2)}%. Its magnitude provides meaningful evidence ${priceSupportsDirection ? 'in favor of' : 'against'} the proposed direction.`,
+          factor: 'price_trend',
+          label: 'Price trend',
+          baseWeight: 0.22,
+          signedScore: priceEvidence,
+          directional: true,
+          explanation: priceEvidence === null
+            ? 'There is not enough historical price information to evaluate trend structure.'
+            : `Current price movement, trend direction, and available moving-average structure provide ${Math.abs(priceEvidence) < 25 ? 'limited' : priceEvidence > 0 ? 'supporting' : 'opposing'} evidence for the proposed ${direction} direction.`,
         },
         {
           factor: 'momentum',
           label: 'Momentum',
-          raw_score: momentumStrength,
-          base_weight: .35,
-          effective_weight: .35,
-          weight_change: 0,
-          contribution: momentumEvidence * .35,
-          effect: Math.abs(momentumEvidence) < 25 ? 'NEUTRAL' : momentumEvidence > 0 ? 'INCREASED' : momentumEvidence < 0 ? 'DECREASED' : 'NEUTRAL',
-          explanation: Math.abs(momentumEvidence) < 25
-            ? `The stored momentum reading is ${momentum.toFixed(1)}/100. It leans toward the proposed direction, but not strongly enough to count as meaningful confirmation.`
-            : `The stored momentum reading is ${momentum.toFixed(1)}/100 and provides ${momentumSupportsDirection ? 'supporting' : 'opposing'} evidence for the proposed direction.`,
+          baseWeight: 0.14,
+          signedScore: momentumEvidence,
+          directional: true,
+          explanation: momentum === null
+            ? 'A momentum reading is not currently available.'
+            : `The momentum reading is ${momentum.toFixed(1)}/100 and provides ${Math.abs(momentumEvidence ?? 0) < 25 ? 'limited directional evidence' : (momentumEvidence ?? 0) > 0 ? 'meaningful confirmation' : 'meaningful contradiction'}.`,
+        },
+        {
+          factor: 'market_alignment',
+          label: 'Broader market alignment',
+          baseWeight: 0.12,
+          signedScore: marketEvidence,
+          directional: true,
+          explanation: marketEvidence === null
+            ? 'Broader index data are not currently available.'
+            : `SPY and QQQ context is ${Math.abs(marketEvidence) < 25 ? 'largely neutral' : marketEvidence > 0 ? 'aligned with' : 'opposed to'} the proposed direction.`,
+        },
+        {
+          factor: 'options_market',
+          label: 'Options market',
+          baseWeight: 0.16,
+          signedScore: optionsEvidence,
+          directional: true,
+          explanation: optionsEvidence === null
+            ? 'Current option-chain activity is not available for this symbol.'
+            : `Observed call and put activity produces a put/call volume ratio of ${putCallRatio?.toFixed(2) ?? 'unavailable'}, which ${Math.abs(optionsEvidence) < 25 ? 'does not provide meaningful directional confirmation' : optionsEvidence > 0 ? 'supports' : 'opposes'} the proposed direction.`,
+        },
+        {
+          factor: 'catalysts_news',
+          label: 'News and market events',
+          baseWeight: 0.12,
+          signedScore: newsEvidence,
+          directional: true,
+          explanation: newsEvidence === null
+            ? (eventInsideHoldingWindow
+              ? 'A scheduled earnings event falls inside the expected holding period, but no directional news evidence is currently available.'
+              : 'No recent verified news evidence is currently available for this symbol.')
+            : `Recent stored news and event information ${Math.abs(newsEvidence) < 25 ? 'is not strongly directional' : newsEvidence > 0 ? 'supports' : 'opposes'} the proposed direction.`,
+        },
+        {
+          factor: 'liquidity',
+          label: 'Option liquidity',
+          baseWeight: 0.10,
+          signedScore: liquidityEvidence,
+          directional: false,
+          explanation: liquidityEvidence === null
+            ? 'Option bid/ask, volume, and open-interest data are not available.'
+            : `Available ${desiredOptionType.toLowerCase()} contracts show a median spread of ${spreadMedian?.toFixed(1) ?? 'unavailable'}%, median open interest of ${oiMedian?.toFixed(0) ?? 'unavailable'}, and median daily volume of ${volumeMedian?.toFixed(0) ?? 'unavailable'}.`,
+        },
+        {
+          factor: 'risk_reward',
+          label: 'Risk and reward structure',
+          baseWeight: 0.09,
+          signedScore: riskRewardEvidence,
+          directional: false,
+          explanation: riskRewardEvidence === null
+            ? 'Support, resistance, and volatility data are not sufficient to estimate the trade structure.'
+            : `The estimated reward-to-risk relationship is approximately ${estimatedRatio?.toFixed(2) ?? 'unavailable'} to 1 using current structural levels and ATR.`,
+        },
+        {
+          factor: 'cross_factor_agreement',
+          label: 'Evidence agreement',
+          baseWeight: 0.05,
+          signedScore: agreementEvidence,
+          directional: false,
+          explanation: agreementEvidence === null
+            ? 'Fewer than three independent directional evidence categories are strong enough to measure agreement reliably.'
+            : `${agreement}% of the meaningful directional evidence categories point to the same conclusion.`,
         },
       ];
+
+      const availableSpecs = factorSpecs.filter((f) => f.signedScore !== null);
+      const availableWeight = availableSpecs.reduce((a, f) => a + f.baseWeight, 0);
+      const factors = factorSpecs.map((spec) => {
+        const effective = spec.signedScore === null || availableWeight === 0 ? 0 : spec.baseWeight / availableWeight;
+        return factorRow(spec, effective);
+      });
+
+      const netSupport = availableWeight
+        ? availableSpecs.reduce((a, f) => a + Number(f.signedScore) * (f.baseWeight / availableWeight), 0)
+        : 0;
+      const opportunity = Math.round(clamp(50 + netSupport / 2, 0, 100));
+
+      const evidenceFamilies = Object.fromEntries(factorSpecs.map((f) => [f.factor, f.signedScore !== null]));
+      const availableFamilies = availableSpecs.length;
+      const totalFamilies = factorSpecs.length;
+      const evidenceCompleteness = Math.round((availableFamilies / totalFamilies) * 100);
+
+      const directionalFamiliesAvailable = factorSpecs.filter((f) => f.directional && f.signedScore !== null).length;
+      const sourceQuality = avg([
+        n(q.confidence) !== null ? Number(q.confidence) * 100 : null,
+        symbolOptions.length ? 65 : null,
+        symbolNews.length ? avg(symbolNews.map((x) => n(x.confidence) !== null ? Number(x.confidence) * 100 : 55)) : null,
+      ]) ?? 50;
+
+      const confidence = Math.round(clamp(
+        (evidenceCompleteness * 0.45) +
+        (agreement * 0.35) +
+        (sourceQuality * 0.20),
+        0,
+        100,
+      ));
+
+      const blockers: string[] = [];
+      if (liquidityEvidence !== null && liquidityEvidence < -25) blockers.push('Available option contracts have poor liquidity or unusually wide spreads.');
+      if (riskRewardEvidence !== null && riskRewardEvidence < -20) blockers.push('The current structural reward does not adequately compensate for the estimated risk.');
+      if (eventInsideHoldingWindow) blockers.push('A scheduled earnings event falls inside the expected holding period.');
+      if (directionalEvidence.length >= 3 && agreement < 60) blockers.push('The major directional evidence categories do not agree sufficiently.');
+
+      let thesisState: ThesisState;
+      if (direction === 'neutral') thesisState = 'Unsupported';
+      else if (opportunity < 35 && evidenceCompleteness >= 50) thesisState = 'Rejected';
+      else if (evidenceCompleteness < 50 || directionalFamiliesAvailable < 3) thesisState = 'Preliminary';
+      else if (blockers.length) thesisState = 'Unsupported';
+      else if (opportunity >= 75 && agreement >= 75 && evidenceCompleteness >= 63) thesisState = 'Strongly Supported';
+      else if (opportunity >= 60 && agreement >= 60) thesisState = 'Supported';
+      else if (opportunity < 35) thesisState = 'Rejected';
+      else thesisState = 'Unsupported';
+
+      const candidatePool = relevantOptions
+        .filter((r) => {
+          const bid = n(r.bid);
+          const ask = n(r.ask);
+          const strike = n(r.strike);
+          const exp = r.expiration ? new Date(r.expiration).getTime() : NaN;
+          const dte = Number.isFinite(exp) ? (exp - nowMs) / 86400000 : -1;
+          return bid !== null && ask !== null && strike !== null && dte >= 7 && dte <= 60;
+        })
+        .sort((a, b) => {
+          const spreadA = n(a.spread_pct) ?? 999;
+          const spreadB = n(b.spread_pct) ?? 999;
+          if (spreadA !== spreadB) return spreadA - spreadB;
+          return Math.abs(Number(a.strike) - Number(price ?? a.strike)) - Math.abs(Number(b.strike) - Number(price ?? b.strike));
+        });
+      const suggested = (thesisState === 'Supported' || thesisState === 'Strongly Supported') ? candidatePool[0] ?? null : null;
+
+      const riskLevel =
+        eventInsideHoldingWindow ||
+        (liquidityEvidence !== null && liquidityEvidence < 0) ||
+        (n(q.iv) !== null && Number(q.iv) > 0.60)
+          ? 'High'
+          : 'Moderate';
+
+      const topNews = symbolNews[0];
+      const catalystSummary = eventInsideHoldingWindow
+        ? `Earnings are scheduled within the expected holding period (${nextEarnings.report_time}).`
+        : topNews?.headline ?? null;
+
+      const noTradeReason =
+        thesisState === 'Preliminary'
+          ? `The analysis is preliminary because only ${availableFamilies} of ${totalFamilies} primary evidence categories are available. URSORA requires broader independent confirmation before classifying the thesis as supported.`
+          : thesisState === 'Unsupported'
+            ? (blockers.length ? blockers.join(' ') : 'The available evidence does not provide sufficient agreement and strength to support this trade analysis.')
+            : thesisState === 'Rejected'
+              ? 'The available evidence materially contradicts the proposed direction.'
+              : null;
+
       created.push({
-        run_id: runId, symbol, trading_day: new Date().toISOString().slice(0,10), direction,
-        strategy: thesisState === 'Supported' || thesisState === 'Strongly Supported' ? 'directional option' : 'No Trade', confidence_score: confidence,
-        opportunity_score: opportunity, risk_level: Number(q.iv_rank ?? 0) > 70 ? 'High' : 'Moderate',
-        holding_period: '1–5 days', catalyst_summary: null,
-        no_trade_reason: thesisState === 'Preliminary' ? 'The available evidence is directionally aligned but incomplete. URSORA requires confirmation from additional independent evidence categories before classifying the thesis as supported.' : thesisState === 'Unsupported' ? 'The available evidence does not establish a sufficiently consistent directional thesis.' : thesisState === 'Rejected' ? 'The available evidence materially contradicts the proposed thesis.' : null,
-        stock_price_at_generation: q.price, suggested_expiration: null, suggested_strike: null,
+        run_id: runId,
+        symbol,
+        trading_day: new Date().toISOString().slice(0, 10),
+        direction,
+        strategy: thesisState === 'Supported' || thesisState === 'Strongly Supported' ? 'directional option' : 'No Trade',
+        confidence_score: confidence,
+        opportunity_score: opportunity,
+        risk_level: riskLevel,
+        holding_period: '1–5 days',
+        catalyst_summary: catalystSummary,
+        no_trade_reason: noTradeReason,
+        stock_price_at_generation: price,
+        suggested_expiration: suggested?.expiration ?? null,
+        suggested_strike: n(suggested?.strike),
+        break_even: null,
+        est_premium: null,
+        max_defined_loss: null,
+        target_price: direction === 'bullish' ? resistance : direction === 'bearish' ? support : null,
+        invalidation_level: direction === 'bullish' ? support : direction === 'bearish' ? resistance : null,
+        expected_move_pct: price !== null && atr !== null && price > 0 ? (atr / price) * 100 : null,
         score_breakdown: {
           factors,
-          raw: { change_pct: change, momentum_score: momentum },
+          raw: {
+            change_pct: change,
+            momentum_score: momentum,
+            composite_orientation: compositeOrientation,
+            put_call_ratio: putCallRatio,
+            relative_volume: relVolume,
+            reward_risk_ratio: estimatedRatio,
+          },
           thesis_state: thesisState,
           evidence_completeness: evidenceCompleteness,
           evidence_families: evidenceFamilies,
           available_families: availableFamilies,
           total_families: totalFamilies,
           agreement_score: agreement,
+          blockers,
         },
         weights: {
-          effective: { price_change: .35, momentum: .35 },
-          base: { price_change: .35, momentum: .35 },
+          base: Object.fromEntries(factorSpecs.map((x) => [x.factor, x.baseWeight])),
+          effective: Object.fromEntries(factors.map((x) => [x.factor, x.effective_weight])),
           decisions: [
-            `Price movement: ${change >= 0 ? '+' : ''}${change.toFixed(2)}% in the latest stored quote; ${priceSupportsDirection ? 'aligned with' : 'opposed to'} the proposed ${direction} direction.`,
-            `Momentum: ${momentum.toFixed(1)}/100; ${momentumSupportsDirection ? 'aligned with' : 'opposed to'} the proposed ${direction} direction.`,
-            `Thesis classification: ${thesisState}. Evidence completeness is ${evidenceCompleteness}% (${availableFamilies} of ${totalFamilies} primary evidence categories available).`,
-            'Options activity, catalysts/news, broader market alignment, liquidity, risk/reward and cross-factor agreement are not yet represented in this run.',
-            'A thesis is not classified as Supported until multiple independent evidence categories are available and materially agree. No option strike or expiration is inferred from the underlying stock price.'
+            `Thesis classification: ${thesisState}.`,
+            `Evidence completeness: ${evidenceCompleteness}% (${availableFamilies} of ${totalFamilies} primary categories available).`,
+            `Evidence agreement: ${agreement}% among meaningful directional categories.`,
+            blockers.length ? `Trade constraints: ${blockers.join(' ')}` : 'No hard trade constraints were identified from the data currently available.',
+            'Missing evidence reduces completeness and confidence; it is not treated as neutral confirmation.',
           ],
         },
-        regime: snapshot?.regime ?? 'Mixed', regime_explanation: 'Latest stored market snapshot.', engine_version: 'tradecycle-2', is_demo: Boolean(q.is_demo ?? true), generated_at: started,
+        regime: snapshot?.regime ?? 'Mixed',
+        regime_explanation: snapshot?.regime_note ?? 'Broader market conditions derived from the latest stored market data.',
+        engine_version: 'tradecycle-3',
+        is_demo: Boolean(q.is_demo ?? true),
+        generated_at: started,
       });
     }
 
     let signalCount = 0;
     if (created.length) {
-      const { error } = await db.from('signals').insert(created); if (error) throw error;
+      const { error } = await db.from('signals').insert(created);
+      if (error) throw error;
       signalCount = created.length;
     }
+
     const { error: runError } = await db.from('analysis_runs').insert({
-      run_id: runId, kind, trading_day: new Date().toISOString().slice(0,10), signals_generated: signalCount,
-      updates_emitted: 0, feed_events: 0, regime: snapshot?.regime ?? null,
-      notes: signalCount ? `Independent baseline analysis completed for authenticated user ${user.id}.` : 'No stored quotes were available; no signals were invented.',
-      started_at: started, finished_at: new Date().toISOString(),
+      run_id: runId,
+      kind,
+      trading_day: new Date().toISOString().slice(0, 10),
+      signals_generated: signalCount,
+      updates_emitted: 0,
+      feed_events: 0,
+      regime: snapshot?.regime ?? null,
+      notes: signalCount
+        ? `TradeCycle v3 multi-evidence analysis completed for authenticated user ${user.id}.`
+        : 'No stored quote data were available; no signals were generated.',
+      started_at: started,
+      finished_at: new Date().toISOString(),
     });
     if (runError) throw runError;
-    return json({ success: true, signals: signalCount, updates: 0, run_id: runId, note: signalCount ? undefined : 'No stored quote data available.' });
+
+    return json({
+      success: true,
+      signals: signalCount,
+      updates: 0,
+      run_id: runId,
+      engine_version: 'tradecycle-3',
+      note: signalCount ? 'Signals generated using all currently available evidence categories.' : 'No stored quote data available.',
+    });
   } catch (e) {
     if (e instanceof AuthError) return json({ error: e.message }, e.status);
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
