@@ -282,7 +282,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
             </div>
           </Panel>
 
-          <Panel title="Breaking catalysts" subtitle="Most recent dated items across the universe." right={<DemoBadge />}>
+          <Panel title="Recent market-moving events" subtitle="Recent dated events and announcements across tracked symbols." right={<DemoBadge />}>
             <ul className="space-y-2">
               {news.slice(0, 6).map((n) => (
                 <li key={n.id} className="border-b border-zinc-800/60 pb-2 last:border-0">
@@ -303,7 +303,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
         <div className="space-y-3">
           <Panel
             title="Signal feed"
-            subtitle="Append-only, timestamped, attributed. Each item carries a ticker, a category and a source."
+            subtitle="Recent activity is shown with its time, symbol, category, and source."
             right={
               <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-emerald-400">
                 <Radio className={cn('h-3 w-3', live && 'animate-pulse')} aria-hidden="true" />
@@ -353,7 +353,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
                       onClick={() => onOpenThesis(u.signal_id as number)}
                       className="mt-1.5 font-mono text-[10px] uppercase tracking-wider text-sky-400 transition-colors hover:text-sky-300"
                     >
-                      open thesis
+                      open analysis
                     </button>
                   )}
                 </li>
