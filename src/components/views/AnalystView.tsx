@@ -29,9 +29,9 @@ export const AnalystView: React.FC<{ onOpenThesis: (id: number) => void }> = ({ 
     <div className="space-y-4">
       <SectionHeading
         eyebrow="AI analyst"
-        title="Ask questions against the platform's own data"
-        description="The analyst reads the stored signals, score breakdowns, contract candidates, risk assessments, news items, filings, transcripts, sentiment readings and calendar — and nothing else. It cites what it used and says DATA UNAVAILABLE rather than guessing."
-        right={<DemoBadge label="GROUNDED ANSWERS ONLY" />}
+        title="Ask questions using URSORA's available data"
+        description="The analyst answers from data already available in URSORA, including signals, scoring details, contracts, risk information, news, filings, transcripts, sentiment, and scheduled events. When information is missing, it states that clearly rather than inferring unsupported details."
+        right={<DemoBadge label="URSORA DATA ONLY" />}
       />
 
       <div className="grid gap-3 xl:grid-cols-[1fr_340px]">
@@ -42,7 +42,7 @@ export const AnalystView: React.FC<{ onOpenThesis: (id: number) => void }> = ({ 
         />
 
         <div className="space-y-3">
-          <Panel title="Focus a ticker" subtitle="Narrowing the focus loads that name's quote, news, sentiment, transcripts and signal history into the answer context.">
+          <Panel title="Focus on a symbol" subtitle="Selecting a symbol limits the analyst to information associated with that company or instrument.">
             <div className="flex flex-wrap gap-1.5">
               <button
                 type="button"
@@ -52,7 +52,7 @@ export const AnalystView: React.FC<{ onOpenThesis: (id: number) => void }> = ({ 
                   focus === null ? 'border-sky-500/50 bg-sky-500/15 text-sky-300' : 'border-zinc-800 bg-black/30 text-zinc-400 hover:text-zinc-200',
                 )}
               >
-                whole board
+                all symbols
               </button>
               {signals.map((s) => (
                 <button
@@ -70,7 +70,7 @@ export const AnalystView: React.FC<{ onOpenThesis: (id: number) => void }> = ({ 
             </div>
           </Panel>
 
-          <Panel title="Today's ranked context" subtitle="Everything below is already in the analyst's context window.">
+          <Panel title="Today's opportunities" subtitle="These opportunities are available to the analyst for reference.">
             <ul className="space-y-1.5">
               {signals.slice(0, 8).map((s) => (
                 <li key={s.id}>
@@ -93,23 +93,19 @@ export const AnalystView: React.FC<{ onOpenThesis: (id: number) => void }> = ({ 
             </ul>
           </Panel>
 
-          <Panel title="How grounding works">
+          <Panel title="How the analyst uses data">
             <ul className="space-y-2 text-[11px] leading-relaxed text-zinc-400">
               <li className="flex gap-2">
                 <Database className="mt-0.5 h-3 w-3 shrink-0 text-sky-400" aria-hidden="true" />
-                Each question sends the current market snapshot, the ranked signal set with full score breakdowns,
-                recent signal updates, upcoming catalysts and the live feed. Focusing a ticker adds its quote, news,
-                filings, transcripts, sentiment and signal history.
+                The analyst receives the current market summary, today's opportunities, recent signal changes, scheduled market events, and recent activity. Selecting a symbol adds its price, news, filings, transcripts, sentiment, and prior signals.
               </li>
               <li className="flex gap-2">
                 <QuoteIcon className="mt-0.5 h-3 w-3 shrink-0 text-sky-400" aria-hidden="true" />
-                The model is instructed to cite the fields it used, to refuse outside knowledge about prices or news,
-                and to answer DATA UNAVAILABLE when a field is missing.
+                The analyst identifies the information used in its answer and does not substitute outside market facts when URSORA does not have the requested data.
               </li>
               <li className="flex gap-2">
                 <ShieldAlert className="mt-0.5 h-3 w-3 shrink-0 text-amber-400" aria-hidden="true" />
-                Confidence scores are evidence-quality measures, not probabilities of profit. The analyst is instructed
-                to keep that framing and to never present a score as a likelihood of making money.
+                Confidence scores describe the quality and completeness of the available evidence. They do not represent the probability of a profitable trade.
               </li>
               <li className="flex gap-2">
                 <Bot className="mt-0.5 h-3 w-3 shrink-0 text-sky-400" aria-hidden="true" />
