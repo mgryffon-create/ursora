@@ -511,17 +511,45 @@ Deno.serve(async (req) => {
         liquidityEvidence = pieces ? clamp(score / pieces) : null;
       }
 
-      // Risk/reward from technical structure when historical bars are available.
+      // Tactical 1–5 day structure. Long-window support/resistance are context,
+      // but invalidation is bounded by one ATR so a distant 20-day extreme cannot
+      // create an unrealistic stop for a short holding period.
       let riskRewardEvidence: number | null = null;
       let estimatedRatio: number | null = null;
+      let tacticalTarget: number | null = null;
+      let tacticalInvalidation: number | null = null;
+
       if (price !== null && atr !== null && atr > 0 && direction !== 'neutral') {
-        const targetDistance = direction === 'bullish'
-          ? (resistance !== null && resistance > price ? resistance - price : atr * 1.5)
-          : (support !== null && support < price ? price - support : atr * 1.5);
-        const riskDistance = direction === 'bullish'
-          ? (support !== null && support < price ? price - support : atr)
-          : (resistance !== null && resistance > price ? resistance - price : atr);
-        if (riskDistance > 0) {
+        if (direction === 'bullish') {
+          const atrInvalidation = price - atr;
+          tacticalInvalidation =
+            support !== null && support < price
+              ? Math.max(support, atrInvalidation)
+              : atrInvalidation;
+
+          const atrTarget = price + atr * 1.5;
+          tacticalTarget =
+            resistance !== null && resistance > price
+              ? Math.min(resistance, atrTarget)
+              : atrTarget;
+        } else {
+          const atrInvalidation = price + atr;
+          tacticalInvalidation =
+            resistance !== null && resistance > price
+              ? Math.min(resistance, atrInvalidation)
+              : atrInvalidation;
+
+          const atrTarget = price - atr * 1.5;
+          tacticalTarget =
+            support !== null && support < price
+              ? Math.max(support, atrTarget)
+              : atrTarget;
+        }
+
+        const targetDistance = tacticalTarget === null ? null : Math.abs(tacticalTarget - price);
+        const riskDistance = tacticalInvalidation === null ? null : Math.abs(price - tacticalInvalidation);
+
+        if (targetDistance !== null && riskDistance !== null && riskDistance > 0) {
           estimatedRatio = targetDistance / riskDistance;
           riskRewardEvidence = clamp((estimatedRatio - 1) * 70);
         }
@@ -684,7 +712,7 @@ Deno.serve(async (req) => {
           independence: riskRewardIndependence,
           explanation: riskRewardEvidence === null
             ? 'Support, resistance, and volatility data are not sufficient to estimate the trade structure.'
-            : `The estimated reward-to-risk relationship is approximately ${estimatedRatio?.toFixed(2) ?? 'unavailable'} to 1 using current support/resistance and ATR derived from stored daily price history.`,
+            : `The estimated reward-to-risk relationship is approximately ${estimatedRatio?.toFixed(2) ?? 'unavailable'} to 1 using a 1–5 day tactical target and invalidation level bounded by ATR and nearby structure.`,
         },
       ];
 
@@ -899,8 +927,8 @@ Deno.serve(async (req) => {
         break_even: null,
         est_premium: null,
         max_defined_loss: null,
-        target_price: direction === 'bullish' ? resistance : direction === 'bearish' ? support : null,
-        invalidation_level: direction === 'bullish' ? support : direction === 'bearish' ? resistance : null,
+        target_price: tacticalTarget,
+        invalidation_level: tacticalInvalidation,
         expected_move_pct: price !== null && atr !== null && price > 0 ? (atr / price) * 100 : null,
         score_breakdown: {
           factors,
@@ -911,6 +939,10 @@ Deno.serve(async (req) => {
             put_call_ratio: putCallRatio,
             relative_volume: relVolume,
             reward_risk_ratio: estimatedRatio,
+            structural_support: support,
+            structural_resistance: resistance,
+            tactical_target: tacticalTarget,
+            tactical_invalidation: tacticalInvalidation,
             posterior_log_odds: posteriorLogOdds,
           },
           thesis_state: thesisState,
