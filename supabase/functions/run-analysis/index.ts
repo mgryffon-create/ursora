@@ -26,21 +26,75 @@ Deno.serve(async (req) => {
       const bullish = change > 0 || trend.includes('up') || momentum >= 55;
       const bearish = change < 0 || trend.includes('down') || momentum <= 45;
       const direction = bullish && !bearish ? 'bullish' : bearish && !bullish ? 'bearish' : 'neutral';
-      const opportunity = Math.max(0, Math.min(100, Math.round((Math.abs(change) * 8) + (Math.abs(momentum - 50) * 1.2) + 45)));
-      const confidence = Math.max(0, Math.min(100, Math.round(40 + Math.abs(momentum - 50) + Math.min(25, Math.abs(change) * 5))));
+      // Quote-only provisional scoring. The score is derived directly from the factors shown in the UI.
+      // No fixed floor is added: weak evidence must remain weak evidence.
+      const priceStrength = Math.max(0, Math.min(100, Math.abs(change) * 25));
+      const momentumStrength = Math.max(0, Math.min(100, Math.abs(momentum - 50) * 4));
+
+      const priceSupportsDirection =
+        direction === 'bullish' ? change > 0 :
+        direction === 'bearish' ? change < 0 : false;
+      const momentumSupportsDirection =
+        direction === 'bullish' ? momentum > 50 :
+        direction === 'bearish' ? momentum < 50 : false;
+
+      const priceEvidence = direction === 'neutral' ? 0 : (priceSupportsDirection ? priceStrength : -priceStrength);
+      const momentumEvidence = direction === 'neutral' ? 0 : (momentumSupportsDirection ? momentumStrength : -momentumStrength);
+
+      // With only two quote-derived factors available, normalize their displayed 35% + 35% weights
+      // so the resulting opportunity score is mathematically reconstructable from the factor table.
+      const displayedWeightTotal = 0.70;
+      const weightedContribution = (priceEvidence * 0.35) + (momentumEvidence * 0.35);
+      const opportunity = Math.max(0, Math.min(100, Math.round(weightedContribution / displayedWeightTotal)));
+
+      const agreement = direction === 'neutral'
+        ? 0
+        : (priceSupportsDirection === momentumSupportsDirection ? 100 : 0);
+      // Confidence is intentionally capped while the engine has only quote-derived inputs.
+      const confidence = Math.max(0, Math.min(50, Math.round(25 + (agreement * 0.25))));
+
       const factors = [
-        { factor: 'price_change', label: 'Price change', raw_score: Math.min(100, Math.abs(change) * 12), base_weight: .35, effective_weight: .35, weight_change: 0, contribution: Math.min(35, Math.abs(change) * 4.2), effect: 'INCREASED', explanation: 'Uses the latest stored percentage move.' },
-        { factor: 'momentum', label: 'Momentum', raw_score: momentum, base_weight: .35, effective_weight: .35, weight_change: 0, contribution: momentum * .35, effect: momentum >= 50 ? 'INCREASED' : 'DECREASED', explanation: 'Uses the latest stored momentum score.' },
+        {
+          factor: 'price_change',
+          label: 'Price movement',
+          raw_score: priceStrength,
+          base_weight: .35,
+          effective_weight: .35,
+          weight_change: 0,
+          contribution: priceEvidence * .35,
+          effect: priceEvidence > 0 ? 'INCREASED' : priceEvidence < 0 ? 'DECREASED' : 'NEUTRAL',
+          explanation: `The latest stored price move is ${change >= 0 ? '+' : ''}${change.toFixed(2)}%. This measures the magnitude of the move and whether it agrees with the proposed direction.`,
+        },
+        {
+          factor: 'momentum',
+          label: 'Momentum',
+          raw_score: momentumStrength,
+          base_weight: .35,
+          effective_weight: .35,
+          weight_change: 0,
+          contribution: momentumEvidence * .35,
+          effect: momentumEvidence > 0 ? 'INCREASED' : momentumEvidence < 0 ? 'DECREASED' : 'NEUTRAL',
+          explanation: `The stored momentum reading is ${momentum.toFixed(1)}/100. Readings above 50 support bullish direction; readings below 50 support bearish direction.`,
+        },
       ];
       created.push({
         run_id: runId, symbol, trading_day: new Date().toISOString().slice(0,10), direction,
-        strategy: direction === 'neutral' ? 'watch' : 'directional option', confidence_score: confidence,
+        strategy: direction === 'neutral' || opportunity < 55 ? 'No Trade' : 'directional option', confidence_score: confidence,
         opportunity_score: opportunity, risk_level: Number(q.iv_rank ?? 0) > 70 ? 'High' : 'Moderate',
         holding_period: '1–5 days', catalyst_summary: null,
-        no_trade_reason: direction === 'neutral' ? 'Stored inputs did not establish a directional edge.' : null,
-        stock_price_at_generation: q.price, suggested_expiration: null, suggested_strike: q.price,
+        no_trade_reason: direction === 'neutral' ? 'Price movement and momentum do not establish a consistent directional thesis.' : opportunity < 55 ? 'The available quote-derived evidence does not meet the minimum opportunity threshold. Additional options, catalyst, market-alignment, liquidity and risk data are required before a contract should be considered.' : null,
+        stock_price_at_generation: q.price, suggested_expiration: null, suggested_strike: null,
         score_breakdown: { factors, raw: { change_pct: change, momentum_score: momentum } },
-        weights: { effective: { price_change: .35, momentum: .35 }, base: { price_change: .35, momentum: .35 }, decisions: ['Independent baseline scoring uses only stored market rows.'] },
+        weights: {
+          effective: { price_change: .35, momentum: .35 },
+          base: { price_change: .35, momentum: .35 },
+          decisions: [
+            `Price movement: ${change >= 0 ? '+' : ''}${change.toFixed(2)}% in the latest stored quote; ${priceSupportsDirection ? 'aligned with' : 'opposed to'} the proposed ${direction} direction.`,
+            `Momentum: ${momentum.toFixed(1)}/100; ${momentumSupportsDirection ? 'aligned with' : 'opposed to'} the proposed ${direction} direction.`,
+            'This is a provisional quote-only score. Options activity, catalysts, news, broader market alignment, liquidity, risk/reward and cross-factor agreement are not yet represented in this run.',
+            'Because those inputs are absent, confidence is capped at 50 and no option strike or expiration is inferred from the underlying price.',
+          ],
+        },
         regime: snapshot?.regime ?? 'Mixed', regime_explanation: 'Latest stored market snapshot.', engine_version: 'independent-1', is_demo: Boolean(q.is_demo ?? true), generated_at: started,
       });
     }
