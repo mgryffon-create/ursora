@@ -63,7 +63,7 @@ export const DataSourcesView: React.FC = () => {
       <SectionHeading
         eyebrow="System"
         title="Data Connections"
-        description="See which external data sources URSORA can currently use. Technical provider details stay behind the scenes."
+        description="See which external data sources URSORA can currently use. This page shows only the connection status relevant to using URSORA."
       />
 
       {error && (
@@ -82,8 +82,8 @@ export const DataSourcesView: React.FC = () => {
           <div className="mt-1 text-2xl font-semibold text-zinc-100">{providers.length}</div>
         </div>
         <div className="rounded-md border border-zinc-800 bg-[#14171c] p-4">
-          <div className="text-[11px] text-zinc-500">Current environment</div>
-          <div className="mt-1 text-sm font-medium text-amber-300">Sandbox / research</div>
+          <div className="text-[11px] text-zinc-500">Current data mode</div>
+          <div className="mt-1 text-sm font-medium text-amber-300">Sandbox</div>
         </div>
       </div>
 
@@ -164,10 +164,9 @@ export const DataSourcesView: React.FC = () => {
         <div className="flex items-start gap-3">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500" aria-hidden="true" />
           <div>
-            <div className="text-[12px] font-medium text-zinc-300">Connection details stay server-side</div>
+            <div className="text-[12px] font-medium text-zinc-300">Credentials are protected</div>
             <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-zinc-500">
-              Credentials and provider implementation details are not shown in the trading workspace. This page is only
-              for checking whether the data URSORA depends on is currently available.
+              Provider credentials are kept outside the trading interface. This page simply shows whether the information URSORA depends on is currently available.
             </p>
           </div>
         </div>
