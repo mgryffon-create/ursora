@@ -49,7 +49,7 @@ function relativeToDirection(absoluteOrientation: number | null, direction: stri
   return direction === 'bullish' ? absoluteOrientation : -absoluteOrientation;
 }
 
-function factorRow(spec: FactorSpec, effectiveWeight: number) {
+function factorRow(spec: FactorSpec) {
   const signed = spec.signedScore ?? 0;
   const strength = spec.signedScore === null ? 0 : Math.abs(signed);
   const meaningful = strength >= 25;
@@ -58,9 +58,9 @@ function factorRow(spec: FactorSpec, effectiveWeight: number) {
     label: spec.label,
     raw_score: Math.round(strength * 10) / 10,
     base_weight: spec.baseWeight,
-    effective_weight: effectiveWeight,
-    weight_change: effectiveWeight - spec.baseWeight,
-    contribution: spec.signedScore === null ? 0 : signed * effectiveWeight,
+    effective_weight: spec.baseWeight,
+    weight_change: 0,
+    contribution: spec.signedScore === null ? 0 : signed * spec.baseWeight,
     effect: !meaningful ? 'NEUTRAL' : signed > 0 ? 'INCREASED' : signed < 0 ? 'DECREASED' : 'NEUTRAL',
     explanation: spec.explanation,
   };
@@ -379,7 +379,7 @@ Deno.serve(async (req) => {
         {
           factor: 'price_trend',
           label: 'Price trend',
-          baseWeight: 0.22,
+          baseWeight: 0.23,
           signedScore: priceEvidence,
           directional: true,
           explanation: priceEvidence === null
@@ -389,7 +389,7 @@ Deno.serve(async (req) => {
         {
           factor: 'momentum',
           label: 'Momentum',
-          baseWeight: 0.14,
+          baseWeight: 0.15,
           signedScore: momentumEvidence,
           directional: true,
           explanation: momentum === null
@@ -399,7 +399,7 @@ Deno.serve(async (req) => {
         {
           factor: 'market_alignment',
           label: 'Broader market alignment',
-          baseWeight: 0.12,
+          baseWeight: 0.13,
           signedScore: marketEvidence,
           directional: true,
           explanation: marketEvidence === null
@@ -409,7 +409,7 @@ Deno.serve(async (req) => {
         {
           factor: 'options_market',
           label: 'Options market',
-          baseWeight: 0.16,
+          baseWeight: 0.17,
           signedScore: optionsEvidence,
           directional: true,
           explanation: optionsEvidence === null
@@ -419,7 +419,7 @@ Deno.serve(async (req) => {
         {
           factor: 'catalysts_news',
           label: 'News and market events',
-          baseWeight: 0.12,
+          baseWeight: 0.13,
           signedScore: newsEvidence,
           directional: true,
           explanation: newsEvidence === null
@@ -448,28 +448,18 @@ Deno.serve(async (req) => {
             ? 'Support, resistance, and volatility data are not sufficient to estimate the trade structure.'
             : `The estimated reward-to-risk relationship is approximately ${estimatedRatio?.toFixed(2) ?? 'unavailable'} to 1 using current support/resistance and ATR derived from stored daily price history.`,
         },
-        {
-          factor: 'cross_factor_agreement',
-          label: 'Evidence agreement',
-          baseWeight: 0.05,
-          signedScore: agreementEvidence,
-          directional: false,
-          explanation: agreementEvidence === null
-            ? 'Fewer than three independent directional evidence categories are strong enough to measure agreement reliably.'
-            : `${agreement}% of the meaningful directional evidence categories point to the same conclusion.`,
-        },
       ];
 
       const availableSpecs = factorSpecs.filter((f) => f.signedScore !== null);
-      const availableWeight = availableSpecs.reduce((a, f) => a + f.baseWeight, 0);
-      const factors = factorSpecs.map((spec) => {
-        const effective = spec.signedScore === null || availableWeight === 0 ? 0 : spec.baseWeight / availableWeight;
-        return factorRow(spec, effective);
-      });
+      const factors = factorSpecs.map((spec) => factorRow(spec));
 
-      const netSupport = availableWeight
-        ? availableSpecs.reduce((a, f) => a + Number(f.signedScore) * (f.baseWeight / availableWeight), 0)
-        : 0;
+      // Fixed-weight scoring: missing evidence contributes zero but does not donate its
+      // weight to the remaining factors. This keeps the opportunity score comparable
+      // across runs with different evidence completeness.
+      const netSupport = factorSpecs.reduce(
+        (total, factor) => total + (factor.signedScore === null ? 0 : Number(factor.signedScore) * factor.baseWeight),
+        0,
+      );
       const opportunity = Math.round(clamp(50 + netSupport / 2, 0, 100));
 
       const evidenceFamilies = Object.fromEntries(factorSpecs.map((f) => [f.factor, f.signedScore !== null]));
@@ -593,12 +583,12 @@ Deno.serve(async (req) => {
             `Evidence completeness: ${evidenceCompleteness}% (${availableFamilies} of ${totalFamilies} primary categories available).`,
             `Evidence agreement: ${agreement}% among meaningful directional categories.`,
             blockers.length ? `Trade constraints: ${blockers.join(' ')}` : 'No hard trade constraints were identified from the data currently available.',
-            'Missing evidence reduces completeness and confidence; it is not treated as neutral confirmation.',
+            'Missing evidence contributes zero to the opportunity score and retains its baseline weight; available factors are not reweighted upward.',
           ],
         },
         regime: snapshot?.regime ?? 'Mixed',
         regime_explanation: snapshot?.regime_note ?? 'Broader market conditions derived from the latest stored market data.',
-        engine_version: 'tradecycle-3',
+        engine_version: 'tradecycle-3.1',
         is_demo: Boolean(q.is_demo ?? true),
         generated_at: started,
       });
@@ -632,7 +622,7 @@ Deno.serve(async (req) => {
       signals: signalCount,
       updates: 0,
       run_id: runId,
-      engine_version: 'tradecycle-3',
+      engine_version: 'tradecycle-3.1',
       note: signalCount ? 'Signals generated using all currently available evidence categories.' : 'No stored quote data available.',
     });
   } catch (e) {
