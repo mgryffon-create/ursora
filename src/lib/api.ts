@@ -29,6 +29,7 @@ export const EDGE_FUNCTIONS = {
   historySync: 'sync-webull-history',
   optionsSync: 'sync-webull-options',
   tradeStructure: 'build-trade-structure',
+  tradeLifecycle: 'sync-tradecycle-lifecycle',
 } as const;
 
 export type EdgeFunctionSlug = (typeof EDGE_FUNCTIONS)[keyof typeof EDGE_FUNCTIONS];
@@ -197,6 +198,14 @@ export async function runFreshAnalysis(
     } catch (error) {
       warnings.push(
         `contract selection and risk assessment: ${describeUnknownError(error)}`,
+      );
+    }
+
+    try {
+      await callEdge(EDGE_FUNCTIONS.tradeLifecycle, {});
+    } catch (error) {
+      warnings.push(
+        friendlyPipelineWarning('trade monitoring and review', error),
       );
     }
   }
@@ -420,6 +429,10 @@ export async function paperTradeSignal(
   candidate: ContractCandidate | null,
   contracts = 1,
 ): Promise<void> {
+  if (signal.score_breakdown?.suggestion_eligible !== true) {
+    throw new Error('This setup is not eligible for a new URSORA-originated trade suggestion.');
+  }
+
   const { error } = await db.from('paper_trades').insert({
     signal_id: signal.id,
     symbol: signal.symbol,
@@ -438,6 +451,14 @@ export async function paperTradeSignal(
     contracts,
     entry_assumptions:
       'Filled at the contract midpoint at signal generation, one contract, no slippage model, held until the invalidation level or the modelled target resolves. Assumptions are recorded so the ledger stays auditable.',
+    origin: 'MATADOR_SUPPORTED',
+    thesis_mode: 'monitoring',
+    inferred_thesis_direction: signal.direction,
+    thesis_inference_basis: 'URSORA-supported TradeCycle thesis',
+    thesis_status: signal.score_breakdown?.thesis_state ?? null,
+    thesis_support: signal.score_breakdown?.thesis_support ?? null,
+    thesis_agreement: signal.score_breakdown?.agreement_score ?? null,
+    thesis_last_checked_at: new Date().toISOString(),
     result: 'open',
   });
   if (error) throw error;
