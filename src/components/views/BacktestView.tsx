@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, FlaskConical, Loader2, Play, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, FlaskConical, Loader2, Play } from 'lucide-react';
 import { EDGE_FUNCTIONS, callEdge, fetchTickers, track } from '@/lib/api';
 import type { Ticker } from '@/lib/types';
 import { DEFAULT_UNIVERSE, useAuth } from '@/contexts/AuthContext';
@@ -107,31 +107,22 @@ export const BacktestView: React.FC = () => {
     <div className="space-y-4">
       <SectionHeading
         eyebrow="Backtesting"
-        title="Signal logic, replayed under a look-ahead guard"
-        description="The engine re-scores historical bars using only information that existed at each simulated timestamp. Backtested, paper-traded and live performance are shown in strictly separate panels and are never combined into one number."
+        title="Test URSORA's signal rules against historical market data"
+        description="Choose the symbols, date range and trade criteria you want to evaluate. URSORA then applies the same rules to historical data and reports how those signals would have performed."
         right={<DemoBadge />}
       />
 
       <Panel
-        title="Look-ahead guard"
-        subtitle="Enforced in the backtest engine, not merely documented."
-        className="border-emerald-500/30"
-        right={
-          <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-emerald-300">
-            <ShieldCheck className="h-3 w-3" aria-hidden="true" />
-            active
-          </span>
-        }
+        title="Historical test controls"
+        subtitle="Backtests use only information that would have been available at each point in time. Future information is excluded from the decision process."
       >
-        <ul className="space-y-1.5 text-[12px] leading-relaxed text-zinc-400">
-          <li>For each simulated bar at time T, only price bars with <span className="font-mono text-zinc-300">bar_time &lt;= T</span> are read.</li>
-          <li>Only news with <span className="font-mono text-zinc-300">published_at &lt;= T</span> and economic events with <span className="font-mono text-zinc-300">event_time &lt;= T</span> are eligible — rows that became available later are dropped before scoring, and the count of exclusions is reported with the results.</li>
-          <li>Forward bars are used exclusively to measure the outcome of a decision already made. They are never inputs to that decision.</li>
-          <li>Every ingested row carries a publication timestamp and a retrieval timestamp for exactly this reason: without both, a backtest cannot be honest.</li>
-        </ul>
+        <p className="text-[12px] leading-relaxed text-zinc-400">
+          This prevents the test from benefiting from information that was not yet known. Backtested, paper-traded and
+          live results remain separate so that each performance record reflects how it was actually generated.
+        </p>
       </Panel>
 
-      <Panel title="Parameters">
+      <Panel title="Test settings" subtitle="Define the historical period and the signal criteria to evaluate.">
         <div className="space-y-3">
           <div>
             <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Tickers</span>
@@ -176,7 +167,7 @@ export const BacktestView: React.FC = () => {
             </div>
             <div>
               <label htmlFor="bt-score" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                Min opportunity score: <span className="text-zinc-200">{minScore}</span>
+                Minimum opportunity score: <span className="text-zinc-200">{minScore}</span>
               </label>
               <input
                 id="bt-score"
@@ -190,7 +181,7 @@ export const BacktestView: React.FC = () => {
               />
             </div>
             <div>
-              <label htmlFor="bt-dir" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">Direction filter</label>
+              <label htmlFor="bt-dir" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">Direction</label>
               <select
                 id="bt-dir"
                 value={directionFilter}
@@ -219,10 +210,10 @@ export const BacktestView: React.FC = () => {
           <div className="flex flex-wrap items-center gap-3">
             <Button onClick={run} disabled={busy} className="gap-2">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Play className="h-4 w-4" aria-hidden="true" />}
-              {busy ? 'Replaying history…' : 'Run backtest'}
+              {busy ? 'Running historical test…' : 'Run historical test'}
             </Button>
             <span className="text-[11px] text-zinc-500">
-              {user ? 'This run will be saved to your private backtest history.' : 'Sign in to save runs to your account.'}
+              {user ? 'This test will be saved to your private backtest history.' : 'Sign in to save historical tests to your account.'}
             </span>
           </div>
         </div>
@@ -238,22 +229,22 @@ export const BacktestView: React.FC = () => {
       <Tabs defaultValue="backtested" className="w-full">
         <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-[#14171c] p-1">
           <TabsTrigger value="backtested" className="font-mono text-[10px] uppercase tracking-wider data-[state=active]:bg-sky-500/15 data-[state=active]:text-sky-300">
-            Backtested performance
+            Historical test results
           </TabsTrigger>
           <TabsTrigger value="paper" className="font-mono text-[10px] uppercase tracking-wider data-[state=active]:bg-sky-500/15 data-[state=active]:text-sky-300">
-            Paper-traded performance
+            Paper trading results
           </TabsTrigger>
           <TabsTrigger value="live" className="font-mono text-[10px] uppercase tracking-wider data-[state=active]:bg-sky-500/15 data-[state=active]:text-sky-300">
-            Live performance
+            Live trading results
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="backtested" className="mt-3 space-y-3">
           {!result ? (
             <EmptyState
-              title="No backtest has been run in this session"
-              body="Choose tickers, a date range and the signal-logic parameters above, then run the replay. Sample size is reported before any performance figure."
-              action={<Button onClick={run} disabled={busy} className="gap-2"><FlaskConical className="h-4 w-4" aria-hidden="true" />Run backtest</Button>}
+              title="No historical test has been run in this session"
+              body="Choose the symbols, date range and criteria above, then run the historical test. The number of historical trades is shown before any performance statistic."
+              action={<Button onClick={run} disabled={busy} className="gap-2"><FlaskConical className="h-4 w-4" aria-hidden="true" />Run historical test</Button>}
             />
           ) : (
             <>
@@ -280,15 +271,15 @@ export const BacktestView: React.FC = () => {
                 <Metric label="Expectancy" value={m?.expectancy_pct === null || m?.expectancy_pct === undefined ? null : `${m.expectancy_pct}%`} />
                 <Metric label="Profit factor" value={m?.profit_factor ?? null} />
                 <Metric label="Max drawdown" value={m?.max_drawdown_pct === null || m?.max_drawdown_pct === undefined ? null : `${m.max_drawdown_pct}%`} valueClass="text-red-300" />
-                <Metric label="Rows blocked by guard" value={m?.news_rows_excluded_by_guard ?? null} hint="published after their bar" />
+                <Metric label="Future-dated items excluded" value={m?.news_rows_excluded_by_guard ?? null} hint="not yet available at that time" />
               </div>
 
-              <Panel title="Equity curve and drawdown" right={<DemoBadge />}>
+              <Panel title="Portfolio path and drawdown" right={<DemoBadge />}>
                 <EquityCurve data={result.equity_curve ?? []} />
               </Panel>
 
               <div className="grid gap-3 lg:grid-cols-2">
-                <Panel title="By opportunity-score bucket">
+                <Panel title="Results by opportunity score">
                   <table className="w-full text-left text-[11px]">
                     <thead className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
                       <tr>{['Bucket', 'n', 'Win rate', 'Expectancy'].map((h) => <th key={h} scope="col" className="px-2 py-1.5">{h}</th>)}</tr>
@@ -307,7 +298,7 @@ export const BacktestView: React.FC = () => {
                     </tbody>
                   </table>
                 </Panel>
-                <Panel title="By ticker">
+                <Panel title="Results by symbol">
                   <table className="w-full text-left text-[11px]">
                     <thead className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
                       <tr>{['Ticker', 'n', 'Win rate', 'Expectancy'].map((h) => <th key={h} scope="col" className="px-2 py-1.5">{h}</th>)}</tr>
@@ -331,12 +322,12 @@ export const BacktestView: React.FC = () => {
                 </Panel>
               </div>
 
-              <Panel title="Simulated trades" subtitle="Each row shows how many news items were visible at the simulated timestamp, so the guard is auditable." bodyClassName="p-0">
+              <Panel title="Historical trades" subtitle="Each row shows the signal, entry, exit and outcome for the historical test." bodyClassName="p-0">
                 <div className="max-h-[420px] overflow-auto">
                   <table className="w-full min-w-[860px] text-left text-[11px]">
                     <thead className="sticky top-0 bg-black/60 font-mono text-[10px] uppercase tracking-wider text-zinc-500 backdrop-blur">
                       <tr>
-                        {['Entry date', 'Symbol', 'Direction', 'Score', 'Entry', 'Exit', 'Underlying', 'Option proxy', 'MFE', 'MAE', 'Result', 'News visible'].map((h) => (
+                        {['Entry date', 'Symbol', 'Direction', 'Score', 'Entry price', 'Exit price', 'Stock return', 'Estimated option return', 'Best move', 'Worst move', 'Result', 'News available'].map((h) => (
                           <th key={h} scope="col" className="whitespace-nowrap px-2 py-2">{h}</th>
                         ))}
                       </tr>
@@ -367,25 +358,22 @@ export const BacktestView: React.FC = () => {
         </TabsContent>
 
         <TabsContent value="paper" className="mt-3">
-          <Panel title="Paper-traded performance" subtitle="Deliberately kept separate from backtested results.">
+          <Panel title="Paper trading results" subtitle="Forward-tested paper trades are reported separately from historical tests.">
             <p className="text-[13px] leading-relaxed text-zinc-400">
-              Paper-traded results live in their own ledger on the Paper Trading page, where each record stores the
-              price and contract at signal generation, both scores, the entry assumptions and the excursions. They are
-              never merged with backtested figures: a replay chooses its entries with hindsight-free data but still
-              models fills, while a paper trade is recorded forward in time from a signal that already existed. Blending
-              the two produces a number that describes neither.
+              Paper trades begin from signals generated in real time and are tracked forward from that point. Because
+              they are created under different conditions from a historical test, URSORA reports them separately rather
+              than combining the two into a single performance figure.
             </p>
           </Panel>
         </TabsContent>
 
         <TabsContent value="live" className="mt-3">
-          <Panel title="Live performance" className="border-amber-500/40">
+          <Panel title="Live trading results" className="border-amber-500/40">
             <div className="flex flex-col items-center gap-2 py-8 text-center">
               <Unavailable className="text-base" />
               <p className="max-w-xl text-[13px] leading-relaxed text-zinc-400">
-                No live provider is connected and no live orders exist, so there is nothing to report here. This panel
-                stays empty until real market and options providers are connected in Data Sources — it will never be
-                back-filled with backtested or paper-traded figures.
+                Live trading results are not available because URSORA is not connected to a live brokerage and no live
+                orders have been recorded. Historical and paper-trading results are not substituted here.
               </p>
             </div>
           </Panel>
