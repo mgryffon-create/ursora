@@ -327,7 +327,7 @@ export const CompareView: React.FC<{
                     className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-sky-400 transition-colors hover:text-sky-300"
                   >
                     <TrendingUp className="h-3 w-3" aria-hidden="true" />
-                    full thesis
+                    full analysis
                   </button>
                   {onRemove && n > 2 && (
                     <button
@@ -357,7 +357,7 @@ export const CompareView: React.FC<{
           {/* SCORE BREAKDOWN */}
           <SectionBar
             title="Score breakdown, factor by factor"
-            note="Raw factor score first, then the weight this regime assigned it and the points it contributed. A factor missing on one column is reported as unavailable, never zero-filled."
+            note="Each row shows the factor score, its importance in the analysis, and its contribution to the final score. Missing information is shown as unavailable rather than treated as zero."
             Icon={Zap}
             right={<DemoBadge />}
           />
@@ -505,20 +505,20 @@ export const CompareView: React.FC<{
 
           {/* CATALYSTS */}
           <SectionBar
-            title="Catalysts"
-            note="The dated catalyst text stored with each signal, verbatim. An empty column means no catalyst is on file — nothing is inferred in its place."
+            title="Market events"
+            note="Scheduled or dated market events associated with each opportunity. If no event is available, URSORA does not infer one."
             Icon={Sparkles}
             right={<DemoBadge />}
           />
           <TextBlockRow
-            label="Catalyst summary"
+            label="Market-event summary"
             n={n}
             tone="sky"
             cells={columns.map((c) =>
               c.signal.catalyst_summary ? (
                 c.signal.catalyst_summary
               ) : (
-                <span className="font-mono text-[10px] uppercase tracking-wide text-amber-300/80">no dated catalyst in store</span>
+                <span className="font-mono text-[10px] uppercase tracking-wide text-amber-300/80">no dated market event available</span>
               ),
             )}
           />
@@ -526,7 +526,7 @@ export const CompareView: React.FC<{
             <DiffRow key={`cat-${r.key}`} row={r} n={n} />
           ))}
           <TextBlockRow
-            label="Expiration vs catalyst"
+            label="Expiration relative to event"
             n={n}
             cells={columns.map((c) =>
               c.signal.suggested_expiration ? (
@@ -540,7 +540,7 @@ export const CompareView: React.FC<{
             )}
           />
           <TextBlockRow
-            label="Regime note at generation"
+            label="Market-environment note at analysis time"
             n={n}
             cells={columns.map((c) => c.signal.regime_explanation ?? <Unavailable />)}
           />
@@ -548,7 +548,7 @@ export const CompareView: React.FC<{
           {/* RISK */}
           <SectionBar
             title="Risk case"
-            note="Bull, base and bear cases are quoted verbatim from each record, then the quantified risk rows and every stored way the thesis breaks."
+            note="The comparison shows favorable, expected, and adverse cases, followed by measurable risk factors and the conditions that could make the analysis no longer valid."
             Icon={ShieldAlert}
             right={<DemoBadge />}
           />
@@ -572,14 +572,14 @@ export const CompareView: React.FC<{
           />
           {show(risks).map((r) => <DiffRow key={r.key} row={r} n={n} />)}
           <TextBlockRow
-            label="IV / liquidity / catalyst risk"
+            label="Volatility / liquidity / event risk"
             n={n}
             cells={columns.map((c) => (
               <ul className="space-y-1">
                 {[
                   { t: 'IV', v: c.risk?.iv_risk },
                   { t: 'Liquidity', v: c.risk?.liquidity_risk },
-                  { t: 'Catalyst', v: c.risk?.catalyst_risk },
+                  { t: 'Market event', v: c.risk?.catalyst_risk },
                 ].map((x) => (
                   <li key={x.t}>
                     <span className="font-mono text-[9px] uppercase tracking-wide text-zinc-500">{x.t} · </span>
@@ -633,7 +633,7 @@ export const CompareView: React.FC<{
         <ul className="space-y-1.5 text-[11.5px] leading-relaxed text-zinc-400">
           <li>
             A higher score is not a recommendation to take that column. It means more of the stored evidence aligned
-            with the thesis at generation time, under this regime's weights.
+            with the analysis when it was generated, using the market conditions recorded at that time.
           </li>
           <li>
             Rows marked <span className="font-mono text-zinc-300">same</span> are dimmed on purpose. If two setups are
