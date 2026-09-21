@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
       symbols,
       category: 'US_STOCK',
       timespan: 'D',
-      count: '260',
+      count: 260,
       real_time_required: false,
     });
 
