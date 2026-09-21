@@ -935,9 +935,26 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             </div>
           </Panel>
 
+          {tradeBlockers.length > 0 && (
+            <Panel
+              title="Current trade constraints"
+              subtitle="Conditions already present that prevent Ursora from suggesting a new trade. These do not necessarily invalidate the directional thesis."
+              className="border-amber-500/40"
+            >
+              <ul className="space-y-2">
+                {tradeBlockers.map((blocker) => (
+                  <li key={blocker} className="flex gap-2.5 text-[13px] leading-relaxed text-zinc-300">
+                    <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
+                    <span>{blocker}</span>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          )}
+
           <Panel
-            title="Conditions that would weaken or invalidate this analysis"
-            subtitle="Specific conditions that would reduce confidence in the analysis or make the trade premise no longer valid."
+            title="Future thesis weakening / invalidation conditions"
+            subtitle="Conditions to monitor after a thesis is established. These are distinct from trade constraints that already exist."
             className="border-red-500/40"
           >
             <ol className="space-y-2">
