@@ -93,6 +93,7 @@ Deno.serve(async (req) => {
   try {
     const { db } = await requireUser(req);
     const body = await req.json().catch(() => ({}));
+
     let symbols = Array.isArray(body.symbols)
       ? body.symbols.map((x: unknown) => String(x).toUpperCase()).filter(Boolean)
       : [];
@@ -116,101 +117,157 @@ Deno.serve(async (req) => {
     }
 
     symbols = [...new Set(symbols)].slice(0, 30);
-    const tracked = new Set(symbols);
     const key = alphaKey();
+    const providerKey = 'alpha_intelligence';
+    const capability = 'news_sentiment';
+    const cacheHours = 18;
+    const staleBefore = Date.now() - cacheHours * 3600000;
 
-    // One broad news request is intentionally used instead of one request per ticker.
-    // This preserves Alpha Vantage's daily request allowance and then fans each article
-    // out to any tracked symbol explicitly listed in ticker_sentiment.
-    const url = new URL('https://www.alphavantage.co/query');
-    url.searchParams.set('function', 'NEWS_SENTIMENT');
-    url.searchParams.set('time_from', alphaTimeFrom(7));
-    url.searchParams.set('sort', 'LATEST');
-    url.searchParams.set('limit', '1000');
-    url.searchParams.set('apikey', key);
+    const { data: states, error: stateError } = await db
+      .from('provider_symbol_syncs')
+      .select('symbol,last_attempt,last_success,last_error,item_count')
+      .eq('provider_key', providerKey)
+      .eq('capability', capability)
+      .in('symbol', symbols);
+    if (stateError) throw stateError;
 
-    const response = await fetch(url);
-    const raw = await response.text();
-    if (!response.ok) throw new Error(`Alpha Vantage returned HTTP ${response.status}`);
+    const stateBySymbol = new Map(
+      (states ?? []).map((row: any) => [String(row.symbol).toUpperCase(), row]),
+    );
 
-    let payload: any;
-    try {
-      payload = JSON.parse(raw);
-    } catch {
-      throw new Error('Alpha Vantage news response was not valid JSON.');
+    const refreshSymbols = symbols.filter((symbol) => {
+      const state: any = stateBySymbol.get(symbol);
+      const lastAttempt = state?.last_attempt ? new Date(state.last_attempt).getTime() : 0;
+      return !Number.isFinite(lastAttempt) || lastAttempt < staleBefore;
+    });
+
+    const results: any[] = [];
+    let inserted = 0;
+    let refreshed = 0;
+
+    for (const symbol of refreshSymbols) {
+      const attemptedAt = new Date().toISOString();
+
+      try {
+        const url = new URL('https://www.alphavantage.co/query');
+        url.searchParams.set('function', 'NEWS_SENTIMENT');
+        url.searchParams.set('tickers', symbol);
+        url.searchParams.set('time_from', alphaTimeFrom(7));
+        url.searchParams.set('sort', 'LATEST');
+        url.searchParams.set('limit', '100');
+        url.searchParams.set('apikey', key);
+
+        const response = await fetch(url);
+        const raw = await response.text();
+        if (!response.ok) throw new Error(`Alpha Vantage returned HTTP ${response.status}`);
+
+        let payload: any;
+        try {
+          payload = JSON.parse(raw);
+        } catch {
+          throw new Error('Alpha Vantage news response was not valid JSON.');
+        }
+
+        const providerMessage = payload?.Note ?? payload?.Information ?? payload?.['Error Message'];
+        if (providerMessage) throw new Error(String(providerMessage));
+
+        const feed = Array.isArray(payload?.feed) ? payload.feed : [];
+        const rows = feed.map((item: any) => {
+          const publishedAt = parseAlphaTime(item.time_published);
+          if (!publishedAt || !item.title) return null;
+
+          const tickerSentiment = Array.isArray(item.ticker_sentiment)
+            ? item.ticker_sentiment.find((x: any) => String(x.ticker).toUpperCase() === symbol)
+            : null;
+          const tickerScore = n(tickerSentiment?.ticker_sentiment_score);
+          const overallScore = n(item.overall_sentiment_score);
+          const score = tickerScore ?? overallScore;
+          const relevance = n(tickerSentiment?.relevance_score);
+
+          return {
+            symbol,
+            headline: String(item.title),
+            summary: item.summary ? String(item.summary) : null,
+            category: Array.isArray(item.topics) && item.topics.length
+              ? String(item.topics[0]?.topic ?? item.category_within_source ?? 'market news')
+              : String(item.category_within_source ?? 'market news'),
+            url: item.url ? String(item.url) : null,
+            source_name: item.source ? String(item.source) : 'Alpha Vantage',
+            source_type: 'verified_news',
+            sentiment: normalizeSentiment(score),
+            sentiment_score: score,
+            impact: impactFrom(score, relevance),
+            recency_weight: recencyWeight(publishedAt),
+            confidence: relevance === null ? 0.65 : Math.max(0.35, Math.min(1, relevance)),
+            published_at: publishedAt,
+            retrieved_at: attemptedAt,
+            is_demo: false,
+          };
+        }).filter(Boolean);
+
+        const cutoff = new Date(Date.now() - 8 * 86400000).toISOString();
+        const { error: deleteError } = await db
+          .from('news_items')
+          .delete()
+          .eq('symbol', symbol)
+          .eq('source_type', 'verified_news')
+          .gte('published_at', cutoff);
+        if (deleteError) throw deleteError;
+
+        if (rows.length) {
+          const { error: insertError } = await db.from('news_items').insert(rows);
+          if (insertError) throw insertError;
+          inserted += rows.length;
+        }
+
+        const { error: syncError } = await db.from('provider_symbol_syncs').upsert({
+          provider_key: providerKey,
+          capability,
+          symbol,
+          last_attempt: attemptedAt,
+          last_success: attemptedAt,
+          last_error: null,
+          item_count: rows.length,
+          updated_at: attemptedAt,
+        }, { onConflict: 'provider_key,capability,symbol' });
+        if (syncError) throw syncError;
+
+        refreshed += 1;
+        results.push({ symbol, ok: true, articles: rows.length });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await db.from('provider_symbol_syncs').upsert({
+          provider_key: providerKey,
+          capability,
+          symbol,
+          last_attempt: attemptedAt,
+          last_error: message,
+          updated_at: attemptedAt,
+        }, { onConflict: 'provider_key,capability,symbol' });
+
+        results.push({ symbol, ok: false, error: message });
+
+        // Stop burning requests if the provider says the allowance/frequency is exhausted.
+        if (/rate|frequency|limit|call frequency|standard api rate/i.test(message)) break;
+      }
+
+      await sleep(900);
     }
 
-    const providerMessage = payload?.Note ?? payload?.Information ?? payload?.['Error Message'];
-    if (providerMessage) throw new Error(String(providerMessage));
-
-    const feed = Array.isArray(payload?.feed) ? payload.feed : [];
-    const rows: any[] = [];
-    const counts = new Map<string, number>();
-
-    for (const item of feed) {
-      const publishedAt = parseAlphaTime(item.time_published);
-      if (!publishedAt || !item.title) continue;
-
-      const tickerRows = Array.isArray(item.ticker_sentiment) ? item.ticker_sentiment : [];
-      for (const tickerRow of tickerRows) {
-        const symbol = String(tickerRow?.ticker ?? '').toUpperCase();
-        if (!tracked.has(symbol)) continue;
-
-        const tickerScore = n(tickerRow?.ticker_sentiment_score);
-        const overallScore = n(item.overall_sentiment_score);
-        const score = tickerScore ?? overallScore;
-        const relevance = n(tickerRow?.relevance_score);
-
-        rows.push({
+    for (const symbol of symbols) {
+      if (!refreshSymbols.includes(symbol)) {
+        const state: any = stateBySymbol.get(symbol);
+        results.push({
           symbol,
-          headline: String(item.title),
-          summary: item.summary ? String(item.summary) : null,
-          category: Array.isArray(item.topics) && item.topics.length
-            ? String(item.topics[0]?.topic ?? item.category_within_source ?? 'market news')
-            : String(item.category_within_source ?? 'market news'),
-          url: item.url ? String(item.url) : null,
-          source_name: item.source ? String(item.source) : 'Alpha Vantage',
-          source_type: 'verified_news',
-          sentiment: normalizeSentiment(score),
-          sentiment_score: score,
-          impact: impactFrom(score, relevance),
-          recency_weight: recencyWeight(publishedAt),
-          confidence: relevance === null ? 0.65 : Math.max(0.35, Math.min(1, relevance)),
-          published_at: publishedAt,
-          retrieved_at: new Date().toISOString(),
-          is_demo: false,
+          ok: true,
+          cached: true,
+          articles: Number(state?.item_count ?? 0),
         });
-
-        counts.set(symbol, (counts.get(symbol) ?? 0) + 1);
       }
     }
 
-    const cutoff = new Date(Date.now() - 8 * 86400000).toISOString();
-    const { error: deleteError } = await db
-      .from('news_items')
-      .delete()
-      .in('symbol', symbols)
-      .eq('source_type', 'verified_news')
-      .gte('published_at', cutoff);
-    if (deleteError) throw deleteError;
-
-    if (rows.length) {
-      const { error: insertError } = await db.from('news_items').insert(rows);
-      if (insertError) throw insertError;
-    }
-
-    if (!feed.length) {
-      throw new Error('Alpha Vantage returned no news articles for the requested time window.');
-    }
-
-    const results = symbols.map((symbol) => ({
-      symbol,
-      articles: counts.get(symbol) ?? 0,
-    }));
-    const inserted = rows.length;
-
     await db.from('provider_configs').upsert({
-      provider_key: 'alpha_intelligence',
+      provider_key: providerKey,
       interface_name: 'MarketIntelligenceProvider',
       display_name: 'Alpha Vantage Intelligence',
       adapter: 'AlphaVantageIntelligenceAdapter',
@@ -219,12 +276,19 @@ Deno.serve(async (req) => {
       candidate_providers: ['Alpha Vantage'],
       secret_env_name: 'ALPHA_VANTAGE_API_KEY',
       docs_url: 'https://www.alphavantage.co/documentation/',
-      notes: 'Server-side market-intelligence integration for TradeCycle.',
+      notes: `Ticker-targeted news with ${cacheHours}-hour per-symbol caching.`,
       last_sync: new Date().toISOString(),
-      last_error: null,
+      last_error: results.find((x) => x.ok === false)?.error ?? null,
     }, { onConflict: 'provider_key' });
 
-    return json({ success: true, symbols: symbols.length, inserted, results });
+    return json({
+      success: true,
+      symbols: symbols.length,
+      refreshed,
+      cached: symbols.length - refreshSymbols.length,
+      inserted,
+      results,
+    });
   } catch (error) {
     if (error instanceof AuthError) return json({ error: error.message }, error.status);
     return json({ error: error instanceof Error ? error.message : String(error) }, 500);
