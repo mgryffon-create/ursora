@@ -214,10 +214,10 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
                 {snapshot?.macro_note ?? 'Dedicated macro-series data are not connected yet, so no rates, dollar, or commodity regime is inferred.'}
               </p>
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <Metric label="US 10Y" value={num(snapshot?.us10y)} />
-                <Metric label="US 2Y" value={num(snapshot?.us02y)} />
+                <Metric label="VIX" value={num(snapshot?.vix)} hint={pct(snapshot?.vix_change_pct) ?? undefined} valueClass={Number(snapshot?.vix) > 20 ? 'text-amber-300' : 'text-zinc-100'} />
                 <Metric label="Dollar index" value={num(snapshot?.dxy)} />
                 <Metric label="WTI crude" value={num(snapshot?.wti)} />
+                <Metric label="Gold" value={num(snapshot?.gold)} />
               </div>
               <div className="mt-2 font-mono text-[10px] text-zinc-600">
                 {snapshot ? `snapshot as of ${stampET(snapshot.as_of)}` : 'derived from latest tracked quotes'}
