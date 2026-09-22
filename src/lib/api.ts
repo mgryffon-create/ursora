@@ -33,6 +33,7 @@ export const EDGE_FUNCTIONS = {
   alphaNewsSync: 'sync-alpha-news',
   yahooNewsSync: 'sync-yahoo-news',
   alphaEarningsSync: 'sync-alpha-earnings',
+  marketContextSync: 'sync-market-context',
 } as const;
 
 export type EdgeFunctionSlug = (typeof EDGE_FUNCTIONS)[keyof typeof EDGE_FUNCTIONS];
@@ -174,6 +175,7 @@ export async function runFreshAnalysis(
 
   const stages: Array<{ label: string; slug: EdgeFunctionSlug; payload: Record<string, unknown> }> = [
     { label: 'market quotes', slug: EDGE_FUNCTIONS.marketSync, payload: symbols },
+    { label: 'market context', slug: EDGE_FUNCTIONS.marketContextSync, payload: {} },
     { label: 'historical technical data', slug: EDGE_FUNCTIONS.historySync, payload: symbols },
     { label: 'options market data', slug: EDGE_FUNCTIONS.optionsSync, payload: symbols },
     { label: 'verified news and sentiment', slug: EDGE_FUNCTIONS.alphaNewsSync, payload: symbols },
