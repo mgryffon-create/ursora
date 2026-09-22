@@ -88,11 +88,13 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const [loading, setLoading] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
   const [traded, setTraded] = useState(false);
+  const [showAllNews, setShowAllNews] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
+    setShowAllNews(false);
     (async () => {
       const sig = await fetchSignal(signalId);
       if (!active) return;
@@ -734,7 +736,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             right={<DemoBadge />}
           >
             <ul className="space-y-3">
-              {news.map((n) => (
+              {(showAllNews ? news : news.slice(0, 4)).map((n) => (
                 <li key={n.id} className="rounded-sm border border-zinc-800 bg-black/20 p-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-sm border border-zinc-700 px-1.5 py-[1px] font-mono text-[9px] uppercase tracking-wide text-zinc-400">
@@ -791,6 +793,15 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               ))}
               {!news.length && <EmptyState title="No recent news available" body="URSORA does not currently have dated news for this symbol and does not substitute an assumed event." />}
             </ul>
+            {news.length > 4 && (
+              <button
+                type="button"
+                onClick={() => setShowAllNews((value) => !value)}
+                className="mt-3 font-mono text-[10px] uppercase tracking-wider text-sky-400 transition-colors hover:text-sky-300"
+              >
+                {showAllNews ? 'Show fewer articles' : `View ${news.length - 4} more articles`}
+              </button>
+            )}
           </Panel>
 
           <div className="grid gap-3 lg:grid-cols-2">
