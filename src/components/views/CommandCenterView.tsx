@@ -66,11 +66,94 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
     return () => window.clearInterval(id);
   }, [live, poll]);
 
+  const quoteList = useMemo(() => Object.values(quotes), [quotes]);
+
   const byKind = useMemo(() => {
     const g: Record<string, MarketMover[]> = { gainer: [], loser: [], rel_volume: [], unusual_options: [] };
     for (const m of movers) g[m.kind] = [...(g[m.kind] ?? []), m];
+
+    // The dedicated market_movers table is not populated by the current Webull sync.
+    // Fall back to the latest quote universe so Today remains useful without inventing data.
+    if (!movers.length && quoteList.length) {
+      const timestamp = new Date().toISOString();
+      const gainers = [...quoteList]
+        .filter((q) => q.change_pct !== null && q.change_pct !== undefined)
+        .sort((a, b) => Number(b.change_pct) - Number(a.change_pct))
+        .slice(0, 5);
+      const losers = [...quoteList]
+        .filter((q) => q.change_pct !== null && q.change_pct !== undefined)
+        .sort((a, b) => Number(a.change_pct) - Number(b.change_pct))
+        .slice(0, 5);
+      const relVolume = [...quoteList]
+        .filter((q) => q.rel_volume !== null && q.rel_volume !== undefined)
+        .sort((a, b) => Number(b.rel_volume) - Number(a.rel_volume))
+        .slice(0, 5);
+      const unusual = quoteList
+        .filter((q) => Boolean(q.unusual_options_volume))
+        .sort((a, b) => Number(b.rel_volume ?? 0) - Number(a.rel_volume ?? 0))
+        .slice(0, 5);
+
+      g.gainer = gainers.map((q, index) => ({
+        id: -(100 + index),
+        symbol: q.symbol,
+        company: null,
+        kind: 'gainer',
+        value: q.change_pct,
+        detail: q.trend ?? 'latest tracked quote',
+        as_of: q.as_of ?? timestamp,
+        source_name: q.source_name,
+      }));
+      g.loser = losers.map((q, index) => ({
+        id: -(200 + index),
+        symbol: q.symbol,
+        company: null,
+        kind: 'loser',
+        value: q.change_pct,
+        detail: q.trend ?? 'latest tracked quote',
+        as_of: q.as_of ?? timestamp,
+        source_name: q.source_name,
+      }));
+      g.rel_volume = relVolume.map((q, index) => ({
+        id: -(300 + index),
+        symbol: q.symbol,
+        company: null,
+        kind: 'rel_volume',
+        value: q.rel_volume,
+        detail: q.avg_volume ? `vs 20-day avg volume ${compact(q.avg_volume)}` : 'relative to recent average volume',
+        as_of: q.as_of ?? timestamp,
+        source_name: q.source_name,
+      }));
+      g.unusual_options = unusual.map((q, index) => ({
+        id: -(400 + index),
+        symbol: q.symbol,
+        company: null,
+        kind: 'unusual_options',
+        value: q.total_oi && q.call_volume !== null && q.put_volume !== null
+          ? (Number(q.call_volume ?? 0) + Number(q.put_volume ?? 0)) / Math.max(Number(q.total_oi), 1)
+          : q.rel_volume,
+        detail: 'flagged by the stored options/quote data',
+        as_of: q.as_of ?? timestamp,
+        source_name: q.source_name,
+      }));
+    }
+
     return g;
-  }, [movers]);
+  }, [movers, quoteList]);
+
+  const spyQuote = quotes.SPY;
+  const qqqQuote = quotes.QQQ;
+  const iwmQuote = quotes.IWM;
+  const derivedAdvancers = quoteList.filter((q) => Number(q.change_pct ?? 0) > 0).length;
+  const derivedDecliners = quoteList.filter((q) => Number(q.change_pct ?? 0) < 0).length;
+  const derivedRegime = (() => {
+    const changes = [spyQuote?.change_pct, qqqQuote?.change_pct]
+      .filter((v): v is number => v !== null && v !== undefined)
+      .map(Number);
+    if (!changes.length) return 'Mixed';
+    if (changes.every((v) => v > 0.15)) return 'Risk-On';
+    if (changes.every((v) => v < -0.15)) return 'Risk-Off';
+    return 'Mixed';
+  })();
 
   const watchlistMovers = useMemo(
     () =>
@@ -113,26 +196,32 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
       {/* REGIME STRIP */}
       <div className="grid gap-3 lg:grid-cols-[1.1fr_2fr]">
         <Panel title="Market environment" right={<DemoBadge />}>
-          {snapshot ? (
+          {snapshot || spyQuote || qqqQuote ? (
             <div>
               <div
                 className={cn(
                   'inline-flex items-center gap-2 rounded-sm border px-2.5 py-1 font-mono text-xs font-semibold uppercase tracking-wider',
-                  REGIME_STYLE[snapshot.regime] ?? REGIME_STYLE.Mixed,
+                  REGIME_STYLE[snapshot?.regime ?? derivedRegime] ?? REGIME_STYLE.Mixed,
                 )}
               >
                 <Gauge className="h-3.5 w-3.5" aria-hidden="true" />
-                {snapshot.regime}
+                {snapshot?.regime ?? derivedRegime}
               </div>
-              <p className="mt-2.5 text-[12px] leading-relaxed text-zinc-400">{snapshot.regime_note}</p>
-              <p className="mt-2 text-[12px] leading-relaxed text-zinc-500">{snapshot.macro_note}</p>
+              <p className="mt-2.5 text-[12px] leading-relaxed text-zinc-400">
+                {snapshot?.regime_note ?? 'Derived from the current SPY and QQQ direction in Ursora’s tracked quote universe.'}
+              </p>
+              <p className="mt-2 text-[12px] leading-relaxed text-zinc-500">
+                {snapshot?.macro_note ?? 'Dedicated macro-series data are not connected yet, so no rates, dollar, or commodity regime is inferred.'}
+              </p>
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <Metric label="US 10Y" value={num(snapshot.us10y)} />
-                <Metric label="US 2Y" value={num(snapshot.us02y)} />
-                <Metric label="Dollar index" value={num(snapshot.dxy)} />
-                <Metric label="WTI crude" value={num(snapshot.wti)} />
+                <Metric label="US 10Y" value={num(snapshot?.us10y)} />
+                <Metric label="US 2Y" value={num(snapshot?.us02y)} />
+                <Metric label="Dollar index" value={num(snapshot?.dxy)} />
+                <Metric label="WTI crude" value={num(snapshot?.wti)} />
               </div>
-              <div className="mt-2 font-mono text-[10px] text-zinc-600">snapshot as of {stampET(snapshot.as_of)}</div>
+              <div className="mt-2 font-mono text-[10px] text-zinc-600">
+                {snapshot ? `snapshot as of ${stampET(snapshot.as_of)}` : 'derived from latest tracked quotes'}
+              </div>
             </div>
           ) : (
             <Unavailable />
@@ -141,16 +230,20 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
 
         <Panel title="Major indexes, volatility, and market participation" right={<DemoBadge />}>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            <Metric label="SPY" value={num(snapshot?.spy_price)} hint={snapshot?.spy_trend ?? undefined} valueClass={changeColor(snapshot?.spy_change_pct)} />
-            <Metric label="SPY change" value={pct(snapshot?.spy_change_pct)} valueClass={changeColor(snapshot?.spy_change_pct)} />
-            <Metric label="QQQ" value={num(snapshot?.qqq_price)} hint={snapshot?.qqq_trend ?? undefined} valueClass={changeColor(snapshot?.qqq_change_pct)} />
-            <Metric label="QQQ change" value={pct(snapshot?.qqq_change_pct)} valueClass={changeColor(snapshot?.qqq_change_pct)} />
-            <Metric label="IWM" value={num(snapshot?.iwm_price)} valueClass={changeColor(snapshot?.iwm_change_pct)} />
+            <Metric label="SPY" value={num(snapshot?.spy_price ?? spyQuote?.price)} hint={snapshot?.spy_trend ?? spyQuote?.trend ?? undefined} valueClass={changeColor(snapshot?.spy_change_pct ?? spyQuote?.change_pct)} />
+            <Metric label="SPY change" value={pct(snapshot?.spy_change_pct ?? spyQuote?.change_pct)} valueClass={changeColor(snapshot?.spy_change_pct ?? spyQuote?.change_pct)} />
+            <Metric label="QQQ" value={num(snapshot?.qqq_price ?? qqqQuote?.price)} hint={snapshot?.qqq_trend ?? qqqQuote?.trend ?? undefined} valueClass={changeColor(snapshot?.qqq_change_pct ?? qqqQuote?.change_pct)} />
+            <Metric label="QQQ change" value={pct(snapshot?.qqq_change_pct ?? qqqQuote?.change_pct)} valueClass={changeColor(snapshot?.qqq_change_pct ?? qqqQuote?.change_pct)} />
+            <Metric label="IWM" value={num(snapshot?.iwm_price ?? iwmQuote?.price)} valueClass={changeColor(snapshot?.iwm_change_pct ?? iwmQuote?.change_pct)} />
             <Metric label="VIX" value={num(snapshot?.vix)} hint={pct(snapshot?.vix_change_pct) ?? undefined} valueClass={Number(snapshot?.vix) > 20 ? 'text-amber-300' : 'text-zinc-100'} />
-            <Metric label="Stocks rising" value={snapshot?.breadth_advancers} valueClass="text-emerald-300" />
-            <Metric label="Stocks falling" value={snapshot?.breadth_decliners} valueClass="text-red-300" />
+            <Metric label="Stocks rising" value={snapshot?.breadth_advancers ?? (quoteList.length ? derivedAdvancers : null)} valueClass="text-emerald-300" />
+            <Metric label="Stocks falling" value={snapshot?.breadth_decliners ?? (quoteList.length ? derivedDecliners : null)} valueClass="text-red-300" />
           </div>
-          <p className="mt-2.5 text-[12px] leading-relaxed text-zinc-500">{snapshot?.breadth_note ?? <Unavailable />}</p>
+          <p className="mt-2.5 text-[12px] leading-relaxed text-zinc-500">
+            {snapshot?.breadth_note ?? (quoteList.length
+              ? `${derivedAdvancers} of ${quoteList.length} tracked symbols are higher and ${derivedDecliners} are lower in the latest quote set.`
+              : <Unavailable />)}
+          </p>
           <div className="mt-3">
             <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Sector movement</div>
             <div className="mt-1.5 space-y-1">
