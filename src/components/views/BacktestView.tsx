@@ -106,19 +106,19 @@ export const BacktestView: React.FC = () => {
   return (
     <div className="space-y-4">
       <SectionHeading
-        eyebrow="Backtesting"
-        title="Test URSORA's signal rules against historical market data"
-        description="Choose the symbols, date range and trade criteria you want to evaluate. URSORA then applies the same rules to historical data and reports how those signals would have performed."
+        eyebrow="Historical evidence"
+        title="See how similar setups behaved in past market conditions"
+        description="Historical evidence helps test whether a setup has appeared before, how often it occurred, and how price behaved afterward. It is context for learning and model validation, not a prediction of the next trade."
         right={<DemoBadge />}
       />
 
       <Panel
-        title="Historical test controls"
+        title="How historical evidence is evaluated"
         subtitle="Backtests use only information that would have been available at each point in time. Future information is excluded from the decision process."
       >
         <p className="text-[12px] leading-relaxed text-zinc-400">
-          This prevents the test from benefiting from information that was not yet known. Backtested, paper-traded and
-          live results remain separate so that each performance record reflects how it was actually generated.
+          This prevents the test from benefiting from information that was not yet known. Historical results remain separate from
+          connected brokerage outcomes so users can distinguish model evidence from their own trading record.
         </p>
       </Panel>
 
