@@ -31,6 +31,7 @@ export const EDGE_FUNCTIONS = {
   tradeStructure: 'build-trade-structure',
   tradeLifecycle: 'sync-tradecycle-lifecycle',
   alphaNewsSync: 'sync-alpha-news',
+  yahooNewsSync: 'sync-yahoo-news',
   alphaEarningsSync: 'sync-alpha-earnings',
 } as const;
 
@@ -176,6 +177,7 @@ export async function runFreshAnalysis(
     { label: 'historical technical data', slug: EDGE_FUNCTIONS.historySync, payload: symbols },
     { label: 'options market data', slug: EDGE_FUNCTIONS.optionsSync, payload: symbols },
     { label: 'verified news and sentiment', slug: EDGE_FUNCTIONS.alphaNewsSync, payload: symbols },
+    { label: 'supplemental Yahoo Finance news', slug: EDGE_FUNCTIONS.yahooNewsSync, payload: symbols },
     { label: 'earnings calendar', slug: EDGE_FUNCTIONS.alphaEarningsSync, payload: symbols },
   ];
 
