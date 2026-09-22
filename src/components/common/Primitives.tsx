@@ -1,9 +1,10 @@
 import React from 'react';
 import {
   AlertTriangle, ArrowDownRight, ArrowRight, ArrowUpRight, BadgeCheck, Building2, Database,
-  FileText, Gauge, Loader2, MessagesSquare, Newspaper, ShieldQuestion,
+  FileText, Gauge, Info, Loader2, MessagesSquare, Newspaper, ShieldQuestion,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { DATA_UNAVAILABLE, isMissing, riskColor, scoreColor } from '@/lib/format';
 
 /* -------------------------------------------------------------------------- */
@@ -102,6 +103,29 @@ export const Provenance: React.FC<{
   </div>
 );
 
+export const InfoHint: React.FC<{ text: string; className?: string }> = ({ text, className }) => (
+  <Tooltip>
+    <TooltipTrigger asChild>
+      <button
+        type="button"
+        aria-label="Explain this information"
+        className={cn(
+          'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:text-sky-300 focus:outline-none focus:ring-1 focus:ring-sky-500/50',
+          className,
+        )}
+      >
+        <Info className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+    </TooltipTrigger>
+    <TooltipContent
+      side="top"
+      className="max-w-xs border-zinc-700 bg-[#111419] text-[12px] leading-relaxed text-zinc-200"
+    >
+      {text}
+    </TooltipContent>
+  </Tooltip>
+);
+
 /* -------------------------------------------------------------------------- */
 /*  Layout primitives                                                         */
 /* -------------------------------------------------------------------------- */
@@ -110,16 +134,20 @@ export const Panel: React.FC<{
   title?: string;
   subtitle?: string;
   right?: React.ReactNode;
+  help?: string;
   children: React.ReactNode;
   className?: string;
   bodyClassName?: string;
-}> = ({ title, subtitle, right, children, className, bodyClassName }) => (
+}> = ({ title, subtitle, right, help, children, className, bodyClassName }) => (
   <section className={cn('rounded-md border border-zinc-800 bg-[#14171c]', className)}>
     {(title || right) && (
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-3 py-2">
         <div>
           {title && (
-            <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-300">{title}</h3>
+            <div className="flex items-center gap-1.5">
+              <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-300">{title}</h3>
+              {help && <InfoHint text={help} />}
+            </div>
           )}
           {subtitle && <p className="mt-0.5 max-w-3xl text-[11px] leading-snug text-zinc-500">{subtitle}</p>}
         </div>
