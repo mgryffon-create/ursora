@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Activity, Bot, Brain, CalendarClock, ChevronDown, Database, FlaskConical, LineChart,
-  ListChecks, LogOut, Menu, Radar, ScrollText, Settings2, Star, X,
+  Brain, ChevronDown, CircleHelp, FlaskConical, LineChart,
+  ListChecks, LogOut, Menu, Radar, ScrollText, X,
 } from 'lucide-react';
-import { fetchFeed, fetchSnapshot } from '@/lib/api';
-import type { FeedEvent, MarketSnapshot } from '@/lib/types';
-import { changeColor, clockET, marketStatus, num, pct, stampET } from '@/lib/format';
+import { fetchSnapshot } from '@/lib/api';
+import type { MarketSnapshot } from '@/lib/types';
+import { changeColor, marketStatus, num, pct, stampET } from '@/lib/format';
 import { useAuth } from '@/contexts/AuthContext';
 import { CompactMark } from '@/brand';
 import { cn } from '@/lib/utils';
@@ -15,20 +15,18 @@ import AuthPanel from '@/components/AuthPanel';
 import OpportunitiesView from '@/components/views/OpportunitiesView';
 import CommandCenterView from '@/components/views/CommandCenterView';
 import ThesisView from '@/components/views/ThesisView';
-import CalendarView from '@/components/views/CalendarView';
-import WatchlistView from '@/components/views/WatchlistView';
 import SignalHistoryView from '@/components/views/SignalHistoryView';
-import PaperTradingView from '@/components/views/PaperTradingView';
 import BacktestView from '@/components/views/BacktestView';
-import AnalystView from '@/components/views/AnalystView';
-import DataSourcesView from '@/components/views/DataSourcesView';
 import TraderIntelligenceView from '@/components/views/TraderIntelligenceView';
+import TradesView from '@/components/views/TradesView';
+import AboutView from '@/components/views/AboutView';
+import OnboardingTour from '@/components/OnboardingTour';
 
 type ViewKey =
-  | 'opportunities' | 'command' | 'calendar' | 'watchlist' | 'history'
-  | 'paper' | 'backtest' | 'analyst' | 'sources' | 'thesis' | 'feed' | 'trader';
+  | 'opportunities' | 'command' | 'trades' | 'history'
+  | 'backtest' | 'thesis' | 'trader' | 'about';
 
-type NavGroupKey = 'today' | 'trades' | 'intelligence' | 'research' | 'system';
+type NavGroupKey = 'today' | 'trades' | 'intelligence';
 
 const NAV_GROUPS: {
   key: NavGroupKey;
@@ -51,11 +49,9 @@ const NAV_GROUPS: {
     key: 'trades',
     label: 'Trades',
     Icon: LineChart,
-    defaultView: 'paper',
+    defaultView: 'trades',
     items: [
-      { key: 'paper', label: 'Paper Trading', hint: 'Account, positions, performance', Icon: LineChart },
-      { key: 'history', label: 'Analysis History', hint: 'Past signals and changes', Icon: ScrollText },
-      { key: 'backtest', label: 'Historical Testing', hint: 'Test rules on past data', Icon: FlaskConical },
+      { key: 'trades', label: 'Positions & TradeCycles', hint: 'Connected brokerage activity', Icon: LineChart },
     ],
   },
   {
@@ -65,37 +61,16 @@ const NAV_GROUPS: {
     defaultView: 'trader',
     items: [
       { key: 'trader', label: 'Trader Intelligence', hint: 'Patterns, process, behavior', Icon: Brain },
-    ],
-  },
-  {
-    key: 'research',
-    label: 'Research',
-    Icon: Star,
-    defaultView: 'watchlist',
-    items: [
-      { key: 'watchlist', label: 'Watchlist', hint: 'Your universe', Icon: Star },
-      { key: 'calendar', label: 'Market Events', hint: 'Upcoming market-moving events', Icon: CalendarClock },
-      { key: 'analyst', label: 'AI Analyst', hint: 'Answers based on URSORA data', Icon: Bot },
-      { key: 'feed', label: 'Signal Feed', hint: 'Timestamped events', Icon: Activity },
-    ],
-  },
-  {
-    key: 'system',
-    label: 'System',
-    Icon: Settings2,
-    defaultView: 'sources',
-    items: [
-      { key: 'sources', label: 'Data Connections', hint: 'Connection status', Icon: Database },
+      { key: 'history', label: 'TradeCycle History', hint: 'Episode history by ticker', Icon: ScrollText },
+      { key: 'backtest', label: 'Historical Evidence', hint: 'How setups behaved historically', Icon: FlaskConical },
     ],
   },
 ];
 
 const groupForView = (view: ViewKey): NavGroupKey => {
-  if (view === 'thesis' || view === 'opportunities' || view === 'command') return 'today';
-  if (view === 'paper' || view === 'history' || view === 'backtest') return 'trades';
-  if (view === 'trader') return 'intelligence';
-  if (view === 'watchlist' || view === 'calendar' || view === 'analyst' || view === 'feed') return 'research';
-  return 'system';
+  if (view === 'thesis' || view === 'opportunities' || view === 'command' || view === 'about') return 'today';
+  if (view === 'trades') return 'trades';
+  return 'intelligence';
 };
 
 const labelForView = (view: ViewKey) => {
@@ -103,7 +78,9 @@ const labelForView = (view: ViewKey) => {
     const item = group.items.find((entry) => entry.key === view);
     if (item) return item.label;
   }
-  return view === 'thesis' ? 'Trade Analysis' : 'URSORA';
+  if (view === 'thesis') return 'Trade Analysis';
+  if (view === 'about') return 'About URSORA';
+  return 'URSORA';
 };
 
 const StatusBar: React.FC<{ snapshot: MarketSnapshot | null }> = ({ snapshot }) => {
@@ -146,56 +123,6 @@ const StatusBar: React.FC<{ snapshot: MarketSnapshot | null }> = ({ snapshot }) 
   );
 };
 
-const FeedPage: React.FC = () => {
-  const [feed, setFeed] = useState<FeedEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    let active = true;
-    const load = () => {
-      void fetchFeed(80).then((f) => {
-        if (!active) return;
-        setFeed(f);
-        setLoading(false);
-      });
-    };
-    load();
-    const id = window.setInterval(load, 20000);
-    return () => {
-      active = false;
-      window.clearInterval(id);
-    };
-  }, []);
-  if (loading) return <Spinner label="Loading the signal feed" />;
-  return (
-    <div className="space-y-3">
-      <div>
-        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-sky-400/80">Market activity</div>
-        <h2 className="mt-1 text-xl font-semibold tracking-tight text-zinc-100">Recent market and signal activity</h2>
-        <p className="mt-1 text-sm text-zinc-500">
-          Each item shows when it occurred, which symbol it relates to, the event type, and the source. The page refreshes automatically while open.
-        </p>
-      </div>
-      <ul className="divide-y divide-zinc-800/70 overflow-hidden rounded-md border border-zinc-800 bg-[#14171c]">
-        {feed.map((f) => (
-          <li key={f.id} className="px-3 py-2 transition-colors hover:bg-black/30">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-[11px] tabular-nums text-zinc-400">{clockET(f.event_time)}</span>
-              {f.symbol && <span className="font-mono text-[11px] font-semibold text-zinc-100">{f.symbol}</span>}
-              <span className="rounded-sm border border-zinc-700 px-1.5 py-[1px] font-mono text-[9px] uppercase tracking-wide text-zinc-400">
-                {f.category}
-              </span>
-              <span className="ml-auto font-mono text-[9px] text-zinc-600">{f.source_name}</span>
-            </div>
-            <p className="mt-1 text-[12px] leading-snug text-zinc-300">{f.message}</p>
-          </li>
-        ))}
-        {!feed.length && <li className="p-3"><Unavailable /></li>}
-      </ul>
-    </div>
-  );
-};
-
-
 export const AppLayout: React.FC = () => {
   const { user, loading, signOut } = useAuth();
   const [entered, setEntered] = useState(false);
@@ -205,6 +132,7 @@ export const AppLayout: React.FC = () => {
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   const [expandedGroup, setExpandedGroup] = useState<NavGroupKey>('today');
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -227,6 +155,12 @@ export const AppLayout: React.FC = () => {
       setAuthMode(null);
     }
   }, [user]);
+
+  useEffect(() => {
+    if (!entered && !user) return;
+    const seen = window.localStorage.getItem('ursora_onboarding_v1');
+    if (!seen) setShowOnboarding(true);
+  }, [entered, user]);
 
   useEffect(() => {
     setExpandedGroup(groupForView(view));
@@ -265,24 +199,16 @@ export const AppLayout: React.FC = () => {
         );
       case 'command':
         return <CommandCenterView onOpenThesis={openThesis} />;
-      case 'calendar':
-        return <CalendarView />;
-      case 'watchlist':
-        return <WatchlistView onOpenThesis={openThesis} />;
+      case 'trades':
+        return <TradesView />;
       case 'history':
         return <SignalHistoryView onOpenThesis={openThesis} />;
-      case 'paper':
-        return <PaperTradingView onOpenThesis={openThesis} />;
       case 'backtest':
         return <BacktestView />;
-      case 'analyst':
-        return <AnalystView onOpenThesis={openThesis} />;
       case 'trader':
         return <TraderIntelligenceView onOpenThesis={openThesis} />;
-      case 'sources':
-        return <DataSourcesView />;
-      case 'feed':
-        return <FeedPage />;
+      case 'about':
+        return <AboutView />;
       default:
         return <OpportunitiesView onOpenThesis={openThesis} />;
     }
@@ -355,6 +281,15 @@ export const AppLayout: React.FC = () => {
             <span className="hidden rounded-sm border border-amber-500/30 bg-amber-500/[0.06] px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-amber-300 lg:inline">
               sandbox data
             </span>
+            <button
+              type="button"
+              onClick={() => go('about')}
+              className="inline-flex items-center gap-1 rounded-sm border border-zinc-800 px-2 py-1.5 font-mono text-[10px] uppercase tracking-wider text-zinc-400 transition-colors hover:border-sky-500/30 hover:text-sky-300"
+              title="About URSORA, how to use it, data connections, and disclosures"
+            >
+              <CircleHelp className="h-3 w-3" aria-hidden="true" />
+              <span className="hidden md:inline">About</span>
+            </button>
             <span className="hidden font-mono text-[10px] text-zinc-500 sm:inline">
               {user ? user.email : 'demo session'}
             </span>
@@ -458,7 +393,7 @@ export const AppLayout: React.FC = () => {
 
       <nav
         aria-label="Mobile primary"
-        className="fixed bottom-0 left-0 right-0 z-40 grid grid-cols-5 border-t border-zinc-800 bg-[#0b0d10]/98 backdrop-blur lg:hidden"
+        className="fixed bottom-0 left-0 right-0 z-40 grid grid-cols-3 border-t border-zinc-800 bg-[#0b0d10]/98 backdrop-blur lg:hidden"
       >
         {NAV_GROUPS.map((group) => {
           const Icon = group.Icon;
@@ -484,6 +419,15 @@ export const AppLayout: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-fade-in">
           <AuthPanel initialMode={authMode} onClose={() => setAuthMode(null)} />
         </div>
+      )}
+
+      {showOnboarding && (
+        <OnboardingTour
+          onFinish={() => {
+            window.localStorage.setItem('ursora_onboarding_v1', 'seen');
+            setShowOnboarding(false);
+          }}
+        />
       )}
     </div>
   );
