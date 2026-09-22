@@ -759,8 +759,26 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                       {n.recency_weight?.toFixed(2) ?? 'n/a'}
                     </span>
                   </div>
-                  <h4 className="mt-2 text-[13px] font-semibold leading-snug text-zinc-100">{n.headline}</h4>
-                  <p className="mt-1 text-[12px] leading-relaxed text-zinc-400">{n.summary ?? <Unavailable />}</p>
+                  <h4 className="mt-2 text-[13px] font-semibold leading-snug text-zinc-100">
+                    {n.url ? (
+                      <a href={n.url} target="_blank" rel="noreferrer" className="transition-colors hover:text-sky-300">
+                        {n.headline}
+                      </a>
+                    ) : n.headline}
+                  </h4>
+                  <p className="mt-1 text-[12px] leading-relaxed text-zinc-400">
+                    {n.summary ?? 'Brief summary unavailable from this source.'}
+                  </p>
+                  {n.url && (
+                    <a
+                      href={n.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1.5 inline-block font-mono text-[10px] uppercase tracking-wider text-sky-400 hover:text-sky-300"
+                    >
+                      Read source
+                    </a>
+                  )}
                   <Provenance
                     sourceName={n.source_name}
                     sourceType={n.source_type}
