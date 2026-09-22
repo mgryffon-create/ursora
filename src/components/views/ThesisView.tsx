@@ -369,22 +369,6 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                 const raw = Number(f.raw_score);
                 const isTradeQuality = f.factor === 'liquidity' || f.factor === 'risk_reward';
 
-                const effectText = isTradeQuality
-                  ? f.effect === 'INCREASED'
-                    ? 'Favorable trade quality'
-                    : f.effect === 'DECREASED'
-                      ? 'Unfavorable trade quality'
-                      : raw > 0
-                        ? 'Limited trade-quality contribution'
-                        : 'No usable trade-quality evidence'
-                  : f.effect === 'INCREASED'
-                    ? 'Meaningful supporting evidence'
-                    : f.effect === 'DECREASED'
-                      ? 'Meaningful opposing evidence'
-                      : raw > 0
-                        ? 'Directional signal is present, but not strong enough to confirm the analysis'
-                        : 'No meaningful directional evidence';
-
                 const signed = Number(f.signed_score ?? 0);
                 const strength = isTradeQuality
                   ? signed >= 75 ? 'Excellent'
@@ -398,6 +382,30 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                       : raw >= 45 ? 'Moderate'
                         : raw >= 25 ? 'Weak'
                           : 'Insufficient';
+
+                const effectText = isTradeQuality
+                  ? f.effect === 'INCREASED'
+                    ? 'Favorable trade quality'
+                    : f.effect === 'DECREASED'
+                      ? 'Unfavorable trade quality'
+                      : raw > 0
+                        ? 'Limited trade-quality contribution'
+                        : 'No usable trade-quality evidence'
+                  : f.effect === 'INCREASED'
+                    ? raw >= 85 ? 'Very strong supporting evidence'
+                      : raw >= 65 ? 'Strong supporting evidence'
+                        : raw >= 45 ? 'Moderate supporting evidence'
+                          : raw >= 25 ? 'Weak supporting evidence'
+                            : 'Not strong enough to support the thesis'
+                    : f.effect === 'DECREASED'
+                      ? raw >= 85 ? 'Very strong opposing evidence'
+                        : raw >= 65 ? 'Strong opposing evidence'
+                          : raw >= 45 ? 'Moderate opposing evidence'
+                            : raw >= 25 ? 'Weak opposing evidence'
+                              : 'Not strong enough to oppose the thesis'
+                      : raw > 0
+                        ? 'Directional signal is present, but not strong enough to confirm the analysis'
+                        : 'No meaningful directional evidence';
 
                 const effectLabel = isTradeQuality ? 'Trade-quality effect' : 'Directional effect';
                 const effectValue = isTradeQuality
@@ -422,11 +430,13 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                       <span
                         className={cn(
                           'rounded-sm border px-2 py-1 text-[10px] font-medium',
-                          f.effect === 'INCREASED'
-                            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-                            : f.effect === 'DECREASED'
-                              ? 'border-red-500/40 bg-red-500/10 text-red-300'
-                              : 'border-zinc-700 text-zinc-400',
+                          !isTradeQuality && raw < 45 && f.effect !== 'NEUTRAL'
+                            ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                            : f.effect === 'INCREASED'
+                              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                              : f.effect === 'DECREASED'
+                                ? 'border-red-500/40 bg-red-500/10 text-red-300'
+                                : 'border-zinc-700 text-zinc-400',
                         )}
                       >
                         {effectText}
