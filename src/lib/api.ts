@@ -30,6 +30,8 @@ export const EDGE_FUNCTIONS = {
   optionsSync: 'sync-webull-options',
   tradeStructure: 'build-trade-structure',
   tradeLifecycle: 'sync-tradecycle-lifecycle',
+  alphaNewsSync: 'sync-alpha-news',
+  alphaEarningsSync: 'sync-alpha-earnings',
 } as const;
 
 export type EdgeFunctionSlug = (typeof EDGE_FUNCTIONS)[keyof typeof EDGE_FUNCTIONS];
@@ -173,6 +175,8 @@ export async function runFreshAnalysis(
     { label: 'market quotes', slug: EDGE_FUNCTIONS.marketSync, payload: symbols },
     { label: 'historical technical data', slug: EDGE_FUNCTIONS.historySync, payload: symbols },
     { label: 'options market data', slug: EDGE_FUNCTIONS.optionsSync, payload: symbols },
+    { label: 'verified news and sentiment', slug: EDGE_FUNCTIONS.alphaNewsSync, payload: symbols },
+    { label: 'earnings calendar', slug: EDGE_FUNCTIONS.alphaEarningsSync, payload: symbols },
   ];
 
   for (const stage of stages) {
