@@ -882,7 +882,7 @@ Deno.serve(async (req) => {
         agreement >= 70 &&
         independentDirectionalFamilies >= 3 &&
         directionalCompleteness >= 65 &&
-        directionalUncertainty <= 45;
+        directionalUncertainty <= 55;
 
       const suggested = suggestionEligible ? candidatePool[0] ?? null : null;
 
@@ -907,7 +907,24 @@ Deno.serve(async (req) => {
               ? 'The available directional evidence materially contradicts the proposed direction.'
               : tradeBlockers.length
                 ? tradeBlockers.join(' ')
-                : null;
+                : !suggestionEligible
+                  ? [
+                      directionalCompleteness < 65
+                        ? `Directional evidence completeness is ${directionalCompleteness}% and must reach at least 65% for a proactive suggestion.`
+                        : null,
+                      directionalUncertainty > 55
+                        ? `Directional evidence uncertainty is ${directionalUncertainty}% and must be 55% or lower for a proactive suggestion.`
+                        : null,
+                      independentDirectionalFamilies < 3
+                        ? `Only ${independentDirectionalFamilies} sufficiently independent directional evidence families are currently reliable; at least 3 are required.`
+                        : null,
+                      agreement === null
+                        ? 'Directional agreement cannot yet be established from enough meaningful evidence families.'
+                        : agreement < 70
+                          ? `Directional agreement is ${agreement}% and must reach at least 70% for a proactive suggestion.`
+                          : null,
+                    ].filter(Boolean).join(' ')
+                  : null;
 
       created.push({
         run_id: runId,
@@ -985,7 +1002,7 @@ Deno.serve(async (req) => {
             tradeBlockers.length ? `Trade constraints: ${tradeBlockers.join(' ')}` : 'No hard trade constraints were identified from the data currently available.',
             suggestionEligible
               ? 'Suggestion eligibility: eligible for proactive contract suggestion.'
-              : 'Suggestion eligibility: not eligible for proactive suggestion unless the thesis is supported, directional agreement is sufficient, and trade constraints are clear.',
+              : `Suggestion eligibility: not eligible for proactive suggestion. Current gate values — agreement ${agreement ?? 'unavailable'}%, independent families ${independentDirectionalFamilies}, directional completeness ${directionalCompleteness}%, directional uncertainty ${directionalUncertainty}%.`,
             'Observed and derived evidence are reliability-discounted for freshness, source quality, and redundancy. Imputed evidence receives an additional imputation-confidence discount. Unavailable evidence contributes no directional support.',
           ],
         },
