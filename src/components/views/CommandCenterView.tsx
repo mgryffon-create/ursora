@@ -7,7 +7,7 @@ import type { FeedEvent, MarketMover, MarketSnapshot, NewsItem, Quote, Signal, S
 import { changeColor, clockET, compact, num, pct, scoreColor, stampET } from '@/lib/format';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  DemoBadge, Disclaimer, Metric, Panel, SectionHeading, SourceBadge, Spinner, Unavailable,
+  DemoBadge, Disclaimer, InfoHint, Metric, Panel, SectionHeading, SourceBadge, Spinner, Unavailable,
 } from '@/components/common/Primitives';
 import { cn } from '@/lib/utils';
 
@@ -165,6 +165,51 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
     [watchlist, quotes],
   );
 
+  const signalBySymbol = useMemo(() => {
+    const map = new Map<string, Signal>();
+    for (const signal of signals) if (!map.has(signal.symbol)) map.set(signal.symbol, signal);
+    return map;
+  }, [signals]);
+
+  const rankBySymbol = useMemo(() => {
+    const ranked = [...signals].sort((a, b) => b.opportunity_score - a.opportunity_score).slice(0, 5);
+    return new Map(ranked.map((signal, index) => [signal.symbol, index + 1]));
+  }, [signals]);
+
+  const openTicker = useCallback((symbol: string) => {
+    const signal = signalBySymbol.get(symbol);
+    if (signal) onOpenThesis(signal.id);
+  }, [onOpenThesis, signalBySymbol]);
+
+  const tickerCell = useCallback((symbol: string, detail?: string | null) => {
+    const rank = rankBySymbol.get(symbol);
+    const clickable = signalBySymbol.has(symbol);
+    return (
+      <div className="min-w-0">
+        <button
+          type="button"
+          disabled={!clickable}
+          onClick={() => openTicker(symbol)}
+          className={cn(
+            'font-mono text-xs font-semibold',
+            clickable ? 'text-zinc-100 underline-offset-2 hover:text-sky-300 hover:underline' : 'cursor-default text-zinc-100',
+          )}
+        >
+          {symbol}
+        </button>
+        {rank && (
+          <span
+            className="ml-1.5 rounded-sm border border-sky-500/30 bg-sky-500/[0.08] px-1 py-[1px] font-mono text-[9px] text-sky-300"
+            title={`Top-ranked opportunity #${rank}`}
+          >
+            #{rank}
+          </span>
+        )}
+        {detail && <span className="ml-2 text-[10px] text-zinc-500">{detail}</span>}
+      </div>
+    );
+  }, [openTicker, rankBySymbol, signalBySymbol]);
+
   if (loading) return <Spinner label="Loading the market overview" />;
 
   return (
@@ -195,7 +240,11 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
 
       {/* REGIME STRIP */}
       <div className="grid gap-3 lg:grid-cols-[1.1fr_2fr]">
-        <Panel title="Market environment" right={<DemoBadge />}>
+        <Panel
+          title="Market environment"
+          help="A compact view of the broader conditions surrounding individual trades. Risk-on generally means major equity indexes are rising while volatility is contained; risk-off means broad selling pressure or elevated volatility. Mixed means the signals are not aligned."
+          right={<DemoBadge />}
+        >
           {snapshot || spyQuote || qqqQuote ? (
             <div>
               <div
@@ -228,7 +277,11 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
           )}
         </Panel>
 
-        <Panel title="Major indexes, volatility, and market participation" right={<DemoBadge />}>
+        <Panel
+          title="Major indexes, volatility, and market participation"
+          help="Major indexes show how broad parts of the market are moving. Volatility estimates how much price movement traders are pricing in. Market participation shows how many tracked stocks are rising versus falling."
+          right={<DemoBadge />}
+        >
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <Metric label="SPY" value={num(snapshot?.spy_price ?? spyQuote?.price)} hint={snapshot?.spy_trend ?? spyQuote?.trend ?? undefined} valueClass={changeColor(snapshot?.spy_change_pct ?? spyQuote?.change_pct)} />
             <Metric label="SPY change" value={pct(snapshot?.spy_change_pct ?? spyQuote?.change_pct)} valueClass={changeColor(snapshot?.spy_change_pct ?? spyQuote?.change_pct)} />
@@ -275,14 +328,13 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
       {/* MOVERS + FEED */}
       <div className="grid gap-3 xl:grid-cols-[1.35fr_1fr]">
         <div className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-2">
-            <Panel title="Top gainers" right={<DemoBadge />}>
+          <div className="grid gap-3 md:grid-cols-[minmax(240px,0.9fr)_minmax(240px,0.9fr)] xl:grid-cols-[minmax(230px,0.8fr)_minmax(230px,0.8fr)_minmax(260px,1fr)_minmax(280px,1.1fr)]">
+            <Panel title="Top gainers" help="Tracked stocks with the largest positive price change in the current session. A gain alone does not mean the move is sustainable or tradeable." right={<DemoBadge />}>
               <ul className="space-y-1.5">
                 {byKind.gainer.map((m) => (
                   <li key={`g-${m.id}`} className="flex items-baseline justify-between gap-2 border-b border-zinc-800/60 pb-1.5 last:border-0">
                     <div className="min-w-0">
-                      <span className="font-mono text-xs font-semibold text-zinc-100">{m.symbol}</span>
-                      <span className="ml-2 truncate text-[10px] text-zinc-500">{m.detail}</span>
+                      {tickerCell(m.symbol, m.detail)}
                     </div>
                     <span className="inline-flex items-center gap-1 font-mono text-xs tabular-nums text-emerald-400">
                       <TrendingUp className="h-3 w-3" aria-hidden="true" />
@@ -293,13 +345,12 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
                 {!byKind.gainer.length && <Unavailable />}
               </ul>
             </Panel>
-            <Panel title="Top losers" right={<DemoBadge />}>
+            <Panel title="Top losers" help="Tracked stocks with the largest negative price change in the current session. A decline alone does not establish a bearish thesis." right={<DemoBadge />}>
               <ul className="space-y-1.5">
                 {byKind.loser.map((m) => (
                   <li key={`l-${m.id}`} className="flex items-baseline justify-between gap-2 border-b border-zinc-800/60 pb-1.5 last:border-0">
                     <div className="min-w-0">
-                      <span className="font-mono text-xs font-semibold text-zinc-100">{m.symbol}</span>
-                      <span className="ml-2 truncate text-[10px] text-zinc-500">{m.detail}</span>
+                      {tickerCell(m.symbol, m.detail)}
                     </div>
                     <span className="inline-flex items-center gap-1 font-mono text-xs tabular-nums text-red-400">
                       <TrendingDown className="h-3 w-3" aria-hidden="true" />
@@ -310,12 +361,12 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
                 {!byKind.loser.length && <Unavailable />}
               </ul>
             </Panel>
-            <Panel title="Highest relative volume" right={<DemoBadge />}>
+            <Panel title="Highest relative volume" help="Relative volume compares current trading volume with the stock’s recent average. A value above 1.0 means the stock is trading more actively than usual." right={<DemoBadge />}>
               <ul className="space-y-1.5">
                 {byKind.rel_volume.map((m) => (
                   <li key={`r-${m.id}`} className="flex items-baseline justify-between gap-2 border-b border-zinc-800/60 pb-1.5 last:border-0">
                     <div className="min-w-0">
-                      <span className="font-mono text-xs font-semibold text-zinc-100">{m.symbol}</span>
+                      {tickerCell(m.symbol)}
                       <span className="ml-2 truncate text-[10px] text-zinc-500">{m.detail}</span>
                     </div>
                     <span className="font-mono text-xs tabular-nums text-sky-300">{num(m.value)}x</span>
@@ -326,6 +377,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
             </Panel>
             <Panel
               title="Unusual options activity"
+              help="Flags options contracts or symbols with activity that is large relative to existing open interest. This identifies unusual participation, not whether traders are bullish or bearish."
               subtitle="Volume against open interest only. Never auto-read as bullish or bearish."
               right={<DemoBadge />}
             >
@@ -347,20 +399,33 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
             </Panel>
           </div>
 
-          <Panel title="Watchlist movers" subtitle="Your personal watchlist, ranked by absolute move." right={<DemoBadge />}>
+          <Panel title="Watchlist movers" help="A compact view of price movement and trading conditions for symbols you follow. Relative volume compares current volume with recent average volume; put/call compares put-option volume with call-option volume." subtitle="Your personal watchlist, ranked by absolute move." right={<DemoBadge />}>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[620px] text-left text-[11px]">
                 <thead className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
                   <tr>
-                    {['Symbol', 'Last', 'Change', 'Rel vol', 'VWAP', 'Trend', 'Put/call'].map((h) => (
-                      <th key={h} scope="col" className="px-2 py-1.5">{h}</th>
+                    {[
+                      ['Symbol', 'The ticker symbol for the company or fund. Select it to open the current URSORA analysis.'],
+                      ['Last', 'The latest available price.'],
+                      ['Change', 'The percentage change from the previous regular-session close.'],
+                      ['Rel vol', 'Relative volume compares current volume with recent average volume. Above 1.0 means activity is heavier than usual.'],
+                      ['VWAP', 'Volume-weighted average price is the average price traded today, weighted by how much volume occurred at each price.'],
+                      ['Trend', 'A simplified description of recent price structure based on moving averages and price direction.'],
+                      ['Put/call', 'Put-option volume divided by call-option volume. Higher values mean relatively more put activity; it does not identify whether trades were opening, closing, hedging, or speculative.'],
+                    ].map(([h, help]) => (
+                      <th key={h} scope="col" className="whitespace-nowrap px-2 py-1.5">
+                        <span className="inline-flex items-center gap-1">
+                          {h}
+                          <InfoHint text={help} />
+                        </span>
+                      </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800/60">
                   {watchlistMovers.map((q) => (
                     <tr key={q.symbol} className="transition-colors hover:bg-black/30">
-                      <td className="px-2 py-1.5 font-mono font-semibold text-zinc-100">{q.symbol}</td>
+                      <td className="px-2 py-1.5">{tickerCell(q.symbol)}</td>
                       <td className="px-2 py-1.5 font-mono tabular-nums text-zinc-200">{num(q.price)}</td>
                       <td className={cn('px-2 py-1.5 font-mono tabular-nums', changeColor(q.change_pct))}>{pct(q.change_pct)}</td>
                       <td className="px-2 py-1.5 font-mono tabular-nums text-sky-300">{num(q.rel_volume)}x</td>
@@ -375,12 +440,12 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
             </div>
           </Panel>
 
-          <Panel title="Recent market-moving events" subtitle="Recent dated events and announcements across tracked symbols." right={<DemoBadge />}>
+          <Panel title="Recent market-moving events" help="Recent company or market news that may change the evidence behind a thesis. These items provide context and are not treated as trade instructions by themselves." subtitle="Recent dated events and announcements across tracked symbols." right={<DemoBadge />}>
             <ul className="space-y-2">
               {news.slice(0, 6).map((n) => (
                 <li key={n.id} className="border-b border-zinc-800/60 pb-2 last:border-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-[11px] font-semibold text-zinc-100">{n.symbol ?? 'MACRO'}</span>
+                    {n.symbol ? tickerCell(n.symbol) : <span className="font-mono text-[11px] font-semibold text-zinc-100">MACRO</span>}
                     <SourceBadge type={n.source_type} />
                     <span className="font-mono text-[10px] text-zinc-500">{clockET(n.published_at)}</span>
                   </div>
@@ -395,93 +460,52 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
         {/* SIGNAL FEED */}
         <div className="space-y-3">
           <Panel
-            title="Signal feed"
-            subtitle="Recent activity is shown with its time, symbol, category, and source."
+            title="Market & thesis activity"
+            help="Only meaningful changes should appear here: material thesis changes, new catalysts, or evidence changes large enough to alter how a trade should be interpreted. Minor price noise should not generate activity."
+            subtitle="Meaningful changes across tracked symbols and URSORA theses."
             right={
               <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-emerald-400">
                 <Radio className={cn('h-3 w-3', live && 'animate-pulse')} aria-hidden="true" />
                 {live ? 'live' : 'auto-refresh off'}
               </span>
             }
-            bodyClassName="max-h-[560px] overflow-y-auto p-0"
+            bodyClassName="max-h-[620px] overflow-y-auto p-0"
           >
             <ul className="divide-y divide-zinc-800/60">
-              {feed.map((f) => (
-                <li
-                  key={f.id}
-                  className={cn('border-l-2 px-3 py-2 transition-colors hover:bg-black/30 animate-fade-in', SEVERITY_STYLE[f.severity ?? 'info'])}
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-[11px] tabular-nums text-zinc-400">{clockET(f.event_time)}</span>
-                    {f.symbol && <span className="font-mono text-[11px] font-semibold text-zinc-100">{f.symbol}</span>}
-                    <span className="rounded-sm border border-zinc-700 px-1.5 py-[1px] font-mono text-[9px] uppercase tracking-wide text-zinc-400">
-                      {f.category}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[12px] leading-snug text-zinc-300">{f.message}</p>
-                  <div className="mt-1 font-mono text-[9px] text-zinc-600">source: {f.source_name}</div>
-                </li>
-              ))}
-            </ul>
-            {!feed.length && <div className="p-3"><Unavailable /></div>}
-          </Panel>
-
-          <Panel title="Signal updates" subtitle="A recommendation never changes silently." right={<DemoBadge />}>
-            <ul className="space-y-2">
               {updates.map((u) => (
-                <li key={u.id} className="rounded-sm border border-sky-500/30 bg-sky-500/[0.06] p-2.5">
+                <li key={`update-${u.id}`} className="border-l-2 border-l-sky-500 px-3 py-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <ArrowLeftRight className="h-3 w-3 text-sky-400" aria-hidden="true" />
-                    <span className="font-mono text-[11px] font-semibold text-zinc-100">{u.symbol}</span>
-                    <span className="font-mono text-[10px] text-zinc-400">
-                      {u.prev_direction} {u.prev_score} <span className="text-zinc-600">to</span>{' '}
-                      <span className={scoreColor(u.new_score)}>{u.new_direction} {u.new_score}</span>
-                    </span>
-                    <span className="ml-auto font-mono text-[10px] text-zinc-500">{clockET(u.created_at)}</span>
+                    <span className="font-mono text-[11px] tabular-nums text-zinc-400">{clockET(u.created_at)}</span>
+                    {tickerCell(u.symbol)}
+                    <span className="rounded-sm border border-sky-500/30 px-1.5 py-[1px] font-mono text-[9px] uppercase tracking-wide text-sky-300">thesis change</span>
                   </div>
-                  <p className="mt-1.5 text-[11px] leading-snug text-zinc-400">{u.reason}</p>
+                  <p className="mt-1 text-[12px] leading-snug text-zinc-300">{u.reason}</p>
                   {u.signal_id && (
-                    <button
-                      type="button"
-                      onClick={() => onOpenThesis(u.signal_id as number)}
-                      className="mt-1.5 font-mono text-[10px] uppercase tracking-wider text-sky-400 transition-colors hover:text-sky-300"
-                    >
+                    <button type="button" onClick={() => onOpenThesis(u.signal_id as number)} className="mt-1.5 font-mono text-[10px] uppercase tracking-wider text-sky-400 hover:text-sky-300">
                       open analysis
                     </button>
                   )}
                 </li>
               ))}
-              {!updates.length && (
-                <li className="text-[12px] text-zinc-500">
-                  No material change since the previous run. Updates appear here the moment a direction flips or a score
-                  moves eight points or more.
+              {feed.map((f) => (
+                <li key={`feed-${f.id}`} className={cn('border-l-2 px-3 py-2', SEVERITY_STYLE[f.severity ?? 'info'])}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-[11px] tabular-nums text-zinc-400">{clockET(f.event_time)}</span>
+                    {f.symbol ? tickerCell(f.symbol) : null}
+                    <span className="rounded-sm border border-zinc-700 px-1.5 py-[1px] font-mono text-[9px] uppercase tracking-wide text-zinc-400">{f.category}</span>
+                  </div>
+                  <p className="mt-1 text-[12px] leading-snug text-zinc-300">{f.message}</p>
+                </li>
+              ))}
+              {!updates.length && !feed.length && (
+                <li className="p-3 text-[12px] leading-relaxed text-zinc-500">
+                  No material thesis or market changes have been recorded yet. This area is intentionally quiet when the evidence has not changed meaningfully.
                 </li>
               )}
             </ul>
           </Panel>
 
-          <Panel title="Top ranked right now" right={<DemoBadge />}>
-            <ul className="space-y-1.5">
-              {signals.slice(0, 6).map((s) => (
-                <li key={s.id}>
-                  <button
-                    type="button"
-                    onClick={() => onOpenThesis(s.id)}
-                    className="flex w-full items-center justify-between gap-2 rounded-sm border border-zinc-800 bg-black/20 px-2.5 py-1.5 text-left transition-colors hover:border-sky-500/40"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Activity className="h-3 w-3 text-sky-400" aria-hidden="true" />
-                      <span className="font-mono text-[11px] font-semibold text-zinc-100">{s.symbol}</span>
-                      <span className="text-[10px] text-zinc-500">{s.strategy}</span>
-                    </span>
-                    <span className={cn('font-mono text-xs font-semibold tabular-nums', scoreColor(s.opportunity_score))}>
-                      {s.opportunity_score}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </Panel>
+
         </div>
       </div>
 
