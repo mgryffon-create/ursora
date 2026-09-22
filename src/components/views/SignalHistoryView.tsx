@@ -46,14 +46,14 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
     return Object.entries(m).sort((a, b) => (a[0] < b[0] ? 1 : -1));
   }, [filtered]);
 
-  if (loading) return <Spinner label="Loading analysis history" />;
+  if (loading) return <Spinner label="Loading TradeCycle history" />;
 
   return (
     <div className="space-y-4">
       <SectionHeading
-        eyebrow="Analysis history"
-        title="Past analyses and material changes"
-        description="Review prior URSORA analyses, grouped by run. Historical records are preserved so past scores and decisions remain unchanged."
+        eyebrow="TradeCycle history"
+        title="Historical evidence by ticker"
+        description="This area is being migrated from analysis-run logs into ticker-centered TradeCycle episodes. Existing records remain preserved while the interface is reorganized around the user’s activity with each symbol."
         right={
           <span className="inline-flex items-center gap-1.5 rounded-sm border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-emerald-300">
             <Lock className="h-3 w-3" aria-hidden="true" />
