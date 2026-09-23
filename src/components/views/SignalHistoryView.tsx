@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeftRight, CalendarDays, ChevronLeft, ChevronRight, Clock3, Search, X,
+  ArrowLeftRight, CalendarDays, ChevronLeft, ChevronRight, Search, X,
 } from 'lucide-react';
 import { fetchSignalHistory, fetchSignalUpdates, fetchTickers } from '@/lib/api';
 import { fetchModifications, fetchStoredObservations, fetchTradeCycleThesisEvents, fetchTradeRecords } from '@/lib/behavioral/api';
