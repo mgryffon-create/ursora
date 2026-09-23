@@ -485,6 +485,7 @@ Deno.serve(async (req) => {
       const { data } = await db
         .from('option_market_snapshots')
         .select('*')
+        .neq('source_name', 'Webull PaperTrade Sandbox')
         .gte('retrieved_at', new Date(nowMs - 36 * 3600000).toISOString())
         .order('retrieved_at', { ascending: false })
         .limit(4000);
@@ -496,6 +497,7 @@ Deno.serve(async (req) => {
       const { data } = await db
         .from('news_items')
         .select('symbol,headline,sentiment,sentiment_score,impact,published_at,confidence,source_name,source_type,is_demo')
+        .neq('source_type', 'yahoo_finance_news')
         .gte('published_at', new Date(nowMs - 72 * 3600000).toISOString())
         .order('published_at', { ascending: false })
         .limit(500);
