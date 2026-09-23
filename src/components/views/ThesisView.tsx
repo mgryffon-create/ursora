@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeft, Ban, Bot, Building2, ClipboardList, Gauge, Layers, LineChart, MessageSquareQuote,
+  ArrowLeft, Ban, Bot, Building2, CalendarClock, ClipboardList, Gauge, Layers, LineChart, MessageSquareQuote,
   Newspaper, ShieldAlert, Sparkles, Users, X,
 } from 'lucide-react';
 import {
@@ -556,7 +556,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               </div>
               <div>
                 <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Sector performance</div>
-                <ul className="mt-1.5 space-y-1">
+                <ul className="mt-1.5 grid gap-1 sm:grid-cols-2">
                   {(snapshot?.sector_performance ?? []).map((s) => (
                     <li
                       key={s.sector}
@@ -672,11 +672,11 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               <Metric label="IV percentile" value={quote?.iv_percentile} />
               <Metric label="ATM spread (selected)" value={balanced?.spread_pct ? `${num(balanced.spread_pct)}%` : null} />
             </div>
-            <div className="mt-3 rounded-sm border border-amber-500/30 bg-amber-500/[0.06] p-3">
-              <h4 className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300">
-                Interpretation note — flow is not read as directional
-              </h4>
-              <ul className="mt-2 space-y-1.5 text-[12px] leading-relaxed text-zinc-400">
+            <details className="mt-3 rounded-sm border border-amber-500/30 bg-amber-500/[0.06] p-3">
+              <summary className="cursor-pointer font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-300">
+                Why options flow is not automatically read as directional
+              </summary>
+              <ul className="mt-2 grid gap-2 text-[11px] leading-relaxed text-zinc-400 lg:grid-cols-2">
                 <li>
                   Print side: the simulation adapter does not publish per-trade bid/ask side, so whether these prints hit the
                   ask or the bid is <span className="font-mono text-zinc-300">DATA UNAVAILABLE</span>. Without it, call
@@ -697,7 +697,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                   in demo mode. Showing a modelled figure here would be fabrication.
                 </li>
               </ul>
-            </div>
+            </details>
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               <Metric label="Selected contract volume" value={compact(balanced?.volume)} />
               <Metric label="Selected open interest" value={compact(balanced?.open_interest)} />
@@ -728,9 +728,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             subtitle="Newer items carry more weight. The recency weight shown is the multiplier the engine applied to each item this run."
             right={<DemoBadge />}
           >
-            <ul className="space-y-3">
+            <ul className="grid gap-2 xl:grid-cols-2">
               {(showAllNews ? news : news.slice(0, 4)).map((n) => (
-                <li key={n.id} className="rounded-sm border border-zinc-800 bg-black/20 p-3">
+                <li key={n.id} className="min-w-0 rounded-sm border border-zinc-800 bg-black/20 p-2.5">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-sm border border-zinc-700 px-1.5 py-[1px] font-mono text-[9px] uppercase tracking-wide text-zinc-400">
                       {n.category ?? 'uncategorised'}
@@ -863,9 +863,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             subtitle="Statements from earnings calls, conferences, investor events, and company presentations that may affect the analysis, shown with source and timing information."
             right={<DemoBadge />}
           >
-            <ul className="space-y-3">
+            <ul className="grid gap-2 xl:grid-cols-2">
               {transcripts.map((t) => (
-                <li key={t.id} className="rounded-sm border border-zinc-800 bg-black/20 p-3">
+                <li key={t.id} className="min-w-0 rounded-sm border border-zinc-800 bg-black/20 p-2.5">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-[11px] font-semibold text-zinc-100">{t.speaker}</span>
                     <span className="text-[11px] text-zinc-500">{t.speaker_role}</span>
