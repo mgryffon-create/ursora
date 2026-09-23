@@ -336,7 +336,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
           </p>
           <div className="mt-3">
             <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Sector movement</div>
-            <div className="mt-1.5 space-y-1">
+            <div className="mt-1.5 grid gap-x-4 gap-y-1 xl:grid-cols-2">
               {(snapshot?.sector_performance ?? []).map((s) => (
                 <div key={s.sector} className="flex items-center gap-2">
                   <span className="w-40 shrink-0 truncate text-[11px] text-zinc-400">{s.sector}</span>
