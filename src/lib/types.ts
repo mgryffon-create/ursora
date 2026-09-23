@@ -122,6 +122,19 @@ export interface Signal {
     oppose_share?: number | null;
     strong_supporting_families?: number;
     strong_opposing_families?: number;
+    thesis_hierarchy?: {
+      primary?: { factor: string; band: string; vote: string };
+      confirmation?: { state: string; supporting_families: string[]; opposing_families: string[] };
+      context?: { state: string; supporting_families: string[]; opposing_families: string[] };
+      auxiliary?: { options_vote: string; note: string };
+    };
+    interaction_flags?: Array<{
+      key: string;
+      role: string;
+      state: string;
+      label: string;
+      detail: string;
+    }>;
     blockers?: string[];
     thesis_blockers?: string[];
     trade_blockers?: string[];
