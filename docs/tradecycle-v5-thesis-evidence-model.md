@@ -32,22 +32,63 @@ Option liquidity and risk/reward remain trade-quality families and do not decide
 
 ## Price trend & structure
 
+The primary price family is intentionally rule-based rather than a smooth sum of indicator points.
+
+Research and practitioner evidence supports several recurring ideas:
+- moving averages are widely used to identify trend direction and moving-average crossovers are closely related to other trend filters;
+- 20-session trading-range / Donchian-style breakouts provide an objective form of higher-high / lower-low structure;
+- higher highs and higher lows are a standard definition of an uptrend, with the inverse for downtrends;
+- ADX measures trend strength rather than direction, and readings around 20–25 are commonly used to distinguish weak/non-trending conditions from established trends;
+- corroboration matters more than any single price-derived indicator.
+
 Inputs:
 - price relative to 20-day moving average
 - 20-day vs 50-day moving average
 - 50-day vs 200-day moving average when available
-- 20-day moving-average slope
+- 20-day moving-average slope over the prior five sessions
 - recent higher-high / higher-low or lower-high / lower-low structure
 - 20-session breakout or breakdown
-- provider trend label only as a low-weight corroborator
+- 14-period DMI direction and ADX trend strength
 
-Strong evidence requires actual structure or breakout/breakdown confirmation in addition to moving-average alignment. Moving-average relationships alone cannot generate Strong evidence.
+### Insufficient
 
-Current engineering bands:
-- Insufficient: net structural evidence below the weak threshold
-- Weak: limited alignment only
-- Moderate: multiple aligned trend observations
-- Strong: broad alignment plus swing-structure or breakout/breakdown confirmation
+Price observations are materially mixed, too incomplete, or lack enough directional structure to establish a lean.
+
+### Weak
+
+At least two directional clues lean the same way, but objective swing/breakout structure or trend-strength corroboration is inadequate.
+
+Weak is informational only and abstains from the thesis.
+
+### Moderate
+
+Moderate requires **objective structure plus corroboration**, not merely price above a moving average.
+
+A side can qualify through one of these patterns:
+
+1. higher-high/higher-low (or inverse) structure plus at least two corroborators among:
+   - short/intermediate moving-average stack
+   - 20-day average slope
+   - ADX >= 20 with DMI direction aligned
+   - 50/200-day context
+
+2. a 20-session breakout/breakdown plus ADX >= 20 and aligned DMI;
+
+3. aligned short/intermediate moving averages + slope + ADX/DMI confirmation.
+
+### Strong
+
+Strong is deliberately rare. It requires:
+
+- objective structure or a 20-session breakout/breakdown;
+- price / 20-day / 50-day alignment in the same direction;
+- 20-day average slope aligned with the move;
+- ADX >= 25 with DMI direction aligned; and
+- either 50/200-day context aligned **or** an actual 20-session breakout/breakdown.
+
+Volume is **not** included inside the price band because it is evaluated separately as participation confirmation. This prevents the same confirmation from being counted twice.
+
+These thresholds are grounded in established trend-analysis conventions, but they remain engineering priors. Historical Evidence should test whether the thresholds are well calibrated for URSORA's 1–5 day holding horizon.
 
 ## Momentum
 
