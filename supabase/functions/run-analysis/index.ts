@@ -313,6 +313,58 @@ function pctReturn(values: number[], sessions: number): number | null {
   return ((end - start) / start) * 100;
 }
 
+
+function dmiAdx14(bars: AnyRow[]): { adx: number; plusDi: number; minusDi: number } | null {
+  const ordered = [...bars].sort((a, b) => String(a.bar_time).localeCompare(String(b.bar_time)));
+  if (ordered.length < 30) return null;
+
+  const tr: number[] = [];
+  const plusDm: number[] = [];
+  const minusDm: number[] = [];
+
+  for (let i = 1; i < ordered.length; i++) {
+    const high = n(ordered[i].high);
+    const low = n(ordered[i].low);
+    const prevHigh = n(ordered[i - 1].high);
+    const prevLow = n(ordered[i - 1].low);
+    const prevClose = n(ordered[i - 1].close);
+    if (high === null || low === null || prevHigh === null || prevLow === null || prevClose === null) continue;
+
+    const upMove = high - prevHigh;
+    const downMove = prevLow - low;
+    plusDm.push(upMove > downMove && upMove > 0 ? upMove : 0);
+    minusDm.push(downMove > upMove && downMove > 0 ? downMove : 0);
+    tr.push(Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose)));
+  }
+
+  const period = 14;
+  if (tr.length < period * 2) return null;
+
+  let smTr = tr.slice(0, period).reduce((a, b) => a + b, 0);
+  let smPlus = plusDm.slice(0, period).reduce((a, b) => a + b, 0);
+  let smMinus = minusDm.slice(0, period).reduce((a, b) => a + b, 0);
+  const dx: number[] = [];
+
+  for (let i = period; i < tr.length; i++) {
+    smTr = smTr - smTr / period + tr[i];
+    smPlus = smPlus - smPlus / period + plusDm[i];
+    smMinus = smMinus - smMinus / period + minusDm[i];
+    if (smTr <= 0) continue;
+    const plusDi = 100 * (smPlus / smTr);
+    const minusDi = 100 * (smMinus / smTr);
+    const denom = plusDi + minusDi;
+    if (denom > 0) dx.push(100 * Math.abs(plusDi - minusDi) / denom);
+  }
+
+  if (dx.length < period) return null;
+  let adx = dx.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < dx.length; i++) adx = ((adx * (period - 1)) + dx[i]) / period;
+
+  const plusDi = smTr > 0 ? 100 * (smPlus / smTr) : 0;
+  const minusDi = smTr > 0 ? 100 * (smMinus / smTr) : 0;
+  return { adx, plusDi, minusDi };
+}
+
 function maxOf(values: number[]): number | null {
   return values.length ? Math.max(...values) : null;
 }
@@ -558,27 +610,96 @@ Deno.serve(async (req) => {
       const breakoutUp = lastClose !== null && prior20High !== null ? lastClose > prior20High : false;
       const breakoutDown = lastClose !== null && prior20Low !== null ? lastClose < prior20Low : false;
 
-      let priceNet = 0;
-      if (lastClose !== null && calcSma20 !== null) priceNet += lastClose > calcSma20 ? 1 : lastClose < calcSma20 ? -1 : 0;
-      if (calcSma20 !== null && calcSma50 !== null) priceNet += calcSma20 > calcSma50 ? 1.5 : calcSma20 < calcSma50 ? -1.5 : 0;
-      if (calcSma50 !== null && calcSma200 !== null) priceNet += calcSma50 > calcSma200 ? 1.5 : calcSma50 < calcSma200 ? -1.5 : 0;
-      if (calcSma20 !== null && priorSma20 !== null) priceNet += calcSma20 > priorSma20 ? 1 : calcSma20 < priorSma20 ? -1 : 0;
-      if (higherStructure) priceNet += 2;
-      if (lowerStructure) priceNet -= 2;
-      if (breakoutUp) priceNet += 2;
-      if (breakoutDown) priceNet -= 2;
-      if (trend.includes('up')) priceNet += 0.5;
-      else if (trend.includes('down')) priceNet -= 0.5;
+      const dmi = dmiAdx14(symbolBars);
+      const sma20Rising = calcSma20 !== null && priorSma20 !== null && calcSma20 > priorSma20;
+      const sma20Falling = calcSma20 !== null && priorSma20 !== null && calcSma20 < priorSma20;
+      const shortBullStack = lastClose !== null && calcSma20 !== null && calcSma50 !== null
+        ? lastClose > calcSma20 && calcSma20 > calcSma50
+        : false;
+      const shortBearStack = lastClose !== null && calcSma20 !== null && calcSma50 !== null
+        ? lastClose < calcSma20 && calcSma20 < calcSma50
+        : false;
+      const longBullContext = calcSma50 !== null && calcSma200 !== null ? calcSma50 > calcSma200 : false;
+      const longBearContext = calcSma50 !== null && calcSma200 !== null ? calcSma50 < calcSma200 : false;
+      const dmiBullTrend = dmi ? dmi.plusDi > dmi.minusDi && dmi.adx >= 20 : false;
+      const dmiBearTrend = dmi ? dmi.minusDi > dmi.plusDi && dmi.adx >= 20 : false;
+      const dmiBullStrong = dmi ? dmi.plusDi > dmi.minusDi && dmi.adx >= 25 : false;
+      const dmiBearStrong = dmi ? dmi.minusDi > dmi.plusDi && dmi.adx >= 25 : false;
 
-      const strongPriceStructure =
-        (priceNet > 0 && (higherStructure || breakoutUp) && calcSma20 !== null && calcSma50 !== null && calcSma20 > calcSma50) ||
-        (priceNet < 0 && (lowerStructure || breakoutDown) && calcSma20 !== null && calcSma50 !== null && calcSma20 < calcSma50);
-      const priceOrientation = orientationFromNet(priceNet, {
-        weakAt: 2,
-        moderateAt: 3.5,
-        strongAt: 5.5,
-        strongAllowed: strongPriceStructure,
-      });
+      // Price/structure bands are rule-based rather than a smooth tally.
+      // The rules intentionally combine different views of the same price series:
+      // trend location/slope, objective swing or Donchian-style structure, and
+      // Wilder directional trend strength. Strong is deliberately difficult.
+      const bullStructure = higherStructure || breakoutUp;
+      const bearStructure = lowerStructure || breakoutDown;
+
+      const bullStrong =
+        bullStructure &&
+        shortBullStack &&
+        sma20Rising &&
+        dmiBullStrong &&
+        (longBullContext || breakoutUp);
+      const bearStrong =
+        bearStructure &&
+        shortBearStack &&
+        sma20Falling &&
+        dmiBearStrong &&
+        (longBearContext || breakoutDown);
+
+      const bullModerate =
+        !bullStrong && (
+          (bullStructure && [shortBullStack, sma20Rising, dmiBullTrend, longBullContext].filter(Boolean).length >= 2) ||
+          (breakoutUp && dmiBullTrend) ||
+          (shortBullStack && sma20Rising && dmiBullTrend)
+        );
+      const bearModerate =
+        !bearStrong && (
+          (bearStructure && [shortBearStack, sma20Falling, dmiBearTrend, longBearContext].filter(Boolean).length >= 2) ||
+          (breakoutDown && dmiBearTrend) ||
+          (shortBearStack && sma20Falling && dmiBearTrend)
+        );
+
+      const bullClues = [
+        lastClose !== null && calcSma20 !== null && lastClose > calcSma20,
+        calcSma20 !== null && calcSma50 !== null && calcSma20 > calcSma50,
+        sma20Rising,
+        higherStructure,
+        breakoutUp,
+        dmi ? dmi.plusDi > dmi.minusDi : false,
+        longBullContext,
+      ].filter(Boolean).length;
+      const bearClues = [
+        lastClose !== null && calcSma20 !== null && lastClose < calcSma20,
+        calcSma20 !== null && calcSma50 !== null && calcSma20 < calcSma50,
+        sma20Falling,
+        lowerStructure,
+        breakoutDown,
+        dmi ? dmi.minusDi > dmi.plusDi : false,
+        longBearContext,
+      ].filter(Boolean).length;
+
+      let priceOrientation = 0;
+      let priceStructureReason = 'Price structure is mixed or incomplete.';
+      if (bullStrong && !bearStrong) {
+        priceOrientation = 80;
+        priceStructureReason = 'Strong bullish structure: objective trend structure or breakout, short/intermediate moving-average alignment, rising trend slope, and ADX/DMI trend strength are corroborating.';
+      } else if (bearStrong && !bullStrong) {
+        priceOrientation = -80;
+        priceStructureReason = 'Strong bearish structure: objective trend structure or breakdown, short/intermediate moving-average alignment, falling trend slope, and ADX/DMI trend strength are corroborating.';
+      } else if (bullModerate && !bearModerate) {
+        priceOrientation = 56;
+        priceStructureReason = 'Moderate bullish structure: price structure and multiple trend filters align, but the full Strong-evidence confirmation set is not present.';
+      } else if (bearModerate && !bullModerate) {
+        priceOrientation = -56;
+        priceStructureReason = 'Moderate bearish structure: price structure and multiple trend filters align, but the full Strong-evidence confirmation set is not present.';
+      } else if (bullClues >= bearClues + 2 && bullClues >= 2) {
+        priceOrientation = 32;
+        priceStructureReason = 'Weak bullish lean: some trend observations align upward, but objective structure/trend-strength confirmation is inadequate.';
+      } else if (bearClues >= bullClues + 2 && bearClues >= 2) {
+        priceOrientation = -32;
+        priceStructureReason = 'Weak bearish lean: some trend observations align downward, but objective structure/trend-strength confirmation is inadequate.';
+      }
+
 
       const rsi = rsi14(closes);
       const macd = macdSnapshot(closes);
@@ -864,11 +985,9 @@ Deno.serve(async (req) => {
           independence: priceIndependence,
           explanation: priceEvidence === null
             ? 'There is not enough historical price information to evaluate trend structure.'
-            : evidenceBand(priceEvidence) === 'Insufficient'
-              ? 'Price structure is mixed or incomplete and does not currently support or oppose the thesis.'
-              : evidenceBand(priceEvidence) === 'Weak'
-                ? `Price structure leans ${priceEvidence > 0 ? 'with' : 'against'} the proposed direction, but the evidence is too weak to vote on the thesis.`
-                : `${evidenceBand(priceEvidence)} price-trend evidence ${priceEvidence > 0 ? 'supports' : 'opposes'} the proposed ${direction} thesis using moving-average alignment, swing structure, and breakout/breakdown context.`,
+            : direction === 'neutral'
+              ? priceStructureReason
+              : `${priceStructureReason} Relative to the proposed ${direction} thesis, this ${evidenceBand(priceEvidence) === 'Weak' || evidenceBand(priceEvidence) === 'Insufficient' ? 'does not vote' : priceEvidence > 0 ? 'supports the thesis' : 'opposes the thesis'}.`,
         },
         {
           factor: 'momentum',
@@ -1404,6 +1523,15 @@ Deno.serve(async (req) => {
             return_20d_pct: return20,
             price_structure_higher: higherStructure,
             price_structure_lower: lowerStructure,
+            adx_14: dmi?.adx ?? null,
+            plus_di_14: dmi?.plusDi ?? null,
+            minus_di_14: dmi?.minusDi ?? null,
+            sma20_rising: sma20Rising,
+            sma20_falling: sma20Falling,
+            short_bull_stack: shortBullStack,
+            short_bear_stack: shortBearStack,
+            long_bull_context: longBullContext,
+            long_bear_context: longBearContext,
             breakout_up: breakoutUp,
             breakout_down: breakoutDown,
             reward_risk_ratio: estimatedRatio,
@@ -1485,7 +1613,7 @@ Deno.serve(async (req) => {
         },
         regime: snapshot?.regime ?? 'Mixed',
         regime_explanation: snapshot?.regime_note ?? 'Broader market conditions derived from the latest stored market data.',
-        engine_version: 'tradecycle-5.1',
+        engine_version: 'tradecycle-5.2',
         is_demo: Boolean(q.is_demo ?? true),
         generated_at: started,
       });
@@ -1507,7 +1635,7 @@ Deno.serve(async (req) => {
       feed_events: 0,
       regime: snapshot?.regime ?? null,
       notes: signalCount
-        ? `TradeCycle v5.1 hierarchical corroboration analysis completed for authenticated user ${user.id}.`
+        ? `TradeCycle v5.2 literature-informed structure analysis completed for authenticated user ${user.id}.`
         : 'No stored quote data were available; no signals were generated.',
       started_at: started,
       finished_at: new Date().toISOString(),
@@ -1519,7 +1647,7 @@ Deno.serve(async (req) => {
       signals: signalCount,
       updates: 0,
       run_id: runId,
-      engine_version: 'tradecycle-5.1',
+      engine_version: 'tradecycle-5.2',
       note: signalCount ? 'Signals generated using all currently available evidence categories.' : 'No stored quote data available.',
     });
   } catch (e) {
