@@ -70,7 +70,8 @@ async function requireUser(req: Request) {
 
 
 type AnyRow = Record<string, any>;
-type ThesisState = 'Rejected' | 'Unsupported' | 'Preliminary' | 'Supported' | 'Strongly Supported';
+type ThesisState = 'Insufficient Evidence' | 'Mixed' | 'Opposed' | 'Rejected' | 'Supported' | 'Strongly Supported';
+type EvidenceBand = 'Insufficient' | 'Weak' | 'Moderate' | 'Strong';
 
 type EvidenceProvenance = 'observed' | 'derived' | 'imputed' | 'unavailable';
 
@@ -125,10 +126,18 @@ function relativeToDirection(absoluteOrientation: number | null, direction: stri
   return direction === 'bullish' ? absoluteOrientation : -absoluteOrientation;
 }
 
+function evidenceBand(score: number | null): EvidenceBand {
+  if (score === null || Math.abs(score) < 20) return 'Insufficient';
+  if (Math.abs(score) < 45) return 'Weak';
+  if (Math.abs(score) < 70) return 'Moderate';
+  return 'Strong';
+}
+
 function factorRow(spec: FactorSpec) {
   const signed = spec.signedScore ?? 0;
   const strength = spec.signedScore === null ? 0 : Math.abs(signed);
-  const meaningful = strength >= 25;
+  const band = evidenceBand(spec.signedScore);
+  const meaningful = band === 'Moderate' || band === 'Strong';
   const reliability = spec.signedScore === null
     ? 0
     : clamp(
@@ -157,7 +166,9 @@ function factorRow(spec: FactorSpec) {
     base_weight: spec.baseWeight,
     effective_weight: Math.round(effectiveWeight * 10000) / 10000,
     weight_change: Math.round((effectiveWeight - spec.baseWeight) * 10000) / 10000,
-    contribution: spec.signedScore === null ? 0 : signed * effectiveWeight,
+    contribution: spec.signedScore === null || !meaningful ? 0 : signed * effectiveWeight,
+    strength_band: band,
+    thesis_vote: !meaningful ? 'ABSTAIN' : signed > 0 ? 'SUPPORT' : signed < 0 ? 'OPPOSE' : 'ABSTAIN',
     effect: !meaningful ? 'NEUTRAL' : signed > 0 ? 'INCREASED' : signed < 0 ? 'DECREASED' : 'NEUTRAL',
     explanation: spec.explanation,
   };
@@ -185,6 +196,7 @@ function freshnessFrom(timestamp: unknown, halfLifeHours: number, nowMs: number)
 const AHP_FACTOR_ORDER = [
   'price_trend',
   'momentum',
+  'participation',
   'market_alignment',
   'options_market',
   'catalysts_news',
@@ -192,15 +204,19 @@ const AHP_FACTOR_ORDER = [
   'risk_reward',
 ] as const;
 
-// Initial v4 expert priorities encoded as a perfectly reciprocal pairwise matrix.
-// These are intentionally explicit and should be re-calibrated against backtest data later.
+// v5 model-design priors. Directional families sum to 0.80 and normalize to:
+// price 30%, momentum 20%, participation 15%, market 15%, options 10%, news 10%.
+// Liquidity and risk/reward are trade-quality families, not directional thesis votes.
+// These are transparent engineering priors informed by the literature and should be
+// calibrated against URSORA Historical Evidence rather than treated as universal constants.
 const AHP_PRIORITY = {
-  price_trend: 0.23,
-  momentum: 0.15,
-  market_alignment: 0.13,
-  options_market: 0.17,
-  catalysts_news: 0.13,
-  liquidity: 0.10,
+  price_trend: 0.24,
+  momentum: 0.16,
+  participation: 0.12,
+  market_alignment: 0.12,
+  options_market: 0.08,
+  catalysts_news: 0.08,
+  liquidity: 0.11,
   risk_reward: 0.09,
 } as const;
 
@@ -243,6 +259,78 @@ function uncertaintyLabel(value: number): 'Low' | 'Moderate' | 'High' {
   if (value <= 30) return 'Low';
   if (value <= 50) return 'Moderate';
   return 'High';
+}
+
+
+function meanNumber(values: number[]): number | null {
+  return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+}
+
+function smaLast(values: number[], period: number): number | null {
+  if (values.length < period) return null;
+  return meanNumber(values.slice(-period));
+}
+
+function emaSeries(values: number[], period: number): number[] {
+  if (!values.length) return [];
+  const k = 2 / (period + 1);
+  const out: number[] = [values[0]];
+  for (let i = 1; i < values.length; i++) out.push(values[i] * k + out[i - 1] * (1 - k));
+  return out;
+}
+
+function rsi14(values: number[]): number | null {
+  if (values.length < 15) return null;
+  const changes = values.slice(1).map((v, i) => v - values[i]);
+  const recent = changes.slice(-14);
+  const gains = recent.map((v) => Math.max(v, 0));
+  const losses = recent.map((v) => Math.max(-v, 0));
+  const avgGain = meanNumber(gains) ?? 0;
+  const avgLoss = meanNumber(losses) ?? 0;
+  if (avgLoss === 0) return avgGain > 0 ? 100 : 50;
+  const rs = avgGain / avgLoss;
+  return 100 - 100 / (1 + rs);
+}
+
+function macdSnapshot(values: number[]): { line: number; signal: number; histogram: number } | null {
+  if (values.length < 35) return null;
+  const ema12 = emaSeries(values, 12);
+  const ema26 = emaSeries(values, 26);
+  const offset = ema12.length - ema26.length;
+  const macd = ema26.map((v, i) => ema12[i + offset] - v);
+  const signalSeries = emaSeries(macd, 9);
+  if (!macd.length || !signalSeries.length) return null;
+  const line = macd.at(-1)!;
+  const signal = signalSeries.at(-1)!;
+  return { line, signal, histogram: line - signal };
+}
+
+function pctReturn(values: number[], sessions: number): number | null {
+  if (values.length <= sessions) return null;
+  const start = values[values.length - 1 - sessions];
+  const end = values.at(-1)!;
+  if (!Number.isFinite(start) || start === 0) return null;
+  return ((end - start) / start) * 100;
+}
+
+function maxOf(values: number[]): number | null {
+  return values.length ? Math.max(...values) : null;
+}
+
+function minOf(values: number[]): number | null {
+  return values.length ? Math.min(...values) : null;
+}
+
+function orientationFromNet(
+  net: number,
+  { strongAt, moderateAt, weakAt, strongAllowed = true }: { strongAt: number; moderateAt: number; weakAt: number; strongAllowed?: boolean },
+): number {
+  const sign = Math.sign(net);
+  const magnitude = Math.abs(net);
+  if (!sign || magnitude < weakAt) return 0;
+  if (strongAllowed && magnitude >= strongAt) return sign * 80;
+  if (magnitude >= moderateAt) return sign * 56;
+  return sign * 32;
 }
 
 
@@ -291,6 +379,17 @@ Deno.serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
+    let tickerRows: AnyRow[] = [];
+    try {
+      const { data } = await db.from('tickers').select('symbol,sector').limit(1000);
+      tickerRows = data ?? [];
+    } catch {
+      tickerRows = [];
+    }
+    const tickerSector = new Map<string, string | null>(
+      tickerRows.map((row) => [String(row.symbol ?? '').toUpperCase(), row.sector ? String(row.sector) : null]),
+    );
+
     const { data: latestQuotes, error: quoteError } = await db
       .from('quotes')
       .select('*')
@@ -309,7 +408,7 @@ Deno.serve(async (req) => {
     try {
       const { data } = await db
         .from('ohlcv_bars')
-        .select('symbol,bar_time,high,low,close')
+        .select('symbol,bar_time,high,low,close,volume')
         .eq('timeframe', '1d')
         .order('bar_time', { ascending: false })
         .limit(6500);
@@ -428,33 +527,160 @@ Deno.serve(async (req) => {
       const resistance = quoteResistance ?? derivedStructure.resistance;
       const atr = quoteAtr ?? derivedStructure.atr;
 
-      // ----- Absolute market orientations (-100 bearish, +100 bullish) -----
-      const priceParts: number[] = [];
-      if (change !== null) priceParts.push(Math.sign(change) * Math.min(100, Math.abs(change) * 24));
-      if (trend.includes('up')) priceParts.push(60);
-      else if (trend.includes('down')) priceParts.push(-60);
-      if (price !== null && sma20 !== null) priceParts.push(price >= sma20 ? 30 : -30);
-      if (sma20 !== null && sma50 !== null) priceParts.push(sma20 >= sma50 ? 45 : -45);
-      if (sma50 !== null && sma200 !== null) priceParts.push(sma50 >= sma200 ? 55 : -55);
-      const priceOrientation = avg(priceParts);
+      // ----- v5 directional evidence families (-100 bearish, +100 bullish) -----
+      // Weak evidence describes a lean but does not vote on the thesis. Moderate and
+      // Strong evidence are the only bands allowed to support or oppose a thesis.
+      const symbolBars = [...(barsBySymbol.get(symbol) ?? [])]
+        .sort((a, b) => String(a.bar_time).localeCompare(String(b.bar_time)));
+      const closes = symbolBars.map((bar) => n(bar.close)).filter((v): v is number => v !== null);
+      const highs = symbolBars.map((bar) => n(bar.high)).filter((v): v is number => v !== null);
+      const lows = symbolBars.map((bar) => n(bar.low)).filter((v): v is number => v !== null);
+      const volumes = symbolBars.map((bar) => n(bar.volume)).filter((v): v is number => v !== null);
+      const lastClose = price ?? closes.at(-1) ?? null;
 
-      const momentumOrientation = momentum === null ? null : clamp((momentum - 50) * 2.5);
+      const calcSma20 = sma20 ?? smaLast(closes, 20);
+      const calcSma50 = sma50 ?? smaLast(closes, 50);
+      const calcSma200 = sma200 ?? smaLast(closes, 200);
+      const priorSma20 = closes.length >= 25 ? smaLast(closes.slice(0, -5), 20) : null;
+
+      const recentHigh = maxOf(highs.slice(-5));
+      const priorHigh5 = maxOf(highs.slice(-10, -5));
+      const recentLow = minOf(lows.slice(-5));
+      const priorLow5 = minOf(lows.slice(-10, -5));
+      const higherStructure = recentHigh !== null && priorHigh5 !== null && recentLow !== null && priorLow5 !== null
+        ? recentHigh > priorHigh5 && recentLow > priorLow5
+        : false;
+      const lowerStructure = recentHigh !== null && priorHigh5 !== null && recentLow !== null && priorLow5 !== null
+        ? recentHigh < priorHigh5 && recentLow < priorLow5
+        : false;
+      const prior20High = maxOf(highs.slice(-21, -1));
+      const prior20Low = minOf(lows.slice(-21, -1));
+      const breakoutUp = lastClose !== null && prior20High !== null ? lastClose > prior20High : false;
+      const breakoutDown = lastClose !== null && prior20Low !== null ? lastClose < prior20Low : false;
+
+      let priceNet = 0;
+      if (lastClose !== null && calcSma20 !== null) priceNet += lastClose > calcSma20 ? 1 : lastClose < calcSma20 ? -1 : 0;
+      if (calcSma20 !== null && calcSma50 !== null) priceNet += calcSma20 > calcSma50 ? 1.5 : calcSma20 < calcSma50 ? -1.5 : 0;
+      if (calcSma50 !== null && calcSma200 !== null) priceNet += calcSma50 > calcSma200 ? 1.5 : calcSma50 < calcSma200 ? -1.5 : 0;
+      if (calcSma20 !== null && priorSma20 !== null) priceNet += calcSma20 > priorSma20 ? 1 : calcSma20 < priorSma20 ? -1 : 0;
+      if (higherStructure) priceNet += 2;
+      if (lowerStructure) priceNet -= 2;
+      if (breakoutUp) priceNet += 2;
+      if (breakoutDown) priceNet -= 2;
+      if (trend.includes('up')) priceNet += 0.5;
+      else if (trend.includes('down')) priceNet -= 0.5;
+
+      const strongPriceStructure =
+        (priceNet > 0 && (higherStructure || breakoutUp) && calcSma20 !== null && calcSma50 !== null && calcSma20 > calcSma50) ||
+        (priceNet < 0 && (lowerStructure || breakoutDown) && calcSma20 !== null && calcSma50 !== null && calcSma20 < calcSma50);
+      const priceOrientation = orientationFromNet(priceNet, {
+        weakAt: 2,
+        moderateAt: 3.5,
+        strongAt: 5.5,
+        strongAllowed: strongPriceStructure,
+      });
+
+      const rsi = rsi14(closes);
+      const macd = macdSnapshot(closes);
+      const return5 = pctReturn(closes, 5);
+      const return20 = pctReturn(closes, 20);
+      let momentumNet = 0;
+      if (macd) {
+        momentumNet += macd.line > macd.signal ? 1.5 : macd.line < macd.signal ? -1.5 : 0;
+        momentumNet += macd.line > 0 ? 1 : macd.line < 0 ? -1 : 0;
+      }
+      if (rsi !== null) momentumNet += rsi >= 55 ? 1 : rsi <= 45 ? -1 : 0;
+      if (return5 !== null) momentumNet += return5 >= 1 ? 1 : return5 <= -1 ? -1 : 0;
+      if (return20 !== null) momentumNet += return20 >= 3 ? 1.5 : return20 <= -3 ? -1.5 : 0;
+      // Preserve the legacy normalized momentum measure only as a low-weight fallback.
+      if (!macd && rsi === null && momentum !== null) momentumNet += momentum >= 60 ? 1 : momentum <= 40 ? -1 : 0;
+      const strongMomentum =
+        Boolean(macd) &&
+        return20 !== null &&
+        ((momentumNet > 0 && macd!.line > macd!.signal && return20 > 0) ||
+          (momentumNet < 0 && macd!.line < macd!.signal && return20 < 0));
+      const momentumOrientation = orientationFromNet(momentumNet, {
+        weakAt: 1.25,
+        moderateAt: 2.75,
+        strongAt: 4.5,
+        strongAllowed: strongMomentum,
+      });
+
+      const computedRelVolume = relVolume ??
+        (volumes.length >= 21 && volumes.at(-1) !== undefined
+          ? Number(volumes.at(-1)) / Math.max(meanNumber(volumes.slice(-21, -1)) ?? 0, 1)
+          : null);
+      const moveDirection = change !== null && Math.abs(change) >= 0.35
+        ? Math.sign(change)
+        : Math.sign(priceOrientation);
+      let participationOrientation = 0;
+      if (computedRelVolume !== null && moveDirection !== 0) {
+        if (computedRelVolume >= 1.5 && Math.abs(priceOrientation) >= 45) participationOrientation = moveDirection * 78;
+        else if (computedRelVolume >= 1.2 && Math.abs(priceOrientation) >= 45) participationOrientation = moveDirection * 56;
+        else if (computedRelVolume >= 1.0) participationOrientation = moveDirection * 32;
+      }
+
+      const indexOrientations: number[] = [];
+      for (const indexQuote of [spy, qqq]) {
+        if (!indexQuote) continue;
+        let net = 0;
+        const ch = n(indexQuote.change_pct);
+        if (ch !== null && Math.abs(ch) >= 0.15) net += Math.sign(ch);
+        const tr = String(indexQuote.trend ?? '').toLowerCase();
+        if (tr.includes('up')) net += 1.5;
+        if (tr.includes('down')) net -= 1.5;
+        indexOrientations.push(orientationFromNet(net, { weakAt: 0.75, moderateAt: 2, strongAt: 3 }));
+      }
+
+      let sectorOrientation: number | null = null;
+      const sectorName = tickerSector.get(symbol);
+      const sectorRows = Array.isArray(snapshot?.sector_performance) ? snapshot.sector_performance : [];
+      const sectorRow = sectorName
+        ? sectorRows.find((row: AnyRow) => String(row.sector ?? '').toLowerCase() === String(sectorName).toLowerCase())
+        : null;
+      const sectorChange = n(sectorRow?.change_pct);
+      if (sectorChange !== null) {
+        sectorOrientation = Math.abs(sectorChange) >= 0.75
+          ? Math.sign(sectorChange) * 56
+          : Math.abs(sectorChange) >= 0.20
+            ? Math.sign(sectorChange) * 32
+            : 0;
+      }
+
+      const marketVotes = [...indexOrientations, sectorOrientation]
+        .filter((v): v is number => v !== null && Math.abs(v) >= 20);
+      const marketBull = marketVotes.filter((v) => v > 0).length;
+      const marketBear = marketVotes.filter((v) => v < 0).length;
+      let marketOrientation = 0;
+      if (marketVotes.length) {
+        const marketSign = marketBull === marketBear ? 0 : marketBull > marketBear ? 1 : -1;
+        const aligned = Math.max(marketBull, marketBear);
+        if (marketSign !== 0) {
+          marketOrientation = aligned >= 3 ? marketSign * 80 : aligned >= 2 ? marketSign * 56 : marketSign * 32;
+        }
+      }
 
       const symbolOptions = optionByUnderlying.get(symbol) ?? [];
-      const callVolume = symbolOptions.filter((r) => String(r.option_type).toUpperCase() === 'CALL')
-        .reduce((a, r) => a + Number(r.volume ?? 0), 0);
-      const putVolume = symbolOptions.filter((r) => String(r.option_type).toUpperCase() === 'PUT')
-        .reduce((a, r) => a + Number(r.volume ?? 0), 0);
+      const callVolume = symbolOptions.filter((row) => String(row.option_type).toUpperCase() === 'CALL')
+        .reduce((sum, row) => sum + Number(row.volume ?? 0), 0);
+      const putVolume = symbolOptions.filter((row) => String(row.option_type).toUpperCase() === 'PUT')
+        .reduce((sum, row) => sum + Number(row.volume ?? 0), 0);
       const putCallRatio = callVolume > 0 ? putVolume / callVolume : n(q.put_call_ratio);
 
+      // Aggregate put/call volume is ambiguous because it does not reveal trade side,
+      // opening/closing intent, multi-leg structure, or hedging. Until richer flow is
+      // available, this family is deliberately capped at Weak and therefore abstains.
       let optionOrientation: number | null = null;
       if (putCallRatio !== null) {
-        // ~1.0 is neutral; ratios below 1 favor calls, above 1 favor puts.
-        optionOrientation = clamp((1 - putCallRatio) * 85);
+        if (putCallRatio <= 0.70) optionOrientation = 32;
+        else if (putCallRatio >= 1.30) optionOrientation = -32;
+        else optionOrientation = 0;
       }
 
       const symbolNews = newsBySymbol.get(symbol) ?? [];
-      const newsScores: number[] = [];
+      let newsWeighted = 0;
+      let newsWeight = 0;
+      let highQualityDirectionalItems = 0;
       for (const item of symbolNews.slice(0, 12)) {
         let signed = n(item.sentiment_score);
         if (signed === null) {
@@ -465,20 +691,44 @@ Deno.serve(async (req) => {
         }
         const ageHours = Math.max(0, (nowMs - new Date(item.published_at).getTime()) / 3600000);
         const recency = Math.exp(-ageHours / 36);
-        newsScores.push(clamp(signed) * impactMultiplier(item.impact) * recency);
+        const quality = clamp(n(item.confidence) ?? 0.55, 0.20, 1);
+        const impact = impactMultiplier(item.impact);
+        const weight = recency * quality * impact;
+        newsWeighted += clamp(signed) * weight;
+        newsWeight += weight;
+        if (Math.abs(clamp(signed)) >= 45 && quality >= 0.65 && impact >= 0.5) highQualityDirectionalItems++;
       }
-      const newsOrientation = newsScores.length ? clamp(newsScores.reduce((a, b) => a + b, 0) / newsScores.length) : null;
+      const newsMean = newsWeight > 0 ? newsWeighted / newsWeight : null;
+      let newsOrientation: number | null = null;
+      if (newsMean !== null) {
+        const sign = Math.sign(newsMean);
+        const magnitude = Math.abs(newsMean);
+        newsOrientation =
+          magnitude >= 55 && highQualityDirectionalItems >= 2 ? sign * 80 :
+          magnitude >= 30 && highQualityDirectionalItems >= 1 ? sign * 56 :
+          magnitude >= 15 ? sign * 32 : 0;
+      }
 
-      // Determine proposed direction from independent directional evidence.
-      const orientationInputs = [priceOrientation, momentumOrientation, broadMarketOrientation, optionOrientation, newsOrientation]
-        .filter((v): v is number => v !== null);
-      const compositeOrientation = orientationInputs.length ? orientationInputs.reduce((a, b) => a + b, 0) / orientationInputs.length : 0;
+      // Direction is inferred only from Moderate/Strong evidence. Weak signals cannot
+      // create a directional thesis merely by accumulating.
+      const directionalSeed: Array<{ orientation: number; weight: number }> = [
+        { orientation: priceOrientation, weight: ahp.weights.price_trend },
+        { orientation: momentumOrientation, weight: ahp.weights.momentum },
+        { orientation: participationOrientation, weight: ahp.weights.participation },
+        { orientation: marketOrientation, weight: ahp.weights.market_alignment },
+        { orientation: newsOrientation ?? 0, weight: ahp.weights.catalysts_news },
+      ].filter((item) => Math.abs(item.orientation) >= 45);
+      const seedDenominator = directionalSeed.reduce((sum, item) => sum + item.weight, 0);
+      const compositeOrientation = seedDenominator > 0
+        ? directionalSeed.reduce((sum, item) => sum + item.orientation * item.weight, 0) / seedDenominator
+        : 0;
       const direction = directionName(compositeOrientation);
 
-      // ----- Relative evidence scores: positive supports proposed direction -----
+      // Relative evidence scores: positive supports the proposed direction.
       const priceEvidence = relativeToDirection(priceOrientation, direction);
       const momentumEvidence = relativeToDirection(momentumOrientation, direction);
-      const marketEvidence = relativeToDirection(broadMarketOrientation, direction);
+      const participationEvidence = relativeToDirection(participationOrientation, direction);
+      const marketEvidence = relativeToDirection(marketOrientation, direction);
       const optionsEvidence = relativeToDirection(optionOrientation, direction);
       const newsEvidence = relativeToDirection(newsOrientation, direction);
 
@@ -557,7 +807,7 @@ Deno.serve(async (req) => {
 
       // Cross-factor agreement only considers independent directional factors with meaningful strength.
       const directionalEvidence = [priceEvidence, momentumEvidence, marketEvidence, optionsEvidence, newsEvidence]
-        .filter((v): v is number => v !== null && Math.abs(v) >= 25);
+        .filter((v): v is number => v !== null && Math.abs(v) >= 45);
       const supportingCount = directionalEvidence.filter((v) => v > 0).length;
       const opposingCount = directionalEvidence.filter((v) => v < 0).length;
       const agreement = directionalEvidence.length >= 3
@@ -582,6 +832,7 @@ Deno.serve(async (req) => {
 
       const priceProvenance: EvidenceProvenance = priceEvidence === null ? 'unavailable' : 'derived';
       const momentumProvenance: EvidenceProvenance = momentumEvidence === null ? 'unavailable' : 'derived';
+      const participationProvenance: EvidenceProvenance = participationEvidence === null ? 'unavailable' : 'derived';
       const marketProvenance: EvidenceProvenance = marketEvidence === null ? 'unavailable' : 'observed';
       const optionsProvenance: EvidenceProvenance = optionsEvidence === null
         ? 'unavailable'
@@ -593,6 +844,7 @@ Deno.serve(async (req) => {
       // Redundancy penalties keep correlated evidence from being counted as independent confirmation.
       const priceIndependence = 1.0;
       const momentumIndependence = priceEvidence !== null ? 0.68 : 1.0;
+      const participationIndependence = priceEvidence !== null ? 0.78 : 1.0;
       const marketIndependence = 0.88;
       const optionsIndependence = 0.95;
       const newsIndependence = 1.0;
@@ -614,7 +866,11 @@ Deno.serve(async (req) => {
           independence: priceIndependence,
           explanation: priceEvidence === null
             ? 'There is not enough historical price information to evaluate trend structure.'
-            : `Current price movement, trend direction, and moving-average structure provide ${Math.abs(priceEvidence) < 25 ? 'limited' : priceEvidence > 0 ? 'supporting' : 'opposing'} evidence for the proposed ${direction} direction.`,
+            : evidenceBand(priceEvidence) === 'Insufficient'
+              ? 'Price structure is mixed or incomplete and does not currently support or oppose the thesis.'
+              : evidenceBand(priceEvidence) === 'Weak'
+                ? `Price structure leans ${priceEvidence > 0 ? 'with' : 'against'} the proposed direction, but the evidence is too weak to vote on the thesis.`
+                : `${evidenceBand(priceEvidence)} price-trend evidence ${priceEvidence > 0 ? 'supports' : 'opposes'} the proposed ${direction} thesis using moving-average alignment, swing structure, and breakout/breakdown context.`,
         },
         {
           factor: 'momentum',
@@ -628,9 +884,33 @@ Deno.serve(async (req) => {
           sourceQuality: momentumEvidence === null ? 0 : 0.86,
           imputationConfidence: 1,
           independence: momentumIndependence,
-          explanation: momentum === null
-            ? 'A momentum reading is not currently available.'
-            : `The momentum reading is ${momentum.toFixed(1)}/100 and provides ${Math.abs(momentumEvidence ?? 0) < 25 ? 'limited directional evidence' : (momentumEvidence ?? 0) > 0 ? 'meaningful confirmation' : 'meaningful contradiction'}.`,
+          explanation: momentumEvidence === null
+            ? 'Momentum cannot be evaluated from the available price history.'
+            : evidenceBand(momentumEvidence) === 'Insufficient'
+              ? 'Momentum measures are mixed or neutral and do not currently support or oppose the thesis.'
+              : evidenceBand(momentumEvidence) === 'Weak'
+                ? `Momentum leans ${momentumEvidence > 0 ? 'with' : 'against'} the proposed direction, but the evidence is too weak to vote on the thesis.`
+                : `${evidenceBand(momentumEvidence)} momentum evidence ${momentumEvidence > 0 ? 'supports' : 'opposes'} the thesis using MACD, RSI regime, and 5- and 20-session price persistence.`,
+        },
+        {
+          factor: 'participation',
+          label: 'Volume and participation',
+          baseWeight: ahp.weights.participation,
+          signedScore: participationEvidence,
+          directional: true,
+          provenance: participationProvenance,
+          confidence: participationEvidence === null ? 0 : quoteConfidence,
+          freshness: participationEvidence === null ? 0 : quoteFreshness,
+          sourceQuality: participationEvidence === null ? 0 : 0.88,
+          imputationConfidence: 1,
+          independence: participationIndependence,
+          explanation: participationEvidence === null
+            ? 'Volume participation cannot be evaluated from the available data.'
+            : evidenceBand(participationEvidence) === 'Insufficient'
+              ? 'Trading volume does not currently provide directional confirmation.'
+              : evidenceBand(participationEvidence) === 'Weak'
+                ? `Volume shows a ${participationEvidence > 0 ? 'supportive' : 'opposing'} lean, but participation is not elevated enough to count as thesis evidence.`
+                : `Relative volume of ${computedRelVolume?.toFixed(2) ?? 'unavailable'}x provides ${evidenceBand(participationEvidence).toLowerCase()} ${participationEvidence > 0 ? 'confirmation of' : 'opposition to'} the proposed direction.`,
         },
         {
           factor: 'market_alignment',
@@ -662,7 +942,7 @@ Deno.serve(async (req) => {
           independence: optionsIndependence,
           explanation: optionsEvidence === null
             ? 'Current option-chain activity is not available for this symbol.'
-            : `Observed call and put activity produces a put/call volume ratio of ${putCallRatio?.toFixed(2) ?? 'unavailable'}, which ${Math.abs(optionsEvidence) < 25 ? 'does not provide meaningful directional confirmation' : optionsEvidence > 0 ? 'supports' : 'opposes'} the proposed direction.`,
+            : `Aggregate put/call volume is ${putCallRatio?.toFixed(2) ?? 'unavailable'}. Without trade-side and opening/closing context, this can show only a weak directional lean and does not vote on the thesis.`,
         },
         {
           factor: 'catalysts_news',
@@ -680,7 +960,11 @@ Deno.serve(async (req) => {
             ? (eventInsideHoldingWindow
               ? 'A scheduled earnings event falls inside the expected holding period, but no directional news evidence is currently available.'
               : 'No recent verified news evidence is currently available for this symbol.')
-            : `Recent stored news and event information ${Math.abs(newsEvidence) < 25 ? 'is not strongly directional' : newsEvidence > 0 ? 'supports' : 'opposes'} the proposed direction.`,
+            : evidenceBand(newsEvidence) === 'Insufficient'
+              ? 'Recent verified news is not sufficiently directional to support or oppose the thesis.'
+              : evidenceBand(newsEvidence) === 'Weak'
+                ? `Recent news leans ${newsEvidence > 0 ? 'with' : 'against'} the proposed direction, but not strongly enough to vote on the thesis.`
+                : `${evidenceBand(newsEvidence)} verified news/event evidence ${newsEvidence > 0 ? 'supports' : 'opposes'} the proposed direction.`,
         },
         {
           factor: 'liquidity',
@@ -769,9 +1053,13 @@ Deno.serve(async (req) => {
       const directionalUncertainty = Math.round(
         clamp((1 - directionalReliabilityCoverage) * 100, 0, 100),
       );
-      const independentDirectionalFamilies = directionalFactors.filter(
-        (factor) => factor.provenance !== 'unavailable' && Number(factor.reliability ?? 0) >= 0.35,
-      ).length;
+      const meaningfulDirectionalFactors = directionalFactors.filter(
+        (factor) =>
+          (factor.strength_band === 'Moderate' || factor.strength_band === 'Strong') &&
+          factor.provenance !== 'unavailable' &&
+          Number(factor.reliability ?? 0) >= 0.35,
+      );
+      const independentDirectionalFamilies = meaningfulDirectionalFactors.length;
 
       // Bayesian thesis support: evidence updates neutral prior odds.
       // Baseline importance, reliability and redundancy are all preserved in the update.
@@ -782,7 +1070,7 @@ Deno.serve(async (req) => {
       let posteriorLogOdds = 0; // neutral 50% prior
       for (const factor of factors) {
         const spec = factorSpecs.find((item) => item.factor === factor.factor);
-        if (!spec?.directional || factor.signed_score === null) continue;
+        if (!spec?.directional || factor.signed_score === null || factor.thesis_vote === 'ABSTAIN') continue;
         posteriorLogOdds +=
           (Number(factor.signed_score) / 100) *
           Number(factor.reliability ?? 0) *
@@ -824,38 +1112,49 @@ Deno.serve(async (req) => {
         tradeBlockers.push('A scheduled earnings event falls inside the expected holding period.');
       }
 
+      const supportingMeaningful = meaningfulDirectionalFactors.filter((factor) => Number(factor.signed_score) > 0);
+      const opposingMeaningful = meaningfulDirectionalFactors.filter((factor) => Number(factor.signed_score) < 0);
+      const strongSupporting = supportingMeaningful.filter((factor) => factor.strength_band === 'Strong');
+      const strongOpposing = opposingMeaningful.filter((factor) => factor.strength_band === 'Strong');
+      const meaningfulWeight = meaningfulDirectionalFactors.reduce(
+        (sum, factor) => sum + Number(factor.effective_weight ?? 0) * (factor.strength_band === 'Strong' ? 1.35 : 1),
+        0,
+      );
+      const supportingWeight = supportingMeaningful.reduce(
+        (sum, factor) => sum + Number(factor.effective_weight ?? 0) * (factor.strength_band === 'Strong' ? 1.35 : 1),
+        0,
+      );
+      const opposingWeight = opposingMeaningful.reduce(
+        (sum, factor) => sum + Number(factor.effective_weight ?? 0) * (factor.strength_band === 'Strong' ? 1.35 : 1),
+        0,
+      );
+      const supportShare = meaningfulWeight > 0 ? Math.round((supportingWeight / meaningfulWeight) * 100) : null;
+      const opposeShare = meaningfulWeight > 0 ? Math.round((opposingWeight / meaningfulWeight) * 100) : null;
+
       let thesisState: ThesisState;
-      if (direction === 'neutral') {
-        thesisState = 'Unsupported';
+      if (direction === 'neutral' || independentDirectionalFamilies < 3 || supportShare === null) {
+        thesisState = 'Insufficient Evidence';
+      } else if ((opposeShare ?? 0) >= 80 && strongOpposing.length >= 2) {
+        thesisState = 'Rejected';
+      } else if ((opposeShare ?? 0) >= 67) {
+        thesisState = 'Opposed';
       } else if (
-        directionalCompleteness < 55 ||
-        directionalUncertainty > 55 ||
-        independentDirectionalFamilies < 3 ||
-        agreement === null
+        supportShare >= 80 &&
+        independentDirectionalFamilies >= 4 &&
+        strongSupporting.length >= 2 &&
+        strongOpposing.length === 0
       ) {
-        thesisState = 'Preliminary';
-      } else if (agreement >= 90) {
-        // Near-unanimous meaningful directional evidence is, by definition, support
-        // for the inferred direction once minimum evidence sufficiency is met.
-        thesisState =
-          thesisSupport >= 78 &&
-          directionalCompleteness >= 75 &&
-          directionalUncertainty <= 35
-            ? 'Strongly Supported'
-            : 'Supported';
+        thesisState = 'Strongly Supported';
       } else if (
-        agreement >= 70 &&
-        thesisSupport >= 60
+        supportShare >= 67 &&
+        supportingMeaningful.length >= 3 &&
+        strongOpposing.length === 0
       ) {
         thesisState = 'Supported';
-      } else if (
-        agreement <= 40 &&
-        thesisSupport < 35
-      ) {
-        thesisState = 'Rejected';
       } else {
-        thesisState = 'Unsupported';
+        thesisState = 'Mixed';
       }
+
 
       const candidatePool = relevantOptions
         .filter((r) => {
@@ -878,8 +1177,8 @@ Deno.serve(async (req) => {
 
       const suggestionEligible =
         tradeEligible &&
-        agreement !== null &&
-        agreement >= 70 &&
+        supportShare !== null &&
+        supportShare >= 67 &&
         independentDirectionalFamilies >= 3 &&
         directionalCompleteness >= 65 &&
         directionalUncertainty <= 55;
@@ -899,32 +1198,34 @@ Deno.serve(async (req) => {
         : topNews?.headline ?? null;
 
       const noTradeReason =
-        thesisState === 'Preliminary'
-          ? `The analysis is preliminary because directional evidence completeness is ${directionalCompleteness}% and directional uncertainty is ${directionalUncertainty}%. URSORA requires at least three sufficiently independent directional evidence families before classifying the thesis as supported.`
-          : thesisState === 'Unsupported'
-            ? (thesisBlockers.length ? thesisBlockers.join(' ') : 'The available directional evidence does not provide sufficient strength to support the thesis.')
-            : thesisState === 'Rejected'
-              ? 'The available directional evidence materially contradicts the proposed direction.'
-              : tradeBlockers.length
-                ? tradeBlockers.join(' ')
-                : !suggestionEligible
-                  ? [
-                      directionalCompleteness < 65
-                        ? `Directional evidence completeness is ${directionalCompleteness}% and must reach at least 65% for a proactive suggestion.`
-                        : null,
-                      directionalUncertainty > 55
-                        ? `Directional evidence uncertainty is ${directionalUncertainty}% and must be 55% or lower for a proactive suggestion.`
-                        : null,
-                      independentDirectionalFamilies < 3
-                        ? `Only ${independentDirectionalFamilies} sufficiently independent directional evidence families are currently reliable; at least 3 are required.`
-                        : null,
-                      agreement === null
-                        ? 'Directional agreement cannot yet be established from enough meaningful evidence families.'
-                        : agreement < 70
-                          ? `Directional agreement is ${agreement}% and must reach at least 70% for a proactive suggestion.`
+        thesisState === 'Insufficient Evidence'
+          ? `There are only ${independentDirectionalFamilies} independent Moderate-or-Strong directional evidence families. Weak and insufficient signals are shown for context but do not support or oppose the thesis.`
+          : thesisState === 'Mixed'
+            ? 'Moderate-or-Strong directional evidence is materially mixed, so URSORA is not treating the current thesis as supported.'
+            : thesisState === 'Opposed'
+              ? 'The balance of Moderate-or-Strong evidence currently opposes the proposed direction.'
+              : thesisState === 'Rejected'
+                ? 'Multiple independent evidence families strongly contradict the proposed direction.'
+                : tradeBlockers.length
+                  ? tradeBlockers.join(' ')
+                  : !suggestionEligible
+                    ? [
+                        directionalCompleteness < 65
+                          ? `Directional evidence completeness is ${directionalCompleteness}% and must reach at least 65% for a proactive suggestion.`
                           : null,
-                    ].filter(Boolean).join(' ')
-                  : null;
+                        directionalUncertainty > 55
+                          ? `Directional evidence uncertainty is ${directionalUncertainty}% and must be 55% or lower for a proactive suggestion.`
+                          : null,
+                        independentDirectionalFamilies < 3
+                          ? `Only ${independentDirectionalFamilies} independent Moderate-or-Strong directional evidence families currently qualify; at least 3 are required.`
+                          : null,
+                        supportShare === null
+                          ? 'Thesis support cannot yet be established from enough Moderate-or-Strong evidence.'
+                          : supportShare < 67
+                            ? `Only ${supportShare}% of weighted Moderate-or-Strong evidence supports the proposed direction; at least 67% is required for a proactive suggestion.`
+                            : null,
+                      ].filter(Boolean).join(' ')
+                    : null;
 
       created.push({
         run_id: runId,
@@ -954,7 +1255,17 @@ Deno.serve(async (req) => {
             momentum_score: momentum,
             composite_orientation: compositeOrientation,
             put_call_ratio: putCallRatio,
-            relative_volume: relVolume,
+            relative_volume: computedRelVolume,
+            rsi_14: rsi,
+            macd_line: macd?.line ?? null,
+            macd_signal: macd?.signal ?? null,
+            macd_histogram: macd?.histogram ?? null,
+            return_5d_pct: return5,
+            return_20d_pct: return20,
+            price_structure_higher: higherStructure,
+            price_structure_lower: lowerStructure,
+            breakout_up: breakoutUp,
+            breakout_down: breakoutDown,
             reward_risk_ratio: estimatedRatio,
             structural_support: support,
             structural_resistance: resistance,
@@ -974,6 +1285,10 @@ Deno.serve(async (req) => {
           total_families: totalFamilies,
           agreement_score: agreement,
           agreement_family_count: directionalEvidence.length,
+          support_share: supportShare,
+          oppose_share: opposeShare,
+          strong_supporting_families: strongSupporting.length,
+          strong_opposing_families: strongOpposing.length,
           independent_directional_families: independentDirectionalFamilies,
           reliability_coverage: Math.round(reliabilityCoverage * 1000) / 10,
           source_quality: sourceQuality,
