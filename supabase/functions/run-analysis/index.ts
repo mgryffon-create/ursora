@@ -445,6 +445,7 @@ Deno.serve(async (req) => {
     const { data: latestQuotes, error: quoteError } = await db
       .from('quotes')
       .select('*')
+      .eq('source_name', 'Massive Test Data')
       .order('as_of', { ascending: false })
       .limit(500);
     if (quoteError) throw quoteError;
