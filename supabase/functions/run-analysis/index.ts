@@ -709,20 +709,18 @@ Deno.serve(async (req) => {
           magnitude >= 15 ? sign * 32 : 0;
       }
 
-      // Direction is inferred only from Moderate/Strong evidence. Weak signals cannot
-      // create a directional thesis merely by accumulating.
-      const directionalSeed: Array<{ orientation: number; weight: number }> = [
-        { orientation: priceOrientation, weight: ahp.weights.price_trend },
-        { orientation: momentumOrientation, weight: ahp.weights.momentum },
-        { orientation: participationOrientation, weight: ahp.weights.participation },
-        { orientation: marketOrientation, weight: ahp.weights.market_alignment },
-        { orientation: newsOrientation ?? 0, weight: ahp.weights.catalysts_news },
-      ].filter((item) => Math.abs(item.orientation) >= 45);
-      const seedDenominator = directionalSeed.reduce((sum, item) => sum + item.weight, 0);
-      const compositeOrientation = seedDenominator > 0
-        ? directionalSeed.reduce((sum, item) => sum + item.orientation * item.weight, 0) / seedDenominator
-        : 0;
-      const direction = directionName(compositeOrientation);
+      // Hierarchical thesis direction:
+      // Price/structure is the primary evidence family. Context cannot manufacture a
+      // bullish/bearish thesis when the asset itself has not established a Moderate
+      // or Strong directional structure. Momentum/participation confirm the structure;
+      // market/news contextualise it.
+      const priceBandAbsolute = evidenceBand(priceOrientation);
+      const structuralDirection =
+        (priceBandAbsolute === 'Moderate' || priceBandAbsolute === 'Strong')
+          ? Math.sign(priceOrientation)
+          : 0;
+      const compositeOrientation = structuralDirection === 0 ? 0 : structuralDirection * Math.abs(priceOrientation);
+      const direction = structuralDirection > 0 ? 'bullish' : structuralDirection < 0 ? 'bearish' : 'neutral';
 
       // Relative evidence scores: positive supports the proposed direction.
       const priceEvidence = relativeToDirection(priceOrientation, direction);
@@ -1003,6 +1001,126 @@ Deno.serve(async (req) => {
       const availableSpecs = factorSpecs.filter((factor) => factor.signedScore !== null);
       const factors = factorSpecs.map((spec) => factorRow(spec));
 
+      const factorByKey = new Map(factors.map((factor) => [factor.factor, factor]));
+      const priceFactor = factorByKey.get('price_trend');
+      const momentumFactor = factorByKey.get('momentum');
+      const participationFactor = factorByKey.get('participation');
+      const marketFactor = factorByKey.get('market_alignment');
+      const newsFactor = factorByKey.get('catalysts_news');
+
+      const meaningfulVote = (factor: AnyRow | undefined) =>
+        factor && (factor.strength_band === 'Moderate' || factor.strength_band === 'Strong')
+          ? String(factor.thesis_vote)
+          : 'ABSTAIN';
+
+      const confirmationFactors = [momentumFactor, participationFactor].filter(Boolean) as AnyRow[];
+      const contextFactors = [marketFactor, newsFactor].filter(Boolean) as AnyRow[];
+      const confirmationSupport = confirmationFactors.filter((factor) => meaningfulVote(factor) === 'SUPPORT');
+      const confirmationOppose = confirmationFactors.filter((factor) => meaningfulVote(factor) === 'OPPOSE');
+      const contextSupport = contextFactors.filter((factor) => meaningfulVote(factor) === 'SUPPORT');
+      const contextOppose = contextFactors.filter((factor) => meaningfulVote(factor) === 'OPPOSE');
+
+      const priceMeaningful =
+        priceFactor &&
+        (priceFactor.strength_band === 'Moderate' || priceFactor.strength_band === 'Strong') &&
+        priceFactor.thesis_vote === 'SUPPORT';
+
+      const confirmationState =
+        !priceMeaningful ? 'unavailable'
+          : confirmationOppose.length > 0 ? 'divergent'
+            : confirmationSupport.length >= 2 ? 'confirmed'
+              : confirmationSupport.length === 1 ? 'partially_confirmed'
+                : 'unconfirmed';
+
+      const contextState =
+        contextSupport.length > 0 && contextOppose.length > 0 ? 'mixed'
+          : contextOppose.length > 0 ? 'opposing'
+            : contextSupport.length > 0 ? 'supportive'
+              : 'neutral';
+
+      const interactionFlags: AnyRow[] = [];
+      if (priceMeaningful) {
+        if (meaningfulVote(momentumFactor) === 'SUPPORT') {
+          interactionFlags.push({
+            key: 'price_momentum_confirmation',
+            role: 'confirmation',
+            state: 'confirming',
+            label: 'Price and momentum confirm one another',
+            detail: 'Momentum is Moderate/Strong in the same direction as the established price structure.',
+          });
+        } else if (meaningfulVote(momentumFactor) === 'OPPOSE') {
+          interactionFlags.push({
+            key: 'price_momentum_divergence',
+            role: 'confirmation',
+            state: 'conflicting',
+            label: 'Price and momentum diverge',
+            detail: 'Momentum is Moderate/Strong against the established price structure. This weakens continuation confidence.',
+          });
+        }
+
+        if (meaningfulVote(participationFactor) === 'SUPPORT') {
+          interactionFlags.push({
+            key: 'price_participation_confirmation',
+            role: 'confirmation',
+            state: 'confirming',
+            label: 'Participation confirms the price move',
+            detail: 'Elevated trading participation is aligned with the established price direction.',
+          });
+        } else if (meaningfulVote(participationFactor) === 'OPPOSE') {
+          interactionFlags.push({
+            key: 'price_participation_conflict',
+            role: 'confirmation',
+            state: 'conflicting',
+            label: 'Participation conflicts with price',
+            detail: 'Elevated participation is occurring against the established price direction.',
+          });
+        }
+
+        if (meaningfulVote(marketFactor) === 'SUPPORT') {
+          interactionFlags.push({
+            key: 'market_context_alignment',
+            role: 'context',
+            state: 'confirming',
+            label: 'Broader market context is aligned',
+            detail: 'Moderate/Strong market or sector evidence points in the same direction as the stock-level thesis.',
+          });
+        } else if (meaningfulVote(marketFactor) === 'OPPOSE') {
+          interactionFlags.push({
+            key: 'market_context_headwind',
+            role: 'context',
+            state: 'conflicting',
+            label: 'Broader market context is a headwind',
+            detail: 'Moderate/Strong market or sector evidence points against the stock-level thesis. This is context, not an automatic invalidation.',
+          });
+        }
+
+        if (meaningfulVote(newsFactor) === 'SUPPORT') {
+          interactionFlags.push({
+            key: 'catalyst_price_alignment',
+            role: 'context',
+            state: 'confirming',
+            label: 'Catalyst evidence is aligned with price',
+            detail: 'Verified news/event evidence and the established price structure point in the same direction.',
+          });
+        } else if (meaningfulVote(newsFactor) === 'OPPOSE') {
+          interactionFlags.push({
+            key: 'catalyst_price_conflict',
+            role: 'context',
+            state: 'conflicting',
+            label: 'Catalyst evidence conflicts with price',
+            detail: 'Verified news/event evidence points against the established price structure.',
+          });
+        }
+      } else {
+        interactionFlags.push({
+          key: 'no_primary_structure',
+          role: 'primary',
+          state: 'insufficient',
+          label: 'No established price thesis',
+          detail: 'Price/structure is not Moderate or Strong, so confirmation and context families cannot create a directional thesis by themselves.',
+        });
+      }
+
       const totalBaseWeight = factorSpecs.reduce((sum, factor) => sum + factor.baseWeight, 0);
       const netSupport = factors.reduce(
         (total, factor) => total + Number(factor.contribution ?? 0),
@@ -1116,6 +1234,7 @@ Deno.serve(async (req) => {
       const opposingMeaningful = meaningfulDirectionalFactors.filter((factor) => Number(factor.signed_score) < 0);
       const strongSupporting = supportingMeaningful.filter((factor) => factor.strength_band === 'Strong');
       const strongOpposing = opposingMeaningful.filter((factor) => factor.strength_band === 'Strong');
+      const strongConfirmationOppose = confirmationOppose.filter((factor) => factor.strength_band === 'Strong');
       const meaningfulWeight = meaningfulDirectionalFactors.reduce(
         (sum, factor) => sum + Number(factor.effective_weight ?? 0) * (factor.strength_band === 'Strong' ? 1.35 : 1),
         0,
@@ -1131,24 +1250,43 @@ Deno.serve(async (req) => {
       const supportShare = meaningfulWeight > 0 ? Math.round((supportingWeight / meaningfulWeight) * 100) : null;
       const opposeShare = meaningfulWeight > 0 ? Math.round((opposingWeight / meaningfulWeight) * 100) : null;
 
+      // Hierarchical corroboration rules:
+      // 1) Moderate/Strong price structure is required to establish direction.
+      // 2) At least one Moderate/Strong confirmation family (momentum/participation)
+      //    is required for Supported.
+      // 3) Strongly Supported requires Strong price structure, both confirmation
+      //    families aligned, at least one supportive context family, and no Strong opposition.
+      // 4) Context can strengthen/weaken a thesis, but cannot create one without price.
       let thesisState: ThesisState;
-      if (direction === 'neutral' || independentDirectionalFamilies < 3 || supportShare === null) {
+      if (!priceMeaningful || direction === 'neutral') {
         thesisState = 'Insufficient Evidence';
-      } else if ((opposeShare ?? 0) >= 80 && strongOpposing.length >= 2) {
+      } else if (
+        strongConfirmationOppose.length >= 1 &&
+        confirmationSupport.length === 0 &&
+        (opposeShare ?? 0) >= 67
+      ) {
         thesisState = 'Rejected';
-      } else if ((opposeShare ?? 0) >= 67) {
+      } else if (
+        confirmationOppose.length >= 1 &&
+        confirmationSupport.length === 0 &&
+        (opposeShare ?? 0) >= 55
+      ) {
         thesisState = 'Opposed';
       } else if (
+        priceFactor?.strength_band === 'Strong' &&
+        confirmationSupport.length >= 2 &&
+        contextSupport.length >= 1 &&
+        supportShare !== null &&
         supportShare >= 80 &&
-        independentDirectionalFamilies >= 4 &&
-        strongSupporting.length >= 2 &&
         strongOpposing.length === 0
       ) {
         thesisState = 'Strongly Supported';
       } else if (
-        supportShare >= 67 &&
+        confirmationSupport.length >= 1 &&
         supportingMeaningful.length >= 3 &&
-        strongOpposing.length === 0
+        supportShare !== null &&
+        supportShare >= 67 &&
+        strongConfirmationOppose.length === 0
       ) {
         thesisState = 'Supported';
       } else {
@@ -1180,6 +1318,8 @@ Deno.serve(async (req) => {
         supportShare !== null &&
         supportShare >= 67 &&
         independentDirectionalFamilies >= 3 &&
+        confirmationSupport.length >= 1 &&
+        strongConfirmationOppose.length === 0 &&
         directionalCompleteness >= 65 &&
         directionalUncertainty <= 55;
 
@@ -1199,7 +1339,7 @@ Deno.serve(async (req) => {
 
       const noTradeReason =
         thesisState === 'Insufficient Evidence'
-          ? `There are only ${independentDirectionalFamilies} independent Moderate-or-Strong directional evidence families. Weak and insufficient signals are shown for context but do not support or oppose the thesis.`
+          ? `Price/structure has not established a Moderate-or-Strong directional thesis. Confirmation and context evidence are shown, but they cannot create a bullish or bearish thesis without meaningful price structure.`
           : thesisState === 'Mixed'
             ? 'Moderate-or-Strong directional evidence is materially mixed, so URSORA is not treating the current thesis as supported.'
             : thesisState === 'Opposed'
@@ -1289,6 +1429,28 @@ Deno.serve(async (req) => {
           oppose_share: opposeShare,
           strong_supporting_families: strongSupporting.length,
           strong_opposing_families: strongOpposing.length,
+          thesis_hierarchy: {
+            primary: {
+              factor: 'price_trend',
+              band: priceFactor?.strength_band ?? 'Insufficient',
+              vote: priceFactor?.thesis_vote ?? 'ABSTAIN',
+            },
+            confirmation: {
+              state: confirmationState,
+              supporting_families: confirmationSupport.map((factor) => factor.factor),
+              opposing_families: confirmationOppose.map((factor) => factor.factor),
+            },
+            context: {
+              state: contextState,
+              supporting_families: contextSupport.map((factor) => factor.factor),
+              opposing_families: contextOppose.map((factor) => factor.factor),
+            },
+            auxiliary: {
+              options_vote: factorByKey.get('options_market')?.thesis_vote ?? 'ABSTAIN',
+              note: 'Aggregate put/call activity is currently capped at Weak and cannot vote without richer options-flow context.',
+            },
+          },
+          interaction_flags: interactionFlags,
           independent_directional_families: independentDirectionalFamilies,
           reliability_coverage: Math.round(reliabilityCoverage * 1000) / 10,
           source_quality: sourceQuality,
@@ -1317,13 +1479,13 @@ Deno.serve(async (req) => {
             tradeBlockers.length ? `Trade constraints: ${tradeBlockers.join(' ')}` : 'No hard trade constraints were identified from the data currently available.',
             suggestionEligible
               ? 'Suggestion eligibility: eligible for proactive contract suggestion.'
-              : `Suggestion eligibility: not eligible for proactive suggestion. Current gate values — weighted support ${supportShare ?? 'unavailable'}%, independent Moderate/Strong families ${independentDirectionalFamilies}, directional completeness ${directionalCompleteness}%, directional uncertainty ${directionalUncertainty}%.`,
+              : `Suggestion eligibility: not eligible for proactive suggestion. Current gate values — price structure ${priceFactor?.strength_band ?? 'Insufficient'}, confirmation ${confirmationState}, weighted support ${supportShare ?? 'unavailable'}%, independent Moderate/Strong families ${independentDirectionalFamilies}, directional completeness ${directionalCompleteness}%, directional uncertainty ${directionalUncertainty}%.`,
             'Observed and derived evidence are reliability-discounted for freshness, source quality, and redundancy. Imputed evidence receives an additional imputation-confidence discount. Unavailable evidence contributes no directional support.',
           ],
         },
         regime: snapshot?.regime ?? 'Mixed',
         regime_explanation: snapshot?.regime_note ?? 'Broader market conditions derived from the latest stored market data.',
-        engine_version: 'tradecycle-5',
+        engine_version: 'tradecycle-5.1',
         is_demo: Boolean(q.is_demo ?? true),
         generated_at: started,
       });
@@ -1345,7 +1507,7 @@ Deno.serve(async (req) => {
       feed_events: 0,
       regime: snapshot?.regime ?? null,
       notes: signalCount
-        ? `TradeCycle v5 corroborated-evidence analysis completed for authenticated user ${user.id}.`
+        ? `TradeCycle v5.1 hierarchical corroboration analysis completed for authenticated user ${user.id}.`
         : 'No stored quote data were available; no signals were generated.',
       started_at: started,
       finished_at: new Date().toISOString(),
@@ -1357,7 +1519,7 @@ Deno.serve(async (req) => {
       signals: signalCount,
       updates: 0,
       run_id: runId,
-      engine_version: 'tradecycle-5',
+      engine_version: 'tradecycle-5.1',
       note: signalCount ? 'Signals generated using all currently available evidence categories.' : 'No stored quote data available.',
     });
   } catch (e) {
