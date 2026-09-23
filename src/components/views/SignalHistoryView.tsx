@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeftRight, CalendarDays, ChevronLeft, ChevronRight, CircleDollarSign, Search, X,
+  ArrowLeftRight, CalendarDays, ChevronLeft, ChevronRight, Clock3, Search, X,
 } from 'lucide-react';
 import { fetchSignalHistory, fetchSignalUpdates, fetchTickers } from '@/lib/api';
-import { fetchStoredObservations, fetchTradeRecords } from '@/lib/behavioral/api';
+import { fetchModifications, fetchStoredObservations, fetchTradeCycleThesisEvents, fetchTradeRecords } from '@/lib/behavioral/api';
 import { isClosed, tradePl } from '@/lib/behavioral/engine';
-import type { Observation, TradeRecord } from '@/lib/behavioral/types';
+import type { Observation, TradeCycleThesisEvent, TradeModification, TradeRecord } from '@/lib/behavioral/types';
 import type { Signal, SignalUpdate, Ticker } from '@/lib/types';
 import { num, scoreColor, signedMoney, stampET } from '@/lib/format';
 import { useAuth } from '@/contexts/AuthContext';
@@ -51,6 +51,9 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
   const [tickers, setTickers] = useState<Ticker[]>([]);
   const [trades, setTrades] = useState<TradeRecord[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
+  const [thesisEvents, setThesisEvents] = useState<TradeCycleThesisEvent[]>([]);
+  const [modifications, setModifications] = useState<TradeModification[]>([]);
+  const [selectedTradeId, setSelectedTradeId] = useState<number | null>(null);
   const [symbol, setSymbol] = useState<string>('all');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -70,21 +73,29 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
     setUpdates(up);
     setTickers(tk);
 
+    let loadedTrades: TradeRecord[] = [];
     if (user?.id) {
-      const [tradeResult, observationResult] = await Promise.allSettled([
+      const [tradeResult, observationResult, thesisEventResult, modificationResult] = await Promise.allSettled([
         fetchTradeRecords(user.id),
         fetchStoredObservations(user.id),
+        fetchTradeCycleThesisEvents(user.id),
+        fetchModifications(user.id),
       ]);
-      setTrades(tradeResult.status === 'fulfilled' ? tradeResult.value : []);
+      loadedTrades = tradeResult.status === 'fulfilled' ? tradeResult.value : [];
+      setTrades(loadedTrades);
       setObservations(observationResult.status === 'fulfilled' ? observationResult.value : []);
+      setThesisEvents(thesisEventResult.status === 'fulfilled' ? thesisEventResult.value : []);
+      setModifications(modificationResult.status === 'fulfilled' ? modificationResult.value : []);
     } else {
       setTrades([]);
       setObservations([]);
+      setThesisEvents([]);
+      setModifications([]);
     }
 
     const dated = [
       ...sig.map((s) => s.generated_at),
-      ...trades.map((trade) => trade.entry_at ?? trade.created_at),
+      ...loadedTrades.map((trade) => trade.entry_at ?? trade.created_at),
     ].filter(Boolean).sort();
 
     const latest = dated.at(-1) ?? sig.map((s) => s.generated_at).filter(Boolean).sort().at(-1);
@@ -217,6 +228,107 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
       })
       .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
   }, [updates, rangeStart, rangeEnd, symbol, query]);
+
+  const selectedTrade = useMemo(
+    () => trades.find((trade) => trade.id === selectedTradeId) ?? null,
+    [trades, selectedTradeId],
+  );
+
+  const selectedTradeSignal = useMemo(
+    () => selectedTrade?.signal_id ? signals.find((signal) => signal.id === selectedTrade.signal_id) ?? null : null,
+    [selectedTrade, signals],
+  );
+
+  const selectedTradeEvents = useMemo(
+    () => selectedTrade ? thesisEvents.filter((event) => event.trade_id === selectedTrade.id) : [],
+    [selectedTrade, thesisEvents],
+  );
+
+  const selectedTradeModifications = useMemo(
+    () => selectedTrade ? modifications.filter((modification) => modification.trade_id === selectedTrade.id) : [],
+    [selectedTrade, modifications],
+  );
+
+  const selectedTradeObservations = useMemo(
+    () => selectedTrade
+      ? observations.filter((observation) =>
+          observation.trade_id === selectedTrade.id || observation.evidence_trade_ids.includes(selectedTrade.id))
+      : [],
+    [selectedTrade, observations],
+  );
+
+  const selectedTradeTimeline = useMemo(() => {
+    if (!selectedTrade) return [];
+    const items: {
+      key: string;
+      at: string;
+      kind: 'entry' | 'thesis' | 'action' | 'exit';
+      label: string;
+      detail: string;
+    }[] = [];
+
+    const entryAt = selectedTrade.entry_at ?? selectedTrade.created_at;
+    items.push({
+      key: `entry-${selectedTrade.id}`,
+      at: entryAt,
+      kind: 'entry',
+      label: 'Position entered',
+      detail: [
+        selectedTrade.direction ? selectedTrade.direction : null,
+        selectedTrade.entry_price !== null ? `entry ${num(selectedTrade.entry_price)}` : null,
+        selectedTrade.position_size !== null ? `size ${signedMoney(selectedTrade.position_size)?.replace('+', '')}` : null,
+      ].filter(Boolean).join(' · ') || 'Brokerage or trade-ledger entry recorded.',
+    });
+
+    for (const event of selectedTradeEvents) {
+      items.push({
+        key: `thesis-${event.id}`,
+        at: event.created_at,
+        kind: 'thesis',
+        label: event.event_type.replaceAll('_', ' '),
+        detail: [
+          event.thesis_state ? `thesis ${event.thesis_state}` : null,
+          event.thesis_support !== null ? `support ${num(event.thesis_support, 0)}` : null,
+          event.directional_agreement !== null ? `agreement ${num(event.directional_agreement, 0)}%` : null,
+          event.underlying_price !== null ? `underlying ${num(event.underlying_price)}` : null,
+        ].filter(Boolean).join(' · ') || 'Meaningful thesis event recorded.',
+      });
+    }
+
+    for (const modification of selectedTradeModifications) {
+      items.push({
+        key: `mod-${modification.id}`,
+        at: modification.occurred_at,
+        kind: 'action',
+        label: modification.modification_type.replaceAll('_', ' '),
+        detail: [
+          modification.field_changed ? modification.field_changed : null,
+          modification.previous_value !== null && modification.new_value !== null
+            ? `${modification.previous_value} → ${modification.new_value}`
+            : modification.new_value,
+          modification.rationale,
+        ].filter(Boolean).join(' · ') || 'Trader action recorded.',
+      });
+    }
+
+    const exitAt = selectedTrade.exit_at ?? selectedTrade.closed_at;
+    if (exitAt) {
+      const pl = tradePl(selectedTrade);
+      items.push({
+        key: `exit-${selectedTrade.id}`,
+        at: exitAt,
+        kind: 'exit',
+        label: 'Position closed',
+        detail: [
+          selectedTrade.exit_price !== null ? `exit ${num(selectedTrade.exit_price)}` : null,
+          pl !== null ? `realized ${signedMoney(pl)}` : null,
+          selectedTrade.thesis_review_status ? `thesis review: ${selectedTrade.thesis_review_status.replaceAll('_', ' ')}` : null,
+        ].filter(Boolean).join(' · ') || 'Position close recorded.',
+      });
+    }
+
+    return items.sort((a, b) => +new Date(a.at) - +new Date(b.at));
+  }, [selectedTrade, selectedTradeEvents, selectedTradeModifications]);
 
   const selectedClosed = selectedTrades.filter(isClosed);
   const selectedPl = selectedClosed
@@ -496,15 +608,24 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
                           <div className="mt-0.5 truncate font-mono text-[10px] text-zinc-400">{trade.origin ?? 'unclassified'}</div>
                         </div>
                       </div>
-                      {trade.signal_id && (
+                      <div className="mt-3 flex flex-wrap items-center gap-3">
                         <button
                           type="button"
-                          onClick={() => onOpenThesis(trade.signal_id as number)}
-                          className="mt-3 font-mono text-[10px] uppercase tracking-wider text-sky-400 hover:text-sky-300"
+                          onClick={() => setSelectedTradeId(trade.id)}
+                          className="font-mono text-[10px] uppercase tracking-wider text-sky-400 hover:text-sky-300"
                         >
-                          open linked analysis
+                          review TradeCycle
                         </button>
-                      )}
+                        {trade.signal_id && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenThesis(trade.signal_id as number)}
+                            className="font-mono text-[10px] uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
+                          >
+                            linked analysis
+                          </button>
+                        )}
+                      </div>
                     </article>
                   );
                 })}
@@ -630,6 +751,171 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
       <div className="rounded-md border border-zinc-800 bg-black/20 px-3 py-2 text-[10px] leading-relaxed text-zinc-600">
         The calendar is the chronological index. Analyses and trades remain separate records underneath it so URSORA never treats an analyzed ticker as a trade unless brokerage or trade-ledger data confirms one.
       </div>
+
+      {selectedTrade && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/70" role="dialog" aria-modal="true" aria-label="TradeCycle review">
+          <div className="h-full w-full max-w-3xl overflow-y-auto border-l border-zinc-800 bg-[#0b0d10] shadow-2xl">
+            <div className="sticky top-0 z-20 flex items-start justify-between gap-3 border-b border-zinc-800 bg-[#0b0d10]/95 p-4 backdrop-blur">
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-sky-400">TradeCycle review</div>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <h2 className="font-mono text-xl font-semibold text-zinc-100">{selectedTrade.symbol}</h2>
+                  <span className={cn(
+                    'rounded-sm border px-1.5 py-[1px] font-mono text-[9px] uppercase',
+                    isClosed(selectedTrade)
+                      ? 'border-zinc-700 text-zinc-400'
+                      : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+                  )}>
+                    {isClosed(selectedTrade) ? 'completed' : 'monitoring'}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] text-zinc-500">
+                  {selectedTrade.option_type ? selectedTrade.option_type.toUpperCase() : selectedTrade.asset_type ?? 'position'}
+                  {selectedTrade.strike ? ` · ${num(selectedTrade.strike)} strike` : ''}
+                  {selectedTrade.expiration ? ` · expires ${selectedTrade.expiration}` : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedTradeId(null)}
+                aria-label="Close TradeCycle review"
+                className="rounded-sm border border-zinc-800 p-1.5 text-zinc-500 hover:text-zinc-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 p-4">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-md border border-zinc-800 bg-[#14171c] p-2.5">
+                  <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Origin</div>
+                  <div className="mt-1 text-[11px] text-zinc-200">{selectedTrade.origin ?? 'unclassified'}</div>
+                </div>
+                <div className="rounded-md border border-zinc-800 bg-[#14171c] p-2.5">
+                  <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Thesis</div>
+                  <div className="mt-1 text-[11px] text-zinc-200">
+                    {selectedTrade.thesis_status ?? selectedTradeSignal?.score_breakdown?.thesis_state ?? 'not classified'}
+                  </div>
+                </div>
+                <div className="rounded-md border border-zinc-800 bg-[#14171c] p-2.5">
+                  <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Process adherence</div>
+                  <div className="mt-1 text-[11px] text-zinc-200">
+                    {selectedTrade.process_adherence !== null ? `${num(selectedTrade.process_adherence, 0)}/100` : 'not recorded'}
+                  </div>
+                </div>
+                <div className="rounded-md border border-zinc-800 bg-[#14171c] p-2.5">
+                  <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Realized P/L</div>
+                  <div className={cn(
+                    'mt-1 font-mono text-[11px] font-semibold',
+                    (tradePl(selectedTrade) ?? 0) > 0 ? 'text-emerald-400' : (tradePl(selectedTrade) ?? 0) < 0 ? 'text-red-400' : 'text-zinc-300',
+                  )}>
+                    {tradePl(selectedTrade) === null ? 'open' : signedMoney(tradePl(selectedTrade))}
+                  </div>
+                </div>
+              </div>
+
+              <Panel
+                title="TradeCycle timeline"
+                subtitle="Entry, meaningful thesis events, recorded trader actions, and exit are shown in chronological order."
+                bodyClassName="p-0"
+              >
+                {selectedTradeTimeline.length ? (
+                  <ol className="divide-y divide-zinc-800/70">
+                    {selectedTradeTimeline.map((item) => (
+                      <li key={item.key} className="grid gap-2 px-3 py-2.5 sm:grid-cols-[110px_18px_1fr]">
+                        <div className="font-mono text-[9px] text-zinc-600">{stampET(item.at)}</div>
+                        <div className={cn(
+                          'mt-1 h-2.5 w-2.5 rounded-full border',
+                          item.kind === 'entry' ? 'border-emerald-500 bg-emerald-500/20'
+                            : item.kind === 'thesis' ? 'border-sky-500 bg-sky-500/20'
+                              : item.kind === 'action' ? 'border-amber-500 bg-amber-500/20'
+                                : 'border-zinc-500 bg-zinc-500/20',
+                        )} />
+                        <div>
+                          <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-300">{item.label}</div>
+                          <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{item.detail}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <div className="px-3 py-3 text-[11px] text-zinc-500">No lifecycle events have been recorded for this TradeCycle yet.</div>
+                )}
+              </Panel>
+
+              <div className="grid gap-3 xl:grid-cols-2">
+                <Panel
+                  title="Thesis at origin"
+                  subtitle="The starting directional idea and the basis URSORA stored or inferred when the position entered monitoring."
+                >
+                  <div className="space-y-2 text-[11px] leading-relaxed text-zinc-400">
+                    <div>
+                      <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">Direction · </span>
+                      {selectedTrade.inferred_thesis_direction ?? selectedTrade.direction ?? selectedTradeSignal?.direction ?? 'not recorded'}
+                    </div>
+                    <div>
+                      <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">Inference basis · </span>
+                      {selectedTrade.thesis_inference_basis ?? 'No inference basis has been stored for this trade.'}
+                    </div>
+                    {selectedTradeSignal && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenThesis(selectedTradeSignal.id)}
+                        className="font-mono text-[10px] uppercase tracking-wider text-sky-400 hover:text-sky-300"
+                      >
+                        open full origin analysis
+                      </button>
+                    )}
+                  </div>
+                </Panel>
+
+                <Panel
+                  title="Post-trade review"
+                  subtitle="Thesis validity and execution outcome are kept separate."
+                >
+                  <div className="space-y-2 text-[11px] leading-relaxed text-zinc-400">
+                    <div>
+                      <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">Thesis review · </span>
+                      {selectedTrade.thesis_review_status?.replaceAll('_', ' ') ?? (isClosed(selectedTrade) ? 'not reviewed yet' : 'position still open')}
+                    </div>
+                    <div>
+                      <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">Review summary · </span>
+                      {selectedTrade.thesis_review_summary ?? 'No post-trade thesis summary has been stored yet.'}
+                    </div>
+                    <div>
+                      <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">Outcome · </span>
+                      {selectedTrade.result ?? (isClosed(selectedTrade) ? 'closed' : 'open')}
+                    </div>
+                  </div>
+                </Panel>
+              </div>
+
+              {selectedTradeObservations.length > 0 && (
+                <Panel
+                  title="Behavioral observations tied to this TradeCycle"
+                  subtitle="Measured process observations associated with this specific trade or with evidence sets that include it."
+                >
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {selectedTradeObservations.map((observation, index) => (
+                      <div key={observation.id ?? `${observation.observation_type}-${index}`} className="rounded-sm border border-amber-500/25 bg-amber-500/[0.04] p-2.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-sm border border-amber-500/30 px-1.5 py-[1px] font-mono text-[8px] uppercase text-amber-300">{observation.severity}</span>
+                          <span className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">{observation.category}</span>
+                        </div>
+                        <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400">{observation.statement}</p>
+                      </div>
+                    ))}
+                  </div>
+                </Panel>
+              )}
+
+              <div className="rounded-md border border-zinc-800 bg-black/20 px-3 py-2 text-[10px] leading-relaxed text-zinc-600">
+                The timeline only displays events URSORA has actually recorded. Missing thesis events or trader-response events remain absent rather than being inferred after the fact.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Disclaimer />
     </div>
