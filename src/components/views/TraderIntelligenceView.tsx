@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
-import { Disclaimer, EmptyState, Panel, SectionHeading, Spinner } from '@/components/common/Primitives';
+import { Disclaimer, EmptyState, InfoHint, Panel, SectionHeading, Spinner } from '@/components/common/Primitives';
 import { StateNotice } from '@/components/common/StateNotice';
 import PatternCard, { ConfidenceTag } from '@/components/trader/PatternCard';
 import { classifyError, reportError } from '@/lib/errors';
@@ -38,21 +38,26 @@ const TABS: { key: Tab; label: string; Icon: React.ElementType }[] = [
   { key: 'research', label: 'Research', Icon: BookOpen },
 ];
 
-const Stat: React.FC<{ label: string; value: React.ReactNode; hint?: string; tone?: string }> = ({ label, value, hint, tone }) => (
+const Stat: React.FC<{ label: string; value: React.ReactNode; hint?: string; tone?: string; help?: string }> = ({ label, value, hint, tone, help }) => (
   <div className="min-w-0 rounded-sm border border-zinc-800/80 bg-black/20 px-2.5 py-2">
-    <div className="truncate font-mono text-[9px] uppercase tracking-wider text-zinc-500">{label}</div>
+    <div className="flex min-w-0 items-center gap-1 font-mono text-[9px] uppercase tracking-wider text-zinc-500">
+      <span className="truncate">{label}</span>
+      {help && <InfoHint text={help} />}
+    </div>
     <div className={cn('mt-1 truncate font-mono text-sm tabular-nums text-zinc-100', tone)}>{value}</div>
     {hint && <div className="mt-0.5 truncate text-[10px] text-zinc-600">{hint}</div>}
   </div>
 );
 
-const Table: React.FC<{ head: string[]; rows: (React.ReactNode[])[]; empty?: string }> = ({ head, rows, empty }) => (
+const Table: React.FC<{ head: string[]; rows: (React.ReactNode[])[]; empty?: string; headHelp?: Record<string, string> }> = ({ head, rows, empty, headHelp = {} }) => (
   <div className="overflow-x-auto">
     <table className="w-full min-w-[520px] border-collapse text-left">
       <thead>
         <tr className="border-b border-zinc-800">
           {head.map((h) => (
-            <th key={h} scope="col" className="py-1.5 pr-3 font-mono text-[9px] uppercase tracking-wider text-zinc-500">{h}</th>
+            <th key={h} scope="col" className="py-1.5 pr-3 font-mono text-[9px] uppercase tracking-wider text-zinc-500">
+              <span className="inline-flex items-center gap-1">{h}{headHelp[h] && <InfoHint text={headHelp[h]} />}</span>
+            </th>
           ))}
         </tr>
       </thead>
@@ -518,14 +523,14 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
           {!emptyForNewUser && (
             <Panel title="Personal trader profile" subtitle="Analytical, not a personality type. Every line is a measured segment of your own history.">
               <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
-                <Stat label="Strongest setup" value={baseline.bySetup.slice().sort((a, b) => (b.expectancy ?? -1e9) - (a.expectancy ?? -1e9))[0]?.segment ?? 'not recorded'} />
-                <Stat label="Weakest setup" value={baseline.bySetup.slice().sort((a, b) => (a.expectancy ?? 1e9) - (b.expectancy ?? 1e9))[0]?.segment ?? 'not recorded'} />
-                <Stat label="Best window" value={baseline.byWindow.filter((w) => w.trades > 0).sort((a, b) => (b.expectancy ?? -1e9) - (a.expectancy ?? -1e9))[0]?.label ?? 'not recorded'} />
-                <Stat label="Weakest window" value={baseline.byWindow.filter((w) => w.trades > 0).sort((a, b) => (a.expectancy ?? 1e9) - (b.expectancy ?? 1e9))[0]?.label ?? 'not recorded'} />
-                <Stat label="Typical size" value={signedMoney(baseline.medianPositionSize)?.replace('+', '') ?? 'not recorded'} />
-                <Stat label="Best market environment" value={baseline.byRegime.slice().sort((a, b) => (b.expectancy ?? -1e9) - (a.expectancy ?? -1e9))[0]?.segment ?? 'not recorded'} />
-                <Stat label="Weakest market environment" value={baseline.byRegime.slice().sort((a, b) => (a.expectancy ?? 1e9) - (b.expectancy ?? 1e9))[0]?.segment ?? 'not recorded'} />
-                <Stat label="Best origin" value={baseline.byOrigin.slice().sort((a, b) => (b.expectancy ?? -1e9) - (a.expectancy ?? -1e9))[0]?.segment ?? 'not recorded'} />
+                <Stat label="Strongest setup" help="The setup with the highest average realized P/L per closed trade in your recorded history. This describes past results; it is not a prediction." value={baseline.bySetup.slice().sort((a, b) => (b.expectancy ?? -1e9) - (a.expectancy ?? -1e9))[0]?.segment ?? 'not recorded'} />
+                <Stat label="Weakest setup" help="The setup with the lowest average realized P/L per closed trade in your recorded history." value={baseline.bySetup.slice().sort((a, b) => (a.expectancy ?? 1e9) - (b.expectancy ?? 1e9))[0]?.segment ?? 'not recorded'} />
+                <Stat label="Best window" help="The time-of-day segment with the highest average realized P/L per closed trade in your history." value={baseline.byWindow.filter((w) => w.trades > 0).sort((a, b) => (b.expectancy ?? -1e9) - (a.expectancy ?? -1e9))[0]?.label ?? 'not recorded'} />
+                <Stat label="Weakest window" help="The time-of-day segment with the lowest average realized P/L per closed trade in your history." value={baseline.byWindow.filter((w) => w.trades > 0).sort((a, b) => (a.expectancy ?? 1e9) - (b.expectancy ?? 1e9))[0]?.label ?? 'not recorded'} />
+                <Stat label="Typical size" help="Your median recorded position size. Median is used so a few unusually large trades do not distort what is typical." value={signedMoney(baseline.medianPositionSize)?.replace('+', '') ?? 'not recorded'} />
+                <Stat label="Best market environment" help="The recorded market regime associated with the highest average realized P/L per closed trade in your history." value={baseline.byRegime.slice().sort((a, b) => (b.expectancy ?? -1e9) - (a.expectancy ?? -1e9))[0]?.segment ?? 'not recorded'} />
+                <Stat label="Weakest market environment" help="The recorded market regime associated with the lowest average realized P/L per closed trade in your history." value={baseline.byRegime.slice().sort((a, b) => (a.expectancy ?? 1e9) - (b.expectancy ?? 1e9))[0]?.segment ?? 'not recorded'} />
+                <Stat label="Best origin" help="The source category associated with the highest average realized P/L per closed trade. Origin describes where the trade idea came from." value={baseline.byOrigin.slice().sort((a, b) => (b.expectancy ?? -1e9) - (a.expectancy ?? -1e9))[0]?.segment ?? 'not recorded'} />
               </div>
               <p className="mt-2 text-[11px] leading-relaxed text-zinc-500" style={{ textWrap: 'pretty' }}>
                 These are observed associations in your recorded history. They describe what happened, not why, and they do not
@@ -633,14 +638,14 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
                     {expandedSession === s.sessionDate && (
                       <div className="space-y-2 border-t border-zinc-800 p-2.5">
                         <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-                          <Stat label="Closed" value={s.closedCount} />
-                          <Stat label="After high-water" value={`${s.tradesAfterHighWater} trades`} hint={signedMoney(s.plAfterHighWater) ?? ''} />
-                          <Stat label="Planned / unplanned" value={`${s.plannedCount} / ${s.unplannedCount}`} />
-                          <Stat label="Rapid re-entries" value={s.rapidReentries} />
+                          <Stat label="Closed" help="Trades in this session that have a recorded exit and can contribute realized P/L." value={s.closedCount} />
+                          <Stat label="After session high" help="Trades entered after the session had already reached its highest cumulative realized P/L. The smaller number shows the net P/L from those later trades." value={`${s.tradesAfterHighWater} trades`} hint={signedMoney(s.plAfterHighWater) ?? ''} />
+                          <Stat label="Planned / unplanned" help="Planned trades had a recorded pre-entry plan. Unplanned trades did not. This is a process classification, not a quality judgment by itself." value={`${s.plannedCount} / ${s.unplannedCount}`} />
+                          <Stat label="Rapid re-entries" help="A new position opened within the configured rapid-reentry window after a prior exit. It is flagged for review, not automatically treated as a mistake." value={s.rapidReentries} />
                         </div>
                         <div className="grid gap-1.5 sm:grid-cols-2">
                           <div className="rounded-sm border border-zinc-800 bg-black/30 p-2">
-                            <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Origin breakdown</div>
+                            <div className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-wider text-zinc-500">Trade origin breakdown<InfoHint text="Shows where the session's trade ideas originated and the realized P/L associated with each source category. It does not claim the source caused the result." /></div>
                             <ul className="mt-1 space-y-0.5">
                               {s.originBreakdown.map((o) => (
                                 <li key={o.origin} className="font-mono text-[10px] text-zinc-400">
@@ -650,7 +655,7 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
                             </ul>
                           </div>
                           <div className="rounded-sm border border-zinc-800 bg-black/30 p-2">
-                            <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Best / worst</div>
+                            <div className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-wider text-zinc-500">Outcome and process highlights<InfoHint text="Best and worst outcome refer to realized P/L. Best process refers to the highest plan-adherence score. A profitable trade can still have weak process, and vice versa." /></div>
                             <p className="mt-1 font-mono text-[10px] text-zinc-400">
                               Best outcome — {s.bestOutcomeTrade ? `${s.bestOutcomeTrade.symbol} ${signedMoney(tradePl(s.bestOutcomeTrade))}` : 'not recorded'}
                             </p>
@@ -663,7 +668,7 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
                           </div>
                         </div>
                         <div className="rounded-sm border border-zinc-800 bg-black/30 p-2">
-                          <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Behavioral timeline</div>
+                          <div className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-wider text-zinc-500">Session trade timeline<InfoHint text="A chronological view of entries, position size, holding time, realized P/L, and the trade associated with the session's cumulative P/L high." /></div>
                           <ol className="mt-1 space-y-0.5">
                             {s.trades.map((t) => (
                               <li key={t.id} className="flex flex-wrap items-baseline gap-2 font-mono text-[10px] text-zinc-400">
@@ -688,9 +693,21 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
               </ul>
             </Panel>
 
-            <Panel title="Progress over time" subtitle="Trading less often is not treated as an improvement unless your own results support that conclusion.">
+            <Panel
+              title="Progress over time"
+              subtitle="Rolling windows summarize your recorded sessions. Overlapping windows may contain the same trades; compare them as context, not as independent samples."
+              help="This table asks whether your process and results are changing across broader time windows. It does not assume fewer trades, higher P/L, or any one metric automatically means improvement."
+            >
               <Table
-                head={['Period', 'Sessions', 'Trades', 'Average return', 'Profit given back', 'Unplanned trades']}
+                head={['Period', 'Sessions', 'Trades', 'Average closed-trade P/L', 'Session high given back', 'Unplanned trades']}
+                headHelp={{
+                  Period: 'The rolling lookback window ending today.',
+                  Sessions: 'Distinct trading days represented inside that lookback window.',
+                  Trades: 'Total recorded trades inside the period.',
+                  'Average closed-trade P/L': 'Mean realized dollar P/L across closed trades in the period. This is not a percentage return.',
+                  'Session high given back': 'Across sessions in the period, the cumulative amount by which final realized P/L finished below each session’s earlier cumulative P/L high.',
+                  'Unplanned trades': 'The percentage of recorded trades in the period without a stored pre-entry plan.',
+                }}
                 rows={[30, 90, 180, 365].map((days) => {
                   const cutoff = Date.now() - days * 86400000;
                   const within = sessions.filter((s) => new Date(`${s.sessionDate}T20:00:00Z`).getTime() >= cutoff);
