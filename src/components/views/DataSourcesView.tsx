@@ -19,7 +19,7 @@ const FRIENDLY_NAMES: Record<string, string> = {
   MacroProvider: 'Macro data',
   SentimentProvider: 'Sentiment data',
   FilingsProvider: 'Filings & company data',
-  BrokerProvider: 'Broker / paper trading',
+  BrokerProvider: 'Brokerage data',
 };
 
 const friendlyName = (provider: ProviderConfig) =>
@@ -27,6 +27,7 @@ const friendlyName = (provider: ProviderConfig) =>
 
 const connectionCopy = (provider: ProviderConfig) => {
   if (provider.mode === 'connected') return 'Connected';
+  if (provider.mode === 'demo') return 'Sandbox';
   if (provider.mode === 'error') return 'Needs attention';
   return 'Not connected';
 };
@@ -51,10 +52,16 @@ export const DataSourcesView: React.FC = () => {
     void load();
   }, [load]);
 
-  const connectedCount = useMemo(
-    () => providers.filter((p) => p.mode === 'connected').length,
+  const availableCount = useMemo(
+    () => providers.filter((p) => p.mode === 'connected' || p.mode === 'demo').length,
     [providers],
   );
+
+  const currentMode = useMemo(() => {
+    if (providers.some((p) => p.mode === 'connected')) return 'Connected';
+    if (providers.some((p) => p.mode === 'demo')) return 'Sandbox';
+    return 'No active sources';
+  }, [providers]);
 
   if (loading) return <Spinner label="Loading data connections" />;
 
@@ -74,8 +81,8 @@ export const DataSourcesView: React.FC = () => {
 
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-md border border-zinc-800 bg-[#14171c] p-4">
-          <div className="text-[11px] text-zinc-500">Connected sources</div>
-          <div className="mt-1 text-2xl font-semibold text-zinc-100">{connectedCount}</div>
+          <div className="text-[11px] text-zinc-500">Available sources</div>
+          <div className="mt-1 text-2xl font-semibold text-zinc-100">{availableCount}</div>
         </div>
         <div className="rounded-md border border-zinc-800 bg-[#14171c] p-4">
           <div className="text-[11px] text-zinc-500">Available source types</div>
@@ -83,7 +90,12 @@ export const DataSourcesView: React.FC = () => {
         </div>
         <div className="rounded-md border border-zinc-800 bg-[#14171c] p-4">
           <div className="text-[11px] text-zinc-500">Current data mode</div>
-          <div className="mt-1 text-sm font-medium text-amber-300">Sandbox</div>
+          <div className={cn(
+            'mt-1 text-sm font-medium',
+            currentMode === 'Connected' ? 'text-emerald-300' : currentMode === 'Sandbox' ? 'text-amber-300' : 'text-zinc-400',
+          )}>
+            {currentMode}
+          </div>
         </div>
       </div>
 
@@ -95,6 +107,7 @@ export const DataSourcesView: React.FC = () => {
         <div className="divide-y divide-zinc-800/70">
           {providers.map((provider) => {
             const connected = provider.mode === 'connected';
+            const sandbox = provider.mode === 'demo';
             const hasError = provider.mode === 'error';
             return (
               <div
@@ -107,13 +120,17 @@ export const DataSourcesView: React.FC = () => {
                       'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border',
                       connected
                         ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                        : hasError
-                          ? 'border-red-500/30 bg-red-500/10 text-red-300'
-                          : 'border-zinc-700 bg-black/20 text-zinc-500',
+                        : sandbox
+                          ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                          : hasError
+                            ? 'border-red-500/30 bg-red-500/10 text-red-300'
+                            : 'border-zinc-700 bg-black/20 text-zinc-500',
                     )}
                   >
                     {connected ? (
                       <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                    ) : sandbox ? (
+                      <Database className="h-4 w-4" aria-hidden="true" />
                     ) : hasError ? (
                       <CircleAlert className="h-4 w-4" aria-hidden="true" />
                     ) : (
