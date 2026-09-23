@@ -104,16 +104,59 @@ News is weighted by:
 
 Strong news evidence requires multiple high-quality directional items. A single weak or low-impact article cannot create Strong evidence.
 
+## Hierarchical corroboration
+
+TradeCycle v5.1 does not treat all evidence families as interchangeable votes.
+
+### Primary evidence
+
+**Price trend & structure** establishes whether a directional thesis exists at all.
+
+If price/structure is only Insufficient or Weak, the analysis remains **Neutral / Insufficient Evidence** even when momentum, news, or market context lean bullish or bearish. Context is not allowed to manufacture a thesis that the asset's own price structure has not established.
+
+### Confirmation evidence
+
+**Momentum** and **volume/participation** answer whether the price move is being confirmed.
+
+Interaction states:
+- **Confirmed** — both confirmation families provide Moderate/Strong evidence in the same direction as price.
+- **Partially confirmed** — one confirmation family aligns at Moderate/Strong strength.
+- **Unconfirmed** — neither confirmation family is strong enough to vote.
+- **Divergent** — at least one confirmation family provides Moderate/Strong evidence against price.
+
+A Supported thesis requires at least one meaningful confirmation family. Strongly Supported requires both confirmation families aligned.
+
+### Context evidence
+
+**Broader market / sector alignment** and **verified catalysts/news** contextualise the stock-level thesis.
+
+Context may strengthen or weaken confidence, but it cannot establish direction without price. An opposing market environment is treated as a headwind rather than automatic invalidation; a stock can demonstrate relative strength or relative weakness against its environment.
+
+### Auxiliary evidence
+
+**Options positioning** remains auxiliary until the data are rich enough to infer buyer/seller initiation, opening/closing intent, spreads, and hedging. Aggregate put/call activity stays capped at Weak and therefore abstains.
+
+### Interaction examples
+
+- Moderate/Strong bullish price + bullish momentum + elevated aligned volume → confirmed bullish structure.
+- Bullish price + bearish momentum → divergence; continuation confidence is reduced.
+- Bullish breakout + weak participation → price thesis may exist, but it cannot become Strongly Supported from the breakout alone.
+- Bullish price + bearish market/sector context → market headwind; the thesis may still survive if stock-level confirmation is strong.
+- Bullish catalyst + no meaningful price structure → no directional thesis yet.
+- Bullish catalyst + bullish established price structure → contextual confirmation.
+
 ## Thesis classification
 
 Only Moderate and Strong families participate.
 
 - **Insufficient Evidence** — fewer than 3 independent Moderate/Strong directional families
 - **Mixed** — enough evidence exists, but material support and opposition coexist
-- **Supported** — at least 3 supporting Moderate/Strong families and at least 67% of weighted meaningful evidence supports the proposed direction, with no Strong opposing family
-- **Strongly Supported** — at least 4 meaningful families, at least 2 Strong supporting families, at least 80% weighted support, and no Strong opposition
-- **Opposed** — at least 67% of weighted meaningful evidence opposes the proposed direction
-- **Rejected** — at least 80% weighted opposition with at least 2 Strong opposing families
+- **Insufficient Evidence** — price/structure has not established a Moderate/Strong direction.
+- **Mixed** — price establishes direction, but confirmation is incomplete or meaningful evidence materially conflicts.
+- **Supported** — price establishes direction, at least one confirmation family aligns at Moderate/Strong strength, at least 3 meaningful supporting families are present, weighted support is at least 67%, and there is no Strong opposing confirmation family.
+- **Strongly Supported** — price structure is Strong, momentum and participation both align at Moderate/Strong strength, at least one context family supports the direction, weighted support is at least 80%, and no Strong opposing family exists.
+- **Opposed** — price still establishes the current direction, but confirmation evidence meaningfully opposes it and weighted opposition dominates.
+- **Rejected** — Strong confirmation evidence contradicts price with dominant weighted opposition; this is a material failure state rather than ordinary mixed evidence.
 
 Fresh opportunity direction is inferred only from Moderate/Strong evidence. Weak signals cannot accumulate into a directional thesis.
 
