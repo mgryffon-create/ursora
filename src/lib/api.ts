@@ -25,13 +25,10 @@ export const EDGE_FUNCTIONS = {
   backtest: 'run-backtest',
   analyst: 'ai-analyst',
   paperDashboard: 'webull-paper-dashboard',
-  marketSync: 'sync-webull-market',
-  historySync: 'sync-webull-history',
-  optionsSync: 'sync-webull-options',
+  marketSync: 'sync-massive-market',
   tradeStructure: 'build-trade-structure',
   tradeLifecycle: 'sync-tradecycle-lifecycle',
   alphaNewsSync: 'sync-alpha-news',
-  yahooNewsSync: 'sync-yahoo-news',
   alphaEarningsSync: 'sync-alpha-earnings',
   marketContextSync: 'sync-market-context',
 } as const;
@@ -174,12 +171,9 @@ export async function runFreshAnalysis(
   const symbols = Array.isArray(body.symbols) ? { symbols: body.symbols } : {};
 
   const stages: Array<{ label: string; slug: EdgeFunctionSlug; payload: Record<string, unknown> }> = [
-    { label: 'market quotes', slug: EDGE_FUNCTIONS.marketSync, payload: symbols },
+    { label: 'Massive test market and historical data', slug: EDGE_FUNCTIONS.marketSync, payload: symbols },
     { label: 'market context', slug: EDGE_FUNCTIONS.marketContextSync, payload: {} },
-    { label: 'historical technical data', slug: EDGE_FUNCTIONS.historySync, payload: symbols },
-    { label: 'options market data', slug: EDGE_FUNCTIONS.optionsSync, payload: symbols },
     { label: 'verified news and sentiment', slug: EDGE_FUNCTIONS.alphaNewsSync, payload: symbols },
-    { label: 'supplemental Yahoo Finance news', slug: EDGE_FUNCTIONS.yahooNewsSync, payload: symbols },
     { label: 'earnings calendar', slug: EDGE_FUNCTIONS.alphaEarningsSync, payload: symbols },
   ];
 
