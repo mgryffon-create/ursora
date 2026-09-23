@@ -78,6 +78,8 @@ export interface ScoreFactor {
   effective_weight: number;
   weight_change: number;
   contribution: number;
+  strength_band?: 'Insufficient' | 'Weak' | 'Moderate' | 'Strong';
+  thesis_vote?: 'ABSTAIN' | 'SUPPORT' | 'OPPOSE';
   effect: 'INCREASED' | 'DECREASED' | 'NEUTRAL';
   explanation: string;
 }
@@ -107,7 +109,7 @@ export interface Signal {
   score_breakdown: {
     factors?: ScoreFactor[];
     raw?: Record<string, number>;
-    thesis_state?: 'Rejected' | 'Unsupported' | 'Preliminary' | 'Supported' | 'Strongly Supported';
+    thesis_state?: 'Insufficient Evidence' | 'Mixed' | 'Opposed' | 'Rejected' | 'Supported' | 'Strongly Supported';
     evidence_completeness?: number;
     directional_completeness?: number;
     directional_uncertainty?: number;
@@ -116,6 +118,10 @@ export interface Signal {
     total_families?: number;
     agreement_score?: number | null;
     agreement_family_count?: number;
+    support_share?: number | null;
+    oppose_share?: number | null;
+    strong_supporting_families?: number;
+    strong_opposing_families?: number;
     blockers?: string[];
     thesis_blockers?: string[];
     trade_blockers?: string[];
