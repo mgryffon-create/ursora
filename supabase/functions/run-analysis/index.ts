@@ -239,7 +239,7 @@ function deriveAhpWeights() {
     0,
   ) / weights.length;
   const consistencyIndex = (lambdaMax - weights.length) / (weights.length - 1);
-  const randomIndex = 1.32; // Saaty RI for n=7
+  const randomIndex = 1.41; // Saaty RI for n=8
   const consistencyRatio = randomIndex > 0 ? consistencyIndex / randomIndex : 0;
 
   return {
@@ -442,7 +442,7 @@ Deno.serve(async (req) => {
     try {
       const { data } = await db
         .from('news_items')
-        .select('symbol,headline,sentiment,sentiment_score,impact,published_at,is_demo')
+        .select('symbol,headline,sentiment,sentiment_score,impact,published_at,confidence,source_name,source_type,is_demo')
         .gte('published_at', new Date(nowMs - 72 * 3600000).toISOString())
         .order('published_at', { ascending: false })
         .limit(500);
@@ -806,7 +806,7 @@ Deno.serve(async (req) => {
       }
 
       // Cross-factor agreement only considers independent directional factors with meaningful strength.
-      const directionalEvidence = [priceEvidence, momentumEvidence, marketEvidence, optionsEvidence, newsEvidence]
+      const directionalEvidence = [priceEvidence, momentumEvidence, participationEvidence, marketEvidence, optionsEvidence, newsEvidence]
         .filter((v): v is number => v !== null && Math.abs(v) >= 45);
       const supportingCount = directionalEvidence.filter((v) => v > 0).length;
       const opposingCount = directionalEvidence.filter((v) => v < 0).length;
