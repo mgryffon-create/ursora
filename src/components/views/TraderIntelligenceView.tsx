@@ -31,9 +31,8 @@ import type { LitConstruct, LitLink, LitStudy, TradeModification, TradePlan, Tra
 type Tab = 'today' | 'baseline' | 'patterns' | 'process' | 'performance' | 'research';
 
 const TABS: { key: Tab; label: string; Icon: React.ElementType }[] = [
-  { key: 'today', label: 'Today', Icon: Activity },
-  { key: 'baseline', label: 'Baseline', Icon: Gauge },
   { key: 'patterns', label: 'Patterns', Icon: Sparkles },
+  { key: 'baseline', label: 'Baseline', Icon: Gauge },
   { key: 'process', label: 'Process', Icon: ShieldCheck },
   { key: 'performance', label: 'Performance', Icon: BarChart3 },
   { key: 'research', label: 'Research', Icon: BookOpen },
@@ -74,7 +73,7 @@ const Table: React.FC<{ head: string[]; rows: (React.ReactNode[])[]; empty?: str
 
 export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => void }> = () => {
   const { user } = useAuth();
-  const [tab, setTab] = useState<Tab>('today');
+  const [tab, setTab] = useState<Tab>('patterns');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [errorState, setErrorState] = useState<ReturnType<typeof classifyError> | null>(null);
@@ -180,8 +179,8 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
   return (
     <div className="space-y-4">
       <SectionHeading
-        eyebrow="Trader Intelligence"
-        title="Patterns in your trading decisions"
+        eyebrow="Patterns"
+        title="Recurring patterns in your trading decisions"
         description="URSORA reviews your recorded trading behavior to identify patterns in planning, execution, and consistency. This section evaluates your trading process rather than market conditions and does not make psychological or clinical judgments."
         right={
           <span className={cn('inline-flex items-center gap-1.5 rounded-sm border px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-wider', bandTone(risk.band))}>
