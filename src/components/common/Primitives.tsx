@@ -243,10 +243,10 @@ export const Spinner: React.FC<{ label?: string; className?: string }> = ({ labe
 );
 
 export const EmptyState: React.FC<{ title: string; body: string; action?: React.ReactNode }> = ({ title, body, action }) => (
-  <div className="rounded-md border border-dashed border-zinc-800 bg-black/20 p-6 text-center">
-    <h4 className="font-mono text-xs uppercase tracking-[0.12em] text-zinc-300">{title}</h4>
-    <p className="mx-auto mt-2 max-w-xl text-sm text-zinc-500">{body}</p>
-    {action && <div className="mt-4 flex justify-center">{action}</div>}
+  <div className="rounded-md border border-dashed border-zinc-800 bg-black/20 px-4 py-3 text-center">
+    <h4 className="font-mono text-[10px] uppercase tracking-[0.12em] text-zinc-300">{title}</h4>
+    <p className="mx-auto mt-1 max-w-2xl text-[11px] leading-relaxed text-zinc-500">{body}</p>
+    {action && <div className="mt-2.5 flex justify-center">{action}</div>}
   </div>
 );
 
