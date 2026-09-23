@@ -1317,13 +1317,13 @@ Deno.serve(async (req) => {
             tradeBlockers.length ? `Trade constraints: ${tradeBlockers.join(' ')}` : 'No hard trade constraints were identified from the data currently available.',
             suggestionEligible
               ? 'Suggestion eligibility: eligible for proactive contract suggestion.'
-              : `Suggestion eligibility: not eligible for proactive suggestion. Current gate values — agreement ${agreement ?? 'unavailable'}%, independent families ${independentDirectionalFamilies}, directional completeness ${directionalCompleteness}%, directional uncertainty ${directionalUncertainty}%.`,
+              : `Suggestion eligibility: not eligible for proactive suggestion. Current gate values — weighted support ${supportShare ?? 'unavailable'}%, independent Moderate/Strong families ${independentDirectionalFamilies}, directional completeness ${directionalCompleteness}%, directional uncertainty ${directionalUncertainty}%.`,
             'Observed and derived evidence are reliability-discounted for freshness, source quality, and redundancy. Imputed evidence receives an additional imputation-confidence discount. Unavailable evidence contributes no directional support.',
           ],
         },
         regime: snapshot?.regime ?? 'Mixed',
         regime_explanation: snapshot?.regime_note ?? 'Broader market conditions derived from the latest stored market data.',
-        engine_version: 'tradecycle-4',
+        engine_version: 'tradecycle-5',
         is_demo: Boolean(q.is_demo ?? true),
         generated_at: started,
       });
@@ -1345,7 +1345,7 @@ Deno.serve(async (req) => {
       feed_events: 0,
       regime: snapshot?.regime ?? null,
       notes: signalCount
-        ? `TradeCycle v4 probabilistic evidence analysis completed for authenticated user ${user.id}.`
+        ? `TradeCycle v5 corroborated-evidence analysis completed for authenticated user ${user.id}.`
         : 'No stored quote data were available; no signals were generated.',
       started_at: started,
       finished_at: new Date().toISOString(),
@@ -1357,7 +1357,7 @@ Deno.serve(async (req) => {
       signals: signalCount,
       updates: 0,
       run_id: runId,
-      engine_version: 'tradecycle-4',
+      engine_version: 'tradecycle-5',
       note: signalCount ? 'Signals generated using all currently available evidence categories.' : 'No stored quote data available.',
     });
   } catch (e) {
