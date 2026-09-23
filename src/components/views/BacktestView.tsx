@@ -4,7 +4,6 @@ import { EDGE_FUNCTIONS, callEdge, fetchTickers, track } from '@/lib/api';
 import type { Ticker } from '@/lib/types';
 import { DEFAULT_UNIVERSE, useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   DemoBadge, Disclaimer, EmptyState, Metric, Panel, SectionHeading, Unavailable,
 } from '@/components/common/Primitives';
@@ -226,20 +225,7 @@ export const BacktestView: React.FC = () => {
         </div>
       )}
 
-      <Tabs defaultValue="backtested" className="w-full">
-        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-[#14171c] p-1">
-          <TabsTrigger value="backtested" className="font-mono text-[10px] uppercase tracking-wider data-[state=active]:bg-sky-500/15 data-[state=active]:text-sky-300">
-            Historical test results
-          </TabsTrigger>
-          <TabsTrigger value="paper" className="font-mono text-[10px] uppercase tracking-wider data-[state=active]:bg-sky-500/15 data-[state=active]:text-sky-300">
-            Paper trading results
-          </TabsTrigger>
-          <TabsTrigger value="live" className="font-mono text-[10px] uppercase tracking-wider data-[state=active]:bg-sky-500/15 data-[state=active]:text-sky-300">
-            Live trading results
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="backtested" className="mt-3 space-y-3">
+      <div className="space-y-3">
           {!result ? (
             <EmptyState
               title="No historical test has been run in this session"
@@ -355,30 +341,7 @@ export const BacktestView: React.FC = () => {
               </Panel>
             </>
           )}
-        </TabsContent>
-
-        <TabsContent value="paper" className="mt-3">
-          <Panel title="Paper trading results" subtitle="Forward-tested paper trades are reported separately from historical tests.">
-            <p className="text-[13px] leading-relaxed text-zinc-400">
-              Paper trades begin from signals generated in real time and are tracked forward from that point. Because
-              they are created under different conditions from a historical test, URSORA reports them separately rather
-              than combining the two into a single performance figure.
-            </p>
-          </Panel>
-        </TabsContent>
-
-        <TabsContent value="live" className="mt-3">
-          <Panel title="Live trading results" className="border-amber-500/40">
-            <div className="flex flex-col items-center gap-2 py-8 text-center">
-              <Unavailable className="text-base" />
-              <p className="max-w-xl text-[13px] leading-relaxed text-zinc-400">
-                Live trading results are not available because URSORA is not connected to a live brokerage and no live
-                orders have been recorded. Historical and paper-trading results are not substituted here.
-              </p>
-            </div>
-          </Panel>
-        </TabsContent>
-      </Tabs>
+      </div>
 
       <Disclaimer />
     </div>
