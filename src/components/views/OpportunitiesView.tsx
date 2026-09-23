@@ -3,7 +3,7 @@ import {
   AlertOctagon, Ban, Clock, Layers, Filter, Loader2, RefreshCw, Search, TrendingUp, X,
 } from 'lucide-react';
 import db from '@/lib/db';
-import { fetchLatestQuotes, fetchRuns, fetchTickers, fetchTodaySignals, paperTradeSignal, runFreshAnalysis, track } from '@/lib/api';
+import { fetchLatestQuotes, fetchRuns, fetchTickers, fetchTodaySignals, runFreshAnalysis, track } from '@/lib/api';
 import type { AnalysisRun, ContractCandidate, Quote, Signal, Ticker } from '@/lib/types';
 import { changeColor, compact, dte, ivPct, money, num, pct, scoreColor, stampET } from '@/lib/format';
 import { useAuth } from '@/contexts/AuthContext';
@@ -51,7 +51,7 @@ const CompareToggle: React.FC<{
 );
 
 export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => void }> = ({ onOpenThesis }) => {
-  const { user, watchlist } = useAuth();
+  const { watchlist } = useAuth();
   const [signals, setSignals] = useState<Signal[]>([]);
   const [candidates, setCandidates] = useState<Record<number, ContractCandidate[]>>({});
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
@@ -61,7 +61,6 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pipelineWarnings, setPipelineWarnings] = useState<string[]>([]);
-  const [tradedIds, setTradedIds] = useState<number[]>([]);
 
   const [direction, setDirection] = useState<(typeof DIRECTIONS)[number]>('any');
   const [risk, setRisk] = useState<(typeof RISKS)[number]>('any');
@@ -125,20 +124,6 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
       setRunning(false);
     }
   }, [load]);
-
-  const paperTrade = useCallback(
-    async (signal: Signal) => {
-      try {
-        const balanced = (candidates[signal.id] ?? []).find((c) => c.profile === 'Balanced') ?? null;
-        await paperTradeSignal(signal, balanced);
-        setTradedIds((prev) => [...prev, signal.id]);
-        track('paper_trade_opened', { symbol: signal.symbol, opportunity: signal.opportunity_score });
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    },
-    [candidates],
-  );
 
   const toggleCompare = useCallback((id: number) => {
     setCompareIds((prev) => {
@@ -371,8 +356,8 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
           </tbody>
         </table>
         {filtered.length === 0 && (
-          <div className="p-4">
-            <EmptyState title="No opportunity matches these filters" body="Adjust the filters or review the opportunities that did not meet the minimum criteria." />
+          <div className="border-t border-zinc-800 px-3 py-2 text-[11px] text-zinc-500">
+            No opportunity matches these filters. Adjust the filters or review the rejected setups below.
           </div>
         )}
       </div>
@@ -440,17 +425,6 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
                   <TrendingUp className="h-3 w-3" aria-hidden="true" />
                   VIEW TRADE THESIS
                 </Button>
-                {user && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 border-zinc-700 text-[10px]"
-                    disabled={tradedIds.includes(s.id)}
-                    onClick={() => paperTrade(s)}
-                  >
-                    {tradedIds.includes(s.id) ? 'Paper trade logged' : 'Paper trade this signal'}
-                  </Button>
-                )}
               </div>
             </article>
           );
@@ -487,7 +461,9 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
                       {s.opportunity_score}
                     </span>
                   </div>
-                  <p className="mt-2 text-[12px] leading-relaxed text-zinc-400">{s.no_trade_reason}</p>
+                  <p className="mt-2 line-clamp-3 text-[11px] leading-relaxed text-zinc-400" title={s.no_trade_reason ?? undefined}>
+                    {s.no_trade_reason}
+                  </p>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     <DirectionTag direction={s.direction} />
                     <FlagTag flag="evidence below threshold" />
