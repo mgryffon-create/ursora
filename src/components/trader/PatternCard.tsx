@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { BookOpen, ChevronDown, Microscope, ShieldAlert, Sigma } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { InfoHint } from '@/components/common/Primitives';
 import { multiple, signedMoney } from '@/lib/format';
 import type { LitConstruct, LitLink, LitStudy, Observation } from '@/lib/behavioral/types';
 import { CONFIDENCE_RANK, MIN_SAMPLE_FOR_DIRECTIONAL_CLAIM, type ConfidenceLabel } from '@/lib/behavioral/config';
@@ -70,7 +71,10 @@ export const PatternCard: React.FC<{
           <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-sky-400/80">
             {o.observation_type.replace(/_/g, ' ')}
           </span>
-          <ConfidenceTag label={o.confidence_label} sample={o.sample_size} />
+          <span className="inline-flex items-center gap-1">
+            <ConfidenceTag label={o.confidence_label} sample={o.sample_size} />
+            <InfoHint text="Pattern confidence is based on how many comparable observations URSORA has recorded. A larger sample supports a more stable personal-pattern label; it does not mean the pattern will continue or cause future results." />
+          </span>
           {CONFIDENCE_RANK[o.confidence_label] < 2 && (
             <span className="rounded-sm border border-amber-500/30 bg-amber-500/10 px-1.5 py-[1px] font-mono text-[9px] uppercase tracking-wide text-amber-300">
               not asserted
@@ -84,22 +88,22 @@ export const PatternCard: React.FC<{
 
         <dl className="mt-2.5 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
           <div className="rounded-sm border border-zinc-800/80 bg-black/20 px-2 py-1.5">
-            <dt className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Baseline</dt>
+            <dt className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-wider text-zinc-500">Baseline<InfoHint text="Your comparison point: the typical or reference value calculated from the relevant portion of your recorded trading history." /></dt>
             <dd className="mt-0.5 truncate font-mono text-[11px] tabular-nums text-zinc-200">{fmtValue(o.baseline_value, o.unit)}</dd>
           </div>
           <div className="rounded-sm border border-zinc-800/80 bg-black/20 px-2 py-1.5">
-            <dt className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Observed</dt>
+            <dt className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-wider text-zinc-500">Observed<InfoHint text="The value measured in the specific behavior or sequence being examined." /></dt>
             <dd className="mt-0.5 truncate font-mono text-[11px] tabular-nums text-zinc-200">{fmtValue(o.current_value, o.unit)}</dd>
           </div>
           <div className="rounded-sm border border-zinc-800/80 bg-black/20 px-2 py-1.5">
-            <dt className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Deviation</dt>
+            <dt className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-wider text-zinc-500">Deviation<InfoHint text="How far the observed value differs from the baseline. Positive and negative describe direction of difference, not whether the behavior is good or bad." /></dt>
             <dd className={cn('mt-0.5 truncate font-mono text-[11px] tabular-nums',
               o.deviation_pct === null ? 'text-zinc-500' : Math.abs(o.deviation_pct) >= 50 ? 'text-amber-300' : 'text-zinc-200')}>
               {o.deviation_pct === null ? 'not applicable' : `${o.deviation_pct > 0 ? '+' : ''}${o.deviation_pct}%`}
             </dd>
           </div>
           <div className="rounded-sm border border-zinc-800/80 bg-black/20 px-2 py-1.5">
-            <dt className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Period</dt>
+            <dt className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-wider text-zinc-500">Period<InfoHint text="The number or span of comparable observations included in this finding." /></dt>
             <dd className="mt-0.5 truncate font-mono text-[11px] text-zinc-200">{o.observation_period}</dd>
           </div>
         </dl>
