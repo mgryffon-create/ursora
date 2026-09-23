@@ -617,7 +617,7 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
         ) : (
           <div className="space-y-3">
             <Panel title="Session review" subtitle="Process is reported separately from money. Both are shown; neither is used to justify the other.">
-              <ul className="space-y-1.5">
+              <ul className="grid gap-1.5 2xl:grid-cols-2">
                 {sessions.slice(0, 10).map((s) => (
                   <li key={s.sessionDate} className="rounded-sm border border-zinc-800 bg-black/20">
                     <button
@@ -736,8 +736,8 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
             title="Research library"
             subtitle="Constructs URSORA references, how each is operationalised, and the studies linked to it. URSORA does not fabricate citations: where a DOI was not verified, the field says so rather than guessing one."
           >
-            <div className="space-y-2">
-              {lit.constructs.length === 0 && <StateNotice state={{ kind: 'NO_DATA', label: 'NO DATA', tone: 'neutral', explanation: 'The research library returned no constructs.', remedy: 'Reload the page; if it persists the literature tables need seeding.' }} />}
+            <div className="grid gap-2 xl:grid-cols-2">
+              {lit.constructs.length === 0 && <div className="xl:col-span-2"><StateNotice state={{ kind: 'NO_DATA', label: 'NO DATA', tone: 'neutral', explanation: 'The research library returned no constructs.', remedy: 'Reload the page; if it persists the literature tables need seeding.' }} /></div>}
               {lit.constructs.map((c) => (
                 <details key={c.construct_key} className="group rounded-sm border border-zinc-800 bg-black/20 p-2.5">
                   <summary className="flex cursor-pointer flex-wrap items-center gap-2 font-mono text-[11px] text-zinc-200">
