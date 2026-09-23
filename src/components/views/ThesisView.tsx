@@ -1,16 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeft, Ban, Bot, Building2, CalendarClock, ClipboardList, Gauge, Layers, LineChart, MessageSquareQuote,
+  ArrowLeft, Ban, Bot, Building2, ClipboardList, Gauge, Layers, LineChart, MessageSquareQuote,
   Newspaper, ShieldAlert, Sparkles, Users, X,
 } from 'lucide-react';
 import {
   fetchBars, fetchCandidates, fetchEarnings, fetchEconomicEvents, fetchFilings, fetchNews, fetchQuote, fetchRisk,
-  fetchSentiment, fetchSignal, fetchSignalHistory, fetchSignalUpdates, fetchSnapshot, fetchTickers, fetchTranscripts,
-  paperTradeSignal, track,
+  fetchSentiment, fetchSignal, fetchSnapshot, fetchTickers, fetchTranscripts,
+  track,
 } from '@/lib/api';
 import type {
   Bar, ContractCandidate, EarningsEvent, EconomicEvent, Filing, MarketSnapshot, NewsItem, Quote, RiskAssessment,
-  SentimentReading, Signal, SignalUpdate, Ticker, TranscriptStatement,
+  SentimentReading, Signal, Ticker, TranscriptStatement,
 } from '@/lib/types';
 import {
   changeColor, clockET, compact, dte, ivPct, money, num, pct, scoreColor, stampET,
@@ -69,7 +69,7 @@ const SentimentGauge: React.FC<{ reading: SentimentReading | undefined; title: s
 };
 
 export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({ signalId, onBack }) => {
-  const { user } = useAuth();
+  useAuth();
   const [signal, setSignal] = useState<Signal | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [ticker, setTicker] = useState<Ticker | null>(null);
@@ -81,13 +81,10 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const [transcripts, setTranscripts] = useState<TranscriptStatement[]>([]);
   const [sentiment, setSentiment] = useState<SentimentReading[]>([]);
   const [bars, setBars] = useState<Bar[]>([]);
-  const [history, setHistory] = useState<Signal[]>([]);
-  const [updates, setUpdates] = useState<SignalUpdate[]>([]);
   const [econ, setEcon] = useState<EconomicEvent[]>([]);
   const [earnings, setEarnings] = useState<EarningsEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
-  const [traded, setTraded] = useState(false);
   const [showAllNews, setShowAllNews] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -103,11 +100,10 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         setLoading(false);
         return;
       }
-      const [q, tks, snap, cands, rk, nw, fl, tr, se, bs, hist, ups, ec, ea] = await Promise.all([
+      const [q, tks, snap, cands, rk, nw, fl, tr, se, bs, ec, ea] = await Promise.all([
         fetchQuote(sig.symbol), fetchTickers(), fetchSnapshot(), fetchCandidates(sig.id), fetchRisk(sig.id),
         fetchNews(sig.symbol, 14), fetchFilings(sig.symbol), fetchTranscripts(sig.symbol), fetchSentiment(sig.symbol),
-        fetchBars(sig.symbol, 80), fetchSignalHistory(sig.symbol, 40), fetchSignalUpdates(sig.symbol, 20),
-        fetchEconomicEvents(), fetchEarnings(),
+        fetchBars(sig.symbol, 80), fetchEconomicEvents(), fetchEarnings(),
       ]);
       if (!active) return;
       setQuote(q);
@@ -120,8 +116,6 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
       setTranscripts(tr);
       setSentiment(se);
       setBars(bs);
-      setHistory(hist);
-      setUpdates(ups);
       setEcon(ec.filter((e) => e.affected_symbols.includes(sig.symbol)));
       setEarnings(ea.filter((e) => e.symbol === sig.symbol));
       setLoading(false);
@@ -146,17 +140,6 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const balanced = useMemo(() => candidates.find((c) => c.profile === 'Balanced') ?? candidates[0] ?? null, [candidates]);
   const retail = sentiment.find((s) => s.cohort === 'retail');
   const professional = sentiment.find((s) => s.cohort === 'professional');
-
-  const paperTrade = useCallback(async () => {
-    if (!signal) return;
-    try {
-      await paperTradeSignal(signal, balanced);
-      setTraded(true);
-      track('paper_trade_opened', { symbol: signal.symbol, opportunity: signal.opportunity_score });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, [balanced, signal]);
 
   if (loading) return <Spinner label="Preparing the trade analysis" />;
   if (!signal) {
@@ -211,11 +194,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                 <Bot className="h-3.5 w-3.5" aria-hidden="true" />
                 Ask the analyst
               </Button>
-              {user && !isNoTrade && (
-                <Button size="sm" variant="outline" className="border-zinc-700" disabled={traded} onClick={paperTrade}>
-                  {traded ? 'Paper trade logged' : 'Paper trade this signal'}
-                </Button>
-              )}
+
             </div>
           </div>
         </div>
@@ -225,7 +204,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             <div className="flex items-center gap-2">
               <Ban className="h-4 w-4 text-amber-400" aria-hidden="true" />
               <h2 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-300">
-                NO TRADE IDENTIFIED
+                {thesisState === 'Supported' || thesisState === 'Strongly Supported'
+                  ? `${thesisState} thesis · trade not eligible`
+                  : 'No trade identified'}
               </h2>
             </div>
             <p className="mt-2 max-w-4xl text-[13px] leading-relaxed text-zinc-300">{signal.no_trade_reason}</p>
@@ -252,7 +233,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
 
       {/* EVIDENCE TABS */}
       <Tabs defaultValue="score" className="w-full">
-        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-[#14171c] p-1">
+        <TabsList className="flex h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto bg-[#14171c] p-1">
           {[
             { v: 'score', l: 'Score rationale', Icon: Gauge },
             { v: 'market', l: 'Market conditions', Icon: LineChart },
@@ -263,7 +244,6 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             { v: 'sentiment', l: 'Investor sentiment', Icon: Users },
             { v: 'risk', l: 'Risk', Icon: ShieldAlert },
             { v: 'contracts', l: 'Option contract candidates', Icon: ClipboardList },
-            { v: 'history', l: 'Analysis history', Icon: CalendarClock },
           ].map(({ v, l, Icon }) => (
             <TabsTrigger key={v} value={v} className="gap-1.5 font-mono text-[10px] uppercase tracking-wider data-[state=active]:bg-sky-500/15 data-[state=active]:text-sky-300">
               <Icon className="h-3 w-3" aria-hidden="true" />
@@ -364,6 +344,10 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                   This analysis was generated by an earlier scoring model. Its opportunity score may not reconstruct from the factors shown below. Run a new analysis to use the current TradeCycle scoring model.
                 </div>
               )}
+              <div className={cn(
+                'grid gap-3',
+                factors.length >= 5 ? 'grid-cols-1 xl:grid-cols-3' : factors.length >= 3 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1',
+              )}>
               {factors.map((f) => {
                 const importance = Math.round(f.effective_weight * 100);
                 const raw = Number(f.raw_score);
@@ -443,27 +427,26 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                       </span>
                     </div>
 
-                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                      <div className="rounded-sm border border-zinc-800 bg-[#111419] p-2.5">
-                        <div className="text-[10px] uppercase tracking-wider text-zinc-500">{isTradeQuality ? 'Trade quality score' : 'Evidence strength'}</div>
-                        <div className={cn('mt-1 text-sm font-semibold', scoreColor(isTradeQuality ? Math.max(0, Math.min(100, (signed + 100) / 2)) : raw))}>
+                    <div className="mt-3 grid grid-cols-3 gap-2 border-t border-zinc-800/80 pt-2.5">
+                      <div>
+                        <div className="text-[9px] uppercase tracking-wider text-zinc-600">{isTradeQuality ? 'Quality' : 'Strength'}</div>
+                        <div className={cn('mt-0.5 text-[11px] font-semibold', scoreColor(isTradeQuality ? Math.max(0, Math.min(100, (signed + 100) / 2)) : raw))}>
                           {strength} · {isTradeQuality ? `${signed > 0 ? '+' : ''}${num(signed, 0)}` : `${num(raw, 0)}/100`}
                         </div>
                       </div>
-                      <div className="rounded-sm border border-zinc-800 bg-[#111419] p-2.5">
-                        <div className="text-[10px] uppercase tracking-wider text-zinc-500">Weight in current score</div>
-                        <div className="mt-1 text-sm font-semibold text-zinc-200">{importance}% of this score</div>
+                      <div>
+                        <div className="text-[9px] uppercase tracking-wider text-zinc-600">Weight</div>
+                        <div className="mt-0.5 text-[11px] font-semibold text-zinc-200">{importance}%</div>
                       </div>
-                      <div className="rounded-sm border border-zinc-800 bg-[#111419] p-2.5">
-                        <div className="text-[10px] uppercase tracking-wider text-zinc-500">{effectLabel}</div>
-                        <div className="mt-1 text-sm font-semibold text-zinc-200">
-                          {effectValue}
-                        </div>
+                      <div>
+                        <div className="text-[9px] uppercase tracking-wider text-zinc-600">{effectLabel}</div>
+                        <div className="mt-0.5 text-[11px] font-semibold text-zinc-200">{effectValue}</div>
                       </div>
                     </div>
                   </div>
                 );
               })}
+              </div>
 
               {!factors.length && <Unavailable />}
 
@@ -1093,63 +1076,6 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           </Panel>
         </TabsContent>
 
-        {/* HISTORY */}
-        <TabsContent value="history" className="mt-3 space-y-3">
-          <Panel
-            title={`Analysis history — ${signal.symbol}`}
-            subtitle="Historical analyses are preserved so earlier scores and conclusions are not overwritten."
-            right={<DemoBadge />}
-          >
-            <ol className="relative space-y-3 border-l border-zinc-800 pl-4">
-              {history.map((h) => (
-                <li key={h.id} className="relative">
-                  <span className={cn(
-                    'absolute -left-[21px] top-1.5 h-2 w-2 rounded-full border',
-                    h.id === signal.id ? 'border-sky-400 bg-sky-400' : 'border-zinc-600 bg-[#14171c]',
-                  )} />
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-[10px] text-zinc-400">{stampET(h.generated_at)}</span>
-                    <DirectionTag direction={h.direction} />
-                    <span className="text-[11px] text-zinc-400">{h.strategy}</span>
-                    <span className={cn('font-mono text-[11px] font-semibold tabular-nums', scoreColor(h.opportunity_score))}>
-                      opp {h.opportunity_score}
-                    </span>
-                    <span className="font-mono text-[10px] text-zinc-500">conf {h.confidence_score}</span>
-                    <span className="font-mono text-[10px] text-zinc-600">run {h.run_id}</span>
-                    {h.id === signal.id && <span className="font-mono text-[9px] uppercase text-sky-300">viewing</span>}
-                  </div>
-                  <p className="mt-1 text-[11px] leading-snug text-zinc-500">
-                    {h.no_trade_reason ?? h.catalyst_summary ?? 'No market-event note is stored for this record.'}
-                  </p>
-                </li>
-              ))}
-              {!history.length && <Unavailable />}
-            </ol>
-          </Panel>
-
-          <Panel title="Material changes for this symbol" subtitle="Meaningful changes are recorded as new entries rather than replacing prior analysis.">
-            <ul className="space-y-2">
-              {updates.map((u) => (
-                <li key={u.id} className="rounded-sm border border-sky-500/30 bg-sky-500/[0.05] p-2.5">
-                  <div className="flex flex-wrap items-center gap-2 font-mono text-[10px]">
-                    <span className="font-semibold text-zinc-100">{u.symbol}</span>
-                    <span className="text-zinc-400">{u.prev_direction} {u.prev_score}</span>
-                    <span className="text-zinc-600">to</span>
-                    <span className={scoreColor(u.new_score)}>{u.new_direction} {u.new_score}</span>
-                    <span className="ml-auto text-zinc-500">{stampET(u.created_at)}</span>
-                  </div>
-                  <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400">{u.reason}</p>
-                </li>
-              ))}
-              {!updates.length && (
-                <li className="text-[12px] text-zinc-500">
-                  No material change recorded for this ticker yet. An update is written when direction flips or the
-                  opportunity score moves eight points or more between runs.
-                </li>
-              )}
-            </ul>
-          </Panel>
-        </TabsContent>
       </Tabs>
 
       {/* SLIDE-OVER ANALYST */}
