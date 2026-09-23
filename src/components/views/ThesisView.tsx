@@ -280,13 +280,13 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                   </div>
                 </div>
                 <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
-                  <div className="text-[10px] uppercase tracking-wider text-zinc-500">Evidence completeness</div>
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500">Data coverage</div>
                   <div className="mt-1 text-sm font-semibold text-zinc-200">
                     {evidenceCompleteness === null ? 'Not recorded' : `${evidenceCompleteness}%`}
                   </div>
                   {availableFamilies !== null && totalFamilies !== null && (
                     <div className="mt-0.5 text-[10px] text-zinc-600">
-                      {availableFamilies} of {totalFamilies} primary evidence categories available
+                      {availableFamilies} of {totalFamilies} evidence categories have usable source data
                     </div>
                   )}
                   {directionalCompleteness !== null && (
@@ -296,13 +296,13 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                   )}
                 </div>
                 <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
-                  <div className="text-[10px] uppercase tracking-wider text-zinc-500">Meaningful evidence support</div>
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500">Qualifying evidence alignment</div>
                   <div className="mt-1 text-sm font-semibold text-zinc-200">
                     {supportShare === null ? 'Insufficient evidence' : `${supportShare}%`}
                   </div>
                   {agreementFamilyCount !== null && (
                     <div className="mt-0.5 text-[10px] text-zinc-600">
-                      {agreementFamilyCount} Moderate/Strong directional families voting
+                      {agreementFamilyCount} Moderate/Strong directional families qualify to vote
                     </div>
                   )}
                 </div>
