@@ -9,7 +9,7 @@
 import db from '@/lib/db';
 import { errorMessage } from '@/lib/errors';
 import { MODEL_VERSION, type AlertCategory, type Sensitivity } from '@/lib/behavioral/config';
-import type { LitConstruct, LitLink, LitStudy, Observation, TradeModification, TradePlan, TradeRecord } from '@/lib/behavioral/types';
+import type { LitConstruct, LitLink, LitStudy, Observation, TradeCycleThesisEvent, TradeModification, TradePlan, TradeRecord } from '@/lib/behavioral/types';
 
 const list = <T,>(d: unknown): T[] => (Array.isArray(d) ? (d as T[]) : []);
 
@@ -35,6 +35,21 @@ export async function fetchTradeRecords(userId: string | null): Promise<TradeRec
   const { data, error } = await q;
   if (error) throw new Error(errorMessage(error, 'Trade history could not be read.'));
   return list<TradeRecord>(data);
+}
+
+
+export async function fetchTradeCycleThesisEvents(userId: string | null, tradeId?: number): Promise<TradeCycleThesisEvent[]> {
+  if (!userId) return [];
+  let q = db
+    .from('tradecycle_thesis_events')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+    .limit(1000);
+  if (tradeId !== undefined) q = q.eq('trade_id', tradeId);
+  const { data, error } = await q;
+  if (error) throw new Error(errorMessage(error, 'TradeCycle thesis events could not be read.'));
+  return list<TradeCycleThesisEvent>(data);
 }
 
 export async function fetchTradePlans(userId: string | null): Promise<TradePlan[]> {
