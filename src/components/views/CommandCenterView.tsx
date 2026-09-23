@@ -210,6 +210,43 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
     );
   }, [openTicker, rankBySymbol, signalBySymbol]);
 
+  const renderWatchlistTable = (rows: Quote[]) => (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[560px] text-left text-[11px]">
+        <thead className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+          <tr>
+            {[
+              ['Symbol', 'The ticker symbol for the company or fund. Select it to open the current URSORA analysis.'],
+              ['Last', 'The latest available price.'],
+              ['Change', 'The percentage change from the previous regular-session close.'],
+              ['Rel vol', 'Relative volume compares current volume with recent average volume. Above 1.0 means activity is heavier than usual.'],
+              ['VWAP', 'Volume-weighted average price is the average price traded today, weighted by volume.'],
+              ['Trend', 'A simplified description of recent price structure based on moving averages and price direction.'],
+              ['Put/call', 'Put-option volume divided by call-option volume. It does not identify whether activity was opening, closing, hedging, or speculative.'],
+            ].map(([h, help]) => (
+              <th key={h} scope="col" className="whitespace-nowrap px-2 py-1.5">
+                <span className="inline-flex items-center gap-1">{h}<InfoHint text={help} /></span>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-zinc-800/60">
+          {rows.map((q) => (
+            <tr key={q.symbol} className="transition-colors hover:bg-black/30">
+              <td className="px-2 py-1.5">{tickerCell(q.symbol)}</td>
+              <td className="px-2 py-1.5 font-mono tabular-nums text-zinc-200">{num(q.price)}</td>
+              <td className={cn('px-2 py-1.5 font-mono tabular-nums', changeColor(q.change_pct))}>{pct(q.change_pct)}</td>
+              <td className="px-2 py-1.5 font-mono tabular-nums text-sky-300">{num(q.rel_volume)}x</td>
+              <td className="px-2 py-1.5 font-mono tabular-nums text-zinc-400">{num(q.vwap)}</td>
+              <td className="max-w-[180px] truncate px-2 py-1.5 text-zinc-500">{q.trend ?? <Unavailable />}</td>
+              <td className="px-2 py-1.5 font-mono tabular-nums text-zinc-400">{num(q.put_call_ratio)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
   if (loading) return <Spinner label="Loading the market overview" />;
 
   return (
@@ -400,44 +437,14 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
           </div>
 
           <Panel title="Watchlist movers" help="A compact view of price movement and trading conditions for symbols you follow. Relative volume compares current volume with recent average volume; put/call compares put-option volume with call-option volume." subtitle="Your personal watchlist, ranked by absolute move." right={<DemoBadge />}>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[620px] text-left text-[11px]">
-                <thead className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                  <tr>
-                    {[
-                      ['Symbol', 'The ticker symbol for the company or fund. Select it to open the current URSORA analysis.'],
-                      ['Last', 'The latest available price.'],
-                      ['Change', 'The percentage change from the previous regular-session close.'],
-                      ['Rel vol', 'Relative volume compares current volume with recent average volume. Above 1.0 means activity is heavier than usual.'],
-                      ['VWAP', 'Volume-weighted average price is the average price traded today, weighted by how much volume occurred at each price.'],
-                      ['Trend', 'A simplified description of recent price structure based on moving averages and price direction.'],
-                      ['Put/call', 'Put-option volume divided by call-option volume. Higher values mean relatively more put activity; it does not identify whether trades were opening, closing, hedging, or speculative.'],
-                    ].map(([h, help]) => (
-                      <th key={h} scope="col" className="whitespace-nowrap px-2 py-1.5">
-                        <span className="inline-flex items-center gap-1">
-                          {h}
-                          <InfoHint text={help} />
-                        </span>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800/60">
-                  {watchlistMovers.map((q) => (
-                    <tr key={q.symbol} className="transition-colors hover:bg-black/30">
-                      <td className="px-2 py-1.5">{tickerCell(q.symbol)}</td>
-                      <td className="px-2 py-1.5 font-mono tabular-nums text-zinc-200">{num(q.price)}</td>
-                      <td className={cn('px-2 py-1.5 font-mono tabular-nums', changeColor(q.change_pct))}>{pct(q.change_pct)}</td>
-                      <td className="px-2 py-1.5 font-mono tabular-nums text-sky-300">{num(q.rel_volume)}x</td>
-                      <td className="px-2 py-1.5 font-mono tabular-nums text-zinc-400">{num(q.vwap)}</td>
-                      <td className="max-w-[240px] truncate px-2 py-1.5 text-zinc-500">{q.trend ?? <Unavailable />}</td>
-                      <td className="px-2 py-1.5 font-mono tabular-nums text-zinc-400">{num(q.put_call_ratio)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!watchlistMovers.length && <Unavailable />}
-            </div>
+            {watchlistMovers.length ? (
+              <div className={cn('grid gap-3', watchlistMovers.length > 6 && '2xl:grid-cols-2')}>
+                {renderWatchlistTable(watchlistMovers.slice(0, watchlistMovers.length > 6 ? Math.ceil(watchlistMovers.length / 2) : watchlistMovers.length))}
+                {watchlistMovers.length > 6 && renderWatchlistTable(watchlistMovers.slice(Math.ceil(watchlistMovers.length / 2)))}
+              </div>
+            ) : (
+              <div className="py-1 text-[11px] text-zinc-500">No watchlist quote data are available yet.</div>
+            )}
           </Panel>
 
           <Panel title="Recent market-moving events" help="Recent company or market news that may change the evidence behind a thesis. These items provide context and are not treated as trade instructions by themselves." subtitle="Recent dated events and announcements across tracked symbols." right={<DemoBadge />}>
