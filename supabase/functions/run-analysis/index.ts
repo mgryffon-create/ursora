@@ -1376,6 +1376,9 @@ Deno.serve(async (req) => {
       // 3) Strongly Supported requires Strong price structure, both confirmation
       //    families aligned, at least one supportive context family, and no Strong opposition.
       // 4) Context can strengthen/weaken a thesis, but cannot create one without price.
+      const hasMeaningfulConflict =
+        supportingMeaningful.length > 0 && opposingMeaningful.length > 0;
+
       let thesisState: ThesisState;
       if (!priceMeaningful || direction === 'neutral') {
         thesisState = 'Insufficient Evidence';
@@ -1408,8 +1411,13 @@ Deno.serve(async (req) => {
         strongConfirmationOppose.length === 0
       ) {
         thesisState = 'Supported';
-      } else {
+      } else if (hasMeaningfulConflict) {
         thesisState = 'Mixed';
+      } else {
+        // A coherent direction can exist without enough independent corroboration
+        // to call the thesis Supported. Do not label that "Mixed" when nothing
+        // meaningful is actually opposing the thesis.
+        thesisState = 'Insufficient Evidence';
       }
 
 
@@ -1458,9 +1466,15 @@ Deno.serve(async (req) => {
 
       const noTradeReason =
         thesisState === 'Insufficient Evidence'
-          ? `Price/structure has not established a Moderate-or-Strong directional thesis. Confirmation and context evidence are shown, but they cannot create a bullish or bearish thesis without meaningful price structure.`
+          ? !priceMeaningful
+            ? 'Price/structure has not established a Moderate-or-Strong directional thesis. Confirmation and context evidence are shown, but they cannot create a bullish or bearish thesis without meaningful price structure.'
+            : confirmationSupport.length === 0 && confirmationOppose.length === 0
+              ? `Price/structure establishes a ${direction} direction, but momentum and participation do not yet provide Moderate-or-Strong confirmation. URSORA is waiting for corroboration rather than treating the thesis as supported.`
+              : supportingMeaningful.length < 3
+                ? `The ${direction} price thesis has confirmation, but only ${supportingMeaningful.length} independent Moderate-or-Strong supporting families currently qualify. At least 3 are required before URSORA calls the thesis Supported.`
+                : 'The directional structure is coherent, but corroboration is still below the threshold required for a Supported thesis.'
           : thesisState === 'Mixed'
-            ? 'Moderate-or-Strong directional evidence is materially mixed, so URSORA is not treating the current thesis as supported.'
+            ? 'Moderate-or-Strong evidence is genuinely split between support and opposition, so URSORA is treating the thesis as mixed.'
             : thesisState === 'Opposed'
               ? 'The balance of Moderate-or-Strong evidence currently opposes the proposed direction.'
               : thesisState === 'Rejected'
