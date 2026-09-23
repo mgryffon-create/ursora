@@ -267,9 +267,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                     'mt-1 text-sm font-semibold',
                     thesisState === 'Strongly Supported' || thesisState === 'Supported'
                       ? 'text-emerald-300'
-                      : thesisState === 'Rejected'
+                      : thesisState === 'Rejected' || thesisState === 'Opposed'
                         ? 'text-red-300'
-                        : thesisState === 'Preliminary'
+                        : thesisState === 'Mixed' || thesisState === 'Insufficient Evidence'
                           ? 'text-amber-300'
                           : 'text-zinc-300',
                   )}>
@@ -354,6 +354,8 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                 const isTradeQuality = f.factor === 'liquidity' || f.factor === 'risk_reward';
 
                 const signed = Number(f.signed_score ?? 0);
+                const engineBand = String(f.strength_band ?? '');
+                const engineVote = String(f.thesis_vote ?? '');
                 const strength = isTradeQuality
                   ? signed >= 75 ? 'Excellent'
                     : signed >= 50 ? 'Favorable'
@@ -361,11 +363,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                         : signed > -20 ? 'Neutral'
                           : signed > -50 ? 'Weak'
                             : 'Poor'
-                  : raw >= 85 ? 'Very strong'
-                    : raw >= 65 ? 'Strong'
-                      : raw >= 45 ? 'Moderate'
-                        : raw >= 25 ? 'Weak'
-                          : 'Insufficient';
+                  : engineBand || (raw >= 70 ? 'Strong' : raw >= 45 ? 'Moderate' : raw >= 20 ? 'Weak' : 'Insufficient');
 
                 const effectText = isTradeQuality
                   ? f.effect === 'INCREASED'
@@ -375,34 +373,26 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                       : raw > 0
                         ? 'Limited trade-quality contribution'
                         : 'No usable trade-quality evidence'
-                  : f.effect === 'INCREASED'
-                    ? raw >= 85 ? 'Very strong supporting evidence'
-                      : raw >= 65 ? 'Strong supporting evidence'
-                        : raw >= 45 ? 'Moderate supporting evidence'
-                          : raw >= 25 ? 'Weak supporting evidence'
-                            : 'Not strong enough to support the thesis'
-                    : f.effect === 'DECREASED'
-                      ? raw >= 85 ? 'Very strong opposing evidence'
-                        : raw >= 65 ? 'Strong opposing evidence'
-                          : raw >= 45 ? 'Moderate opposing evidence'
-                            : raw >= 25 ? 'Weak opposing evidence'
-                              : 'Not strong enough to oppose the thesis'
-                      : raw > 0
-                        ? 'Directional signal is present, but not strong enough to confirm the analysis'
-                        : 'No meaningful directional evidence';
+                  : engineVote === 'SUPPORT'
+                    ? `${strength} supporting evidence`
+                    : engineVote === 'OPPOSE'
+                      ? `${strength} opposing evidence`
+                      : strength === 'Weak'
+                        ? signed > 0 ? 'Weak bullish lean · no thesis vote' : signed < 0 ? 'Weak bearish lean · no thesis vote' : 'Weak evidence · no thesis vote'
+                        : 'Insufficient evidence · no thesis vote';
 
-                const effectLabel = isTradeQuality ? 'Trade-quality effect' : 'Directional effect';
+                const effectLabel = isTradeQuality ? 'Trade-quality effect' : 'Thesis effect';
                 const effectValue = isTradeQuality
                   ? f.effect === 'INCREASED'
                     ? 'Improves trade quality'
                     : f.effect === 'DECREASED'
                       ? 'Reduces trade quality'
                       : 'No material effect'
-                  : f.effect === 'INCREASED'
+                  : engineVote === 'SUPPORT'
                     ? 'Supports thesis'
-                    : f.effect === 'DECREASED'
+                    : engineVote === 'OPPOSE'
                       ? 'Opposes thesis'
-                      : 'Not confirmatory';
+                      : 'Abstains';
 
                 return (
                   <div key={f.factor} className="rounded-md border border-zinc-800 bg-black/20 p-3">
@@ -414,8 +404,10 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                       <span
                         className={cn(
                           'rounded-sm border px-2 py-1 text-[10px] font-medium',
-                          !isTradeQuality && raw < 45 && f.effect !== 'NEUTRAL'
-                            ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                          !isTradeQuality && engineVote === 'ABSTAIN'
+                            ? strength === 'Weak'
+                              ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                              : 'border-zinc-700 bg-zinc-800/30 text-zinc-400'
                             : f.effect === 'INCREASED'
                               ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
                               : f.effect === 'DECREASED'
