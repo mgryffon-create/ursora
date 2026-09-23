@@ -4,6 +4,7 @@ import {
   ListChecks, LogOut, Menu, Radar, ScrollText, X,
 } from 'lucide-react';
 import { fetchSnapshot } from '@/lib/api';
+import db from '@/lib/db';
 import type { MarketSnapshot } from '@/lib/types';
 import { changeColor, marketStatus, num, pct, stampET } from '@/lib/format';
 import { useAuth } from '@/contexts/AuthContext';
@@ -158,8 +159,18 @@ export const AppLayout: React.FC = () => {
 
   useEffect(() => {
     if (!entered && !user) return;
-    const seen = window.localStorage.getItem('ursora_onboarding_v1');
-    if (!seen) setShowOnboarding(true);
+    const accountKey = user ? `ursora_onboarding_v2_${user.id}` : 'ursora_onboarding_v2_demo';
+    const legacySeen = window.localStorage.getItem('ursora_onboarding_v1') === 'seen';
+    const accountSeen = window.localStorage.getItem(accountKey) === 'seen';
+    const profileSeen = Boolean(user?.user_metadata?.ursora_onboarding_completed);
+
+    if (legacySeen || accountSeen || profileSeen) {
+      window.localStorage.setItem(accountKey, 'seen');
+      setShowOnboarding(false);
+      return;
+    }
+
+    setShowOnboarding(true);
   }, [entered, user]);
 
   useEffect(() => {
@@ -424,8 +435,16 @@ export const AppLayout: React.FC = () => {
       {showOnboarding && (
         <OnboardingTour
           onFinish={() => {
+            const accountKey = user ? `ursora_onboarding_v2_${user.id}` : 'ursora_onboarding_v2_demo';
             window.localStorage.setItem('ursora_onboarding_v1', 'seen');
+            window.localStorage.setItem(accountKey, 'seen');
             setShowOnboarding(false);
+
+            if (user && !user.user_metadata?.ursora_onboarding_completed) {
+              void db.auth.updateUser({
+                data: { ursora_onboarding_completed: true },
+              });
+            }
           }}
         />
       )}
