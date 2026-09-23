@@ -112,17 +112,11 @@ export const BacktestView: React.FC = () => {
       />
 
       <Panel
-        title="How historical evidence is evaluated"
-        subtitle="Backtests use only information that would have been available at each point in time. Future information is excluded from the decision process."
+        title="Test settings"
+        subtitle="Define the historical period and signal criteria to evaluate."
+        help="Historical tests use only information that would have been available at each point in time. Future information is excluded, and these results remain separate from your connected brokerage outcomes."
       >
-        <p className="text-[12px] leading-relaxed text-zinc-400">
-          This prevents the test from benefiting from information that was not yet known. Historical results remain separate from
-          connected brokerage outcomes so users can distinguish model evidence from their own trading record.
-        </p>
-      </Panel>
-
-      <Panel title="Test settings" subtitle="Define the historical period and the signal criteria to evaluate.">
-        <div className="space-y-3">
+        <div className="grid gap-3 2xl:grid-cols-[0.85fr_1.65fr]">
           <div>
             <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">Tickers</span>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -143,77 +137,79 @@ export const BacktestView: React.FC = () => {
               ))}
             </div>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <div>
-              <label htmlFor="bt-start" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">Start date</label>
-              <input
-                id="bt-start"
-                type="date"
-                value={start}
-                onChange={(e) => setStart(e.target.value)}
-                className="mt-1 w-full rounded-sm border border-zinc-800 bg-black/40 px-2 py-1.5 font-mono text-xs text-zinc-200 focus-visible:border-sky-500/60 focus-visible:outline-none"
-              />
+          <div className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <div>
+                <label htmlFor="bt-start" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">Start date</label>
+                <input
+                  id="bt-start"
+                  type="date"
+                  value={start}
+                  onChange={(e) => setStart(e.target.value)}
+                  className="mt-1 w-full rounded-sm border border-zinc-800 bg-black/40 px-2 py-1.5 font-mono text-xs text-zinc-200 focus-visible:border-sky-500/60 focus-visible:outline-none"
+                />
+              </div>
+              <div>
+                <label htmlFor="bt-end" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">End date</label>
+                <input
+                  id="bt-end"
+                  type="date"
+                  value={end}
+                  onChange={(e) => setEnd(e.target.value)}
+                  className="mt-1 w-full rounded-sm border border-zinc-800 bg-black/40 px-2 py-1.5 font-mono text-xs text-zinc-200 focus-visible:border-sky-500/60 focus-visible:outline-none"
+                />
+              </div>
+              <div>
+                <label htmlFor="bt-score" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                  Minimum opportunity score: <span className="text-zinc-200">{minScore}</span>
+                </label>
+                <input
+                  id="bt-score"
+                  type="range"
+                  min={40}
+                  max={90}
+                  step={5}
+                  value={minScore}
+                  onChange={(e) => setMinScore(Number(e.target.value))}
+                  className="mt-3 w-full accent-sky-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="bt-dir" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">Direction</label>
+                <select
+                  id="bt-dir"
+                  value={directionFilter}
+                  onChange={(e) => setDirectionFilter(e.target.value as 'any' | 'bullish' | 'bearish')}
+                  className="mt-1 w-full rounded-sm border border-zinc-800 bg-black/40 px-2 py-1.5 text-xs text-zinc-200 focus-visible:border-sky-500/60 focus-visible:outline-none"
+                >
+                  {['any', 'bullish', 'bearish'].map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="bt-hold" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+                  Holding period: <span className="text-zinc-200">{hold} session{hold === 1 ? '' : 's'}</span>
+                </label>
+                <input
+                  id="bt-hold"
+                  type="range"
+                  min={1}
+                  max={10}
+                  step={1}
+                  value={hold}
+                  onChange={(e) => setHold(Number(e.target.value))}
+                  className="mt-3 w-full accent-sky-500"
+                />
+              </div>
             </div>
-            <div>
-              <label htmlFor="bt-end" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">End date</label>
-              <input
-                id="bt-end"
-                type="date"
-                value={end}
-                onChange={(e) => setEnd(e.target.value)}
-                className="mt-1 w-full rounded-sm border border-zinc-800 bg-black/40 px-2 py-1.5 font-mono text-xs text-zinc-200 focus-visible:border-sky-500/60 focus-visible:outline-none"
-              />
+            <div className="flex flex-wrap items-center gap-3">
+              <Button onClick={run} disabled={busy} className="gap-2">
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Play className="h-4 w-4" aria-hidden="true" />}
+                {busy ? 'Running historical test…' : 'Run historical test'}
+              </Button>
+              <span className="text-[11px] text-zinc-500">
+                {user ? 'This test will be saved to your private backtest history.' : 'Sign in to save historical tests to your account.'}
+              </span>
             </div>
-            <div>
-              <label htmlFor="bt-score" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                Minimum opportunity score: <span className="text-zinc-200">{minScore}</span>
-              </label>
-              <input
-                id="bt-score"
-                type="range"
-                min={40}
-                max={90}
-                step={5}
-                value={minScore}
-                onChange={(e) => setMinScore(Number(e.target.value))}
-                className="mt-3 w-full accent-sky-500"
-              />
-            </div>
-            <div>
-              <label htmlFor="bt-dir" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">Direction</label>
-              <select
-                id="bt-dir"
-                value={directionFilter}
-                onChange={(e) => setDirectionFilter(e.target.value as 'any' | 'bullish' | 'bearish')}
-                className="mt-1 w-full rounded-sm border border-zinc-800 bg-black/40 px-2 py-1.5 text-xs text-zinc-200 focus-visible:border-sky-500/60 focus-visible:outline-none"
-              >
-                {['any', 'bullish', 'bearish'].map((d) => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="bt-hold" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                Holding period: <span className="text-zinc-200">{hold} session{hold === 1 ? '' : 's'}</span>
-              </label>
-              <input
-                id="bt-hold"
-                type="range"
-                min={1}
-                max={10}
-                step={1}
-                value={hold}
-                onChange={(e) => setHold(Number(e.target.value))}
-                className="mt-3 w-full accent-sky-500"
-              />
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={run} disabled={busy} className="gap-2">
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Play className="h-4 w-4" aria-hidden="true" />}
-              {busy ? 'Running historical test…' : 'Run historical test'}
-            </Button>
-            <span className="text-[11px] text-zinc-500">
-              {user ? 'This test will be saved to your private backtest history.' : 'Sign in to save historical tests to your account.'}
-            </span>
           </div>
         </div>
       </Panel>
