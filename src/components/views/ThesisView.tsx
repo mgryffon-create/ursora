@@ -136,6 +136,8 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const agreementScore = signal?.score_breakdown?.agreement_score ?? null;
   const agreementFamilyCount = signal?.score_breakdown?.agreement_family_count ?? null;
   const supportShare = signal?.score_breakdown?.support_share ?? null;
+  const thesisHierarchy = signal?.score_breakdown?.thesis_hierarchy ?? null;
+  const interactionFlags = signal?.score_breakdown?.interaction_flags ?? [];
   const thesisBlockers = signal?.score_breakdown?.thesis_blockers ?? signal?.score_breakdown?.blockers ?? [];
   const tradeBlockers = signal?.score_breakdown?.trade_blockers ?? [];
   const balanced = useMemo(() => candidates.find((c) => c.profile === 'Balanced') ?? candidates[0] ?? null, [candidates]);
@@ -307,10 +309,87 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                 <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
                   <div className="text-[10px] uppercase tracking-wider text-zinc-500">Classification rule</div>
                   <div className="mt-1 text-[11px] leading-relaxed text-zinc-400">
-                    Only Moderate and Strong directional evidence can support or oppose a thesis. Weak and Insufficient evidence are shown for context but abstain. Trade quality can block execution without changing thesis status.
+                    Price/structure establishes the directional thesis. Momentum and participation confirm or contradict it; market, sector, and catalysts provide context. Only Moderate and Strong evidence can vote. Weak and Insufficient evidence abstain.
                   </div>
                 </div>
               </div>
+
+              {thesisHierarchy && (
+                <div className="grid gap-2 md:grid-cols-3">
+                  <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
+                    <div className="text-[9px] uppercase tracking-wider text-zinc-600">Primary structure</div>
+                    <div className="mt-1 text-[12px] font-semibold text-zinc-200">
+                      {thesisHierarchy.primary?.band ?? 'Insufficient'}
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-zinc-500">
+                      Price trend · {thesisHierarchy.primary?.vote === 'SUPPORT' ? 'establishes direction' : 'does not establish direction'}
+                    </div>
+                  </div>
+                  <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
+                    <div className="text-[9px] uppercase tracking-wider text-zinc-600">Confirmation</div>
+                    <div className={cn(
+                      'mt-1 text-[12px] font-semibold',
+                      thesisHierarchy.confirmation?.state === 'confirmed' ? 'text-emerald-300'
+                        : thesisHierarchy.confirmation?.state === 'partially_confirmed' ? 'text-sky-300'
+                          : thesisHierarchy.confirmation?.state === 'divergent' ? 'text-red-300'
+                            : 'text-zinc-300',
+                    )}>
+                      {(thesisHierarchy.confirmation?.state ?? 'unavailable').replaceAll('_', ' ')}
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-zinc-500">Momentum + participation</div>
+                  </div>
+                  <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
+                    <div className="text-[9px] uppercase tracking-wider text-zinc-600">Context</div>
+                    <div className={cn(
+                      'mt-1 text-[12px] font-semibold',
+                      thesisHierarchy.context?.state === 'supportive' ? 'text-emerald-300'
+                        : thesisHierarchy.context?.state === 'opposing' ? 'text-red-300'
+                          : thesisHierarchy.context?.state === 'mixed' ? 'text-amber-300'
+                            : 'text-zinc-300',
+                    )}>
+                      {thesisHierarchy.context?.state ?? 'neutral'}
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-zinc-500">Market/sector + verified catalysts</div>
+                  </div>
+                </div>
+              )}
+
+              {interactionFlags.length > 0 && (
+                <Panel
+                  title="How the evidence interacts"
+                  subtitle="These relationships matter more than simply adding independent indicator scores."
+                >
+                  <div className="grid gap-2 lg:grid-cols-2">
+                    {interactionFlags.map((flag) => (
+                      <div
+                        key={flag.key}
+                        className={cn(
+                          'rounded-sm border p-2.5',
+                          flag.state === 'confirming'
+                            ? 'border-emerald-500/25 bg-emerald-500/[0.04]'
+                            : flag.state === 'conflicting'
+                              ? 'border-amber-500/30 bg-amber-500/[0.05]'
+                              : 'border-zinc-800 bg-black/20',
+                        )}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">{flag.role}</span>
+                          <span className={cn(
+                            'font-mono text-[8px] uppercase tracking-wider',
+                            flag.state === 'confirming' ? 'text-emerald-300'
+                              : flag.state === 'conflicting' ? 'text-amber-300'
+                                : 'text-zinc-400',
+                          )}>
+                            {flag.state}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-[11px] font-medium text-zinc-200">{flag.label}</div>
+                        <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">{flag.detail}</p>
+                      </div>
+                    ))}
+                  </div>
+                </Panel>
+              )}
 
               {thesisBlockers.length > 0 && (
                 <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.05] p-3">
