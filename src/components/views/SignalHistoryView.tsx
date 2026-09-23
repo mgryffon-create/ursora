@@ -512,51 +512,57 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
             </Panel>
           )}
 
-          {selectedObservations.length > 0 && (
-            <Panel
-              title="Flagged behavior"
-              subtitle="Observed process deviations recorded during the selected period. These are behavioral measurements, not psychological judgments."
-            >
-              <div className="grid gap-2 lg:grid-cols-2 2xl:grid-cols-3">
-                {selectedObservations.map((observation, index) => (
-                  <div key={observation.id ?? `${observation.observation_type}-${index}`} className="rounded-sm border border-amber-500/25 bg-amber-500/[0.04] p-2.5">
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-sm border border-amber-500/30 px-1.5 py-[1px] font-mono text-[8px] uppercase text-amber-300">
-                        {observation.severity}
-                      </span>
-                      <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">
-                        {observation.category}
-                      </span>
-                    </div>
-                    <p className="mt-1.5 line-clamp-3 text-[11px] leading-relaxed text-zinc-400">{observation.statement}</p>
+          {(selectedObservations.length > 0 || selectedUpdates.length > 0) && (
+            <div className="grid gap-3 xl:grid-cols-2 xl:items-start">
+              {selectedObservations.length > 0 && (
+                <Panel
+                  title="Flagged behavior"
+                  subtitle="Observed process deviations recorded during the selected period. These are behavioral measurements, not psychological judgments."
+                >
+                  <div className="grid gap-2 lg:grid-cols-2 2xl:grid-cols-3">
+                    {selectedObservations.map((observation, index) => (
+                      <div key={observation.id ?? `${observation.observation_type}-${index}`} className="rounded-sm border border-amber-500/25 bg-amber-500/[0.04] p-2.5">
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-sm border border-amber-500/30 px-1.5 py-[1px] font-mono text-[8px] uppercase text-amber-300">
+                            {observation.severity}
+                          </span>
+                          <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">
+                            {observation.category}
+                          </span>
+                        </div>
+                        <p className="mt-1.5 line-clamp-3 text-[11px] leading-relaxed text-zinc-400">{observation.statement}</p>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </Panel>
-          )}
+                </Panel>
+              )}
 
-          {selectedUpdates.length > 0 && (
-            <Panel
-              title="Material thesis changes"
-              subtitle="These are evidence changes substantial enough to be recorded separately from ordinary market noise."
-              right={<DemoBadge />}
-            >
-              <div className="grid gap-2 lg:grid-cols-2 2xl:grid-cols-3">
-                {selectedUpdates.map((update) => (
-                  <div key={update.id} className="rounded-sm border border-sky-500/25 bg-sky-500/[0.04] p-2.5">
-                    <div className="flex flex-wrap items-center gap-2 font-mono text-[10px]">
-                      <ArrowLeftRight className="h-3 w-3 text-sky-400" aria-hidden="true" />
-                      <span className="font-semibold text-zinc-100">{update.symbol}</span>
-                      <span className="text-zinc-500">{update.prev_direction} {update.prev_score}</span>
-                      <span className="text-zinc-700">→</span>
-                      <span className={scoreColor(update.new_score)}>{update.new_direction} {update.new_score}</span>
-                      <span className="ml-auto text-zinc-600">{stampET(update.created_at)}</span>
-                    </div>
-                    <p className="mt-1.5 line-clamp-2 text-[11px] leading-relaxed text-zinc-400">{update.reason}</p>
+              {selectedUpdates.length > 0 && (
+                <Panel
+                  title="Material thesis changes"
+                  subtitle="These are evidence changes substantial enough to be recorded separately from ordinary market noise."
+                  right={<DemoBadge />}
+                >
+                  <div className="grid gap-2 lg:grid-cols-2 2xl:grid-cols-3">
+                    {selectedUpdates.map((update) => (
+                      <div key={update.id} className="rounded-sm border border-sky-500/25 bg-sky-500/[0.04] p-2.5">
+                        <div className="flex flex-wrap items-center gap-2 font-mono text-[10px]">
+                          <ArrowLeftRight className="h-3 w-3 text-sky-400" aria-hidden="true" />
+                          <span className="font-semibold text-zinc-100">{update.symbol}</span>
+                          <span className="text-zinc-500">{update.prev_direction} {update.prev_score}</span>
+                          <span className="text-zinc-700">→</span>
+                          <span className={scoreColor(update.new_score)}>{update.new_direction} {update.new_score}</span>
+                          <span className="ml-auto text-zinc-600">{stampET(update.created_at)}</span>
+                        </div>
+                        <p className="mt-1.5 line-clamp-2 text-[11px] leading-relaxed text-zinc-400">{update.reason}</p>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </Panel>
+                </Panel>
+              )}
+
+
+            </div>
           )}
 
           <Panel
