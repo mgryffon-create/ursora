@@ -52,6 +52,30 @@ export interface TradeRecord {
   synthetic_profile: string | null;
   is_demo: boolean | null;
   notes: string | null;
+  thesis_mode?: string | null;
+  inferred_thesis_direction?: string | null;
+  thesis_inference_basis?: string | null;
+  thesis_status?: string | null;
+  thesis_support?: number | null;
+  thesis_agreement?: number | null;
+  thesis_last_checked_at?: string | null;
+  thesis_review_status?: string | null;
+  thesis_review_summary?: string | null;
+  created_at: string;
+}
+
+export interface TradeCycleThesisEvent {
+  id: number;
+  user_id: string | null;
+  trade_id: number;
+  signal_id: number | null;
+  event_type: string;
+  thesis_direction: string | null;
+  thesis_state: string | null;
+  thesis_support: number | null;
+  directional_agreement: number | null;
+  underlying_price: number | null;
+  evidence: Record<string, unknown>;
   created_at: string;
 }
 
