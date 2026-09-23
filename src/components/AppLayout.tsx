@@ -59,10 +59,10 @@ const NAV_GROUPS: {
     key: 'intelligence',
     label: 'Intelligence',
     Icon: Brain,
-    defaultView: 'trader',
+    defaultView: 'history',
     items: [
-      { key: 'trader', label: 'Trader Intelligence', hint: 'Patterns, process, behavior', Icon: Brain },
-      { key: 'history', label: 'TradeCycle History', hint: 'Episode history by ticker', Icon: ScrollText },
+      { key: 'history', label: 'Activity', hint: 'TradeCycle calendar and timeline', Icon: ScrollText },
+      { key: 'trader', label: 'Patterns', hint: 'Recurring process and behavior', Icon: Brain },
       { key: 'backtest', label: 'Historical Evidence', hint: 'How setups behaved historically', Icon: FlaskConical },
     ],
   },
