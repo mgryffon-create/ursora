@@ -131,7 +131,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
         value: q.total_oi && q.call_volume !== null && q.put_volume !== null
           ? (Number(q.call_volume ?? 0) + Number(q.put_volume ?? 0)) / Math.max(Number(q.total_oi), 1)
           : q.rel_volume,
-        detail: 'flagged by the stored options/quote data',
+        detail: 'unusual activity detected in the available options data',
         as_of: q.as_of ?? timestamp,
         source_name: q.source_name,
       }));
@@ -363,9 +363,8 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
       </div>
 
       {/* MOVERS + FEED */}
-      <div className="grid gap-3 xl:grid-cols-[1.35fr_1fr]">
-        <div className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-[minmax(240px,0.9fr)_minmax(240px,0.9fr)] xl:grid-cols-[minmax(230px,0.8fr)_minmax(230px,0.8fr)_minmax(260px,1fr)_minmax(280px,1.1fr)]">
+      <div className="space-y-3">
+        <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
             <Panel title="Top gainers" help="Tracked stocks with the largest positive price change in the current session. A gain alone does not mean the move is sustainable or tradeable." right={<DemoBadge />}>
               <ul className="space-y-1.5">
                 {byKind.gainer.map((m) => (
@@ -434,9 +433,9 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
                 {!byKind.unusual_options.length && <Unavailable />}
               </ul>
             </Panel>
-          </div>
+        </div>
 
-          <Panel title="Watchlist movers" help="A compact view of price movement and trading conditions for symbols you follow. Relative volume compares current volume with recent average volume; put/call compares put-option volume with call-option volume." subtitle="Your personal watchlist, ranked by absolute move." right={<DemoBadge />}>
+        <Panel title="Watchlist movers" help="A compact view of price movement and trading conditions for symbols you follow. Relative volume compares current volume with recent average volume; put/call compares put-option volume with call-option volume." subtitle="Your personal watchlist, ranked by absolute move." right={<DemoBadge />}>
             {watchlistMovers.length ? (
               <div className={cn('grid gap-3', watchlistMovers.length > 6 && '2xl:grid-cols-2')}>
                 {renderWatchlistTable(watchlistMovers.slice(0, watchlistMovers.length > 6 ? Math.ceil(watchlistMovers.length / 2) : watchlistMovers.length))}
@@ -447,7 +446,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
             )}
           </Panel>
 
-          <Panel title="Recent market-moving events" help="Recent company or market news that may change the evidence behind a thesis. These items provide context and are not treated as trade instructions by themselves." subtitle="Recent dated events and announcements across tracked symbols." right={<DemoBadge />}>
+        <Panel title="Recent market-moving events" help="Recent company or market news that may change the evidence behind a thesis. These items provide context and are not treated as trade instructions by themselves." subtitle="Recent dated events and announcements across tracked symbols." right={<DemoBadge />}>
             <ul className="space-y-2">
               {news.slice(0, 6).map((n) => (
                 <li key={n.id} className="border-b border-zinc-800/60 pb-2 last:border-0">
@@ -461,12 +460,10 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
               ))}
               {!news.length && <Unavailable />}
             </ul>
-          </Panel>
-        </div>
+        </Panel>
 
         {/* SIGNAL FEED */}
-        <div className="space-y-3">
-          <Panel
+        <Panel
             title="Market & thesis activity"
             help="Only meaningful changes should appear here: material thesis changes, new catalysts, or evidence changes large enough to alter how a trade should be interpreted. Minor price noise should not generate activity."
             subtitle="Meaningful changes across tracked symbols and URSORA theses."
@@ -476,7 +473,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
                 {live ? 'live' : 'auto-refresh off'}
               </span>
             }
-            bodyClassName="max-h-[620px] overflow-y-auto p-0"
+            bodyClassName="max-h-[320px] overflow-y-auto p-0"
           >
             <ul className="divide-y divide-zinc-800/60">
               {updates.map((u) => (
@@ -510,10 +507,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
                 </li>
               )}
             </ul>
-          </Panel>
-
-
-        </div>
+        </Panel>
       </div>
 
       <Disclaimer />
