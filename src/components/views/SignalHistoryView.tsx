@@ -1,8 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeftRight, CalendarDays, ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
+import {
+  ArrowLeftRight, CalendarDays, ChevronLeft, ChevronRight, CircleDollarSign, Search, X,
+} from 'lucide-react';
 import { fetchSignalHistory, fetchSignalUpdates, fetchTickers } from '@/lib/api';
+import { fetchStoredObservations, fetchTradeRecords } from '@/lib/behavioral/api';
+import { isClosed, tradePl } from '@/lib/behavioral/engine';
+import type { Observation, TradeRecord } from '@/lib/behavioral/types';
 import type { Signal, SignalUpdate, Ticker } from '@/lib/types';
-import { num, scoreColor, stampET } from '@/lib/format';
+import { num, scoreColor, signedMoney, stampET } from '@/lib/format';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   DemoBadge, DirectionTag, Disclaimer, EmptyState, Panel, RiskTag, SectionHeading, Spinner, Unavailable,
 } from '@/components/common/Primitives';
@@ -15,6 +21,9 @@ const dayKey = (value: string | Date) => {
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 };
+
+const tradeDayKey = (trade: TradeRecord) =>
+  trade.session_date ?? dayKey(trade.entry_at ?? trade.created_at);
 
 const prettyDay = (key: string) =>
   new Date(`${key}T12:00:00`).toLocaleDateString(undefined, {
@@ -32,10 +41,16 @@ const startOfMonthGrid = (date: Date) => {
   return first;
 };
 
+const isFlaggedObservation = (observation: Observation) =>
+  observation.severity === 'MODERATE' || observation.severity === 'ELEVATED' || observation.severity === 'HIGH';
+
 export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }> = ({ onOpenThesis }) => {
+  const { user } = useAuth();
   const [signals, setSignals] = useState<Signal[]>([]);
   const [updates, setUpdates] = useState<SignalUpdate[]>([]);
   const [tickers, setTickers] = useState<Ticker[]>([]);
+  const [trades, setTrades] = useState<TradeRecord[]>([]);
+  const [observations, setObservations] = useState<Observation[]>([]);
   const [symbol, setSymbol] = useState<string>('all');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -44,19 +59,35 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
   const [rangeEnd, setRangeEnd] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    setLoading(true);
     const [sig, up, tk] = await Promise.all([
-      fetchSignalHistory(undefined, 250), fetchSignalUpdates(undefined, 120), fetchTickers(),
+      fetchSignalHistory(undefined, 250),
+      fetchSignalUpdates(undefined, 120),
+      fetchTickers(),
     ]);
+
     setSignals(sig);
     setUpdates(up);
     setTickers(tk);
 
-    const latest = sig
-      .map((s) => s.generated_at)
-      .filter(Boolean)
-      .sort()
-      .at(-1);
+    if (user?.id) {
+      const [tradeResult, observationResult] = await Promise.allSettled([
+        fetchTradeRecords(user.id),
+        fetchStoredObservations(user.id),
+      ]);
+      setTrades(tradeResult.status === 'fulfilled' ? tradeResult.value : []);
+      setObservations(observationResult.status === 'fulfilled' ? observationResult.value : []);
+    } else {
+      setTrades([]);
+      setObservations([]);
+    }
 
+    const dated = [
+      ...sig.map((s) => s.generated_at),
+      ...trades.map((trade) => trade.entry_at ?? trade.created_at),
+    ].filter(Boolean).sort();
+
+    const latest = dated.at(-1) ?? sig.map((s) => s.generated_at).filter(Boolean).sort().at(-1);
     if (latest) {
       const latestDate = new Date(latest);
       const latestKey = dayKey(latestDate);
@@ -66,30 +97,59 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
     }
 
     setLoading(false);
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const filtered = useMemo(
+  const filteredSignals = useMemo(
     () =>
-      signals.filter((s) => {
-        if (symbol !== 'all' && s.symbol !== symbol) return false;
-        if (query && !s.symbol.includes(query.toUpperCase())) return false;
+      signals.filter((signal) => {
+        if (symbol !== 'all' && signal.symbol !== symbol) return false;
+        if (query && !signal.symbol.includes(query.toUpperCase())) return false;
         return true;
       }),
     [signals, symbol, query],
   );
 
+  const filteredTrades = useMemo(
+    () =>
+      trades.filter((trade) => {
+        if (symbol !== 'all' && trade.symbol !== symbol) return false;
+        if (query && !trade.symbol.includes(query.toUpperCase())) return false;
+        return true;
+      }),
+    [trades, symbol, query],
+  );
+
   const recordsByDay = useMemo(() => {
     const map = new Map<string, Signal[]>();
-    for (const signal of filtered) {
+    for (const signal of filteredSignals) {
       const key = dayKey(signal.generated_at);
       map.set(key, [...(map.get(key) ?? []), signal]);
     }
     return map;
-  }, [filtered]);
+  }, [filteredSignals]);
+
+  const tradesByDay = useMemo(() => {
+    const map = new Map<string, TradeRecord[]>();
+    for (const trade of filteredTrades) {
+      const key = tradeDayKey(trade);
+      map.set(key, [...(map.get(key) ?? []), trade]);
+    }
+    return map;
+  }, [filteredTrades]);
+
+  const observationsByDay = useMemo(() => {
+    const map = new Map<string, Observation[]>();
+    for (const observation of observations) {
+      if (!observation.session_date) continue;
+      if (!isFlaggedObservation(observation)) continue;
+      map.set(observation.session_date, [...(map.get(observation.session_date) ?? []), observation]);
+    }
+    return map;
+  }, [observations]);
 
   const updatesByDay = useMemo(() => {
     const map = new Map<string, SignalUpdate[]>();
@@ -114,26 +174,55 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
   const selectedSignals = useMemo(() => {
     if (!rangeStart) return [];
     const end = rangeEnd ?? rangeStart;
-    return filtered
-      .filter((s) => {
-        const key = dayKey(s.generated_at);
+    return filteredSignals
+      .filter((signal) => {
+        const key = dayKey(signal.generated_at);
         return key >= rangeStart && key <= end;
       })
       .sort((a, b) => +new Date(b.generated_at) - +new Date(a.generated_at));
-  }, [filtered, rangeStart, rangeEnd]);
+  }, [filteredSignals, rangeStart, rangeEnd]);
+
+  const selectedTrades = useMemo(() => {
+    if (!rangeStart) return [];
+    const end = rangeEnd ?? rangeStart;
+    return filteredTrades
+      .filter((trade) => {
+        const key = tradeDayKey(trade);
+        return key >= rangeStart && key <= end;
+      })
+      .sort((a, b) => +new Date(b.entry_at ?? b.created_at) - +new Date(a.entry_at ?? a.created_at));
+  }, [filteredTrades, rangeStart, rangeEnd]);
+
+  const selectedObservations = useMemo(() => {
+    if (!rangeStart) return [];
+    const end = rangeEnd ?? rangeStart;
+    return observations.filter((observation) =>
+      Boolean(
+        observation.session_date &&
+        observation.session_date >= rangeStart &&
+        observation.session_date <= end &&
+        isFlaggedObservation(observation),
+      ));
+  }, [observations, rangeStart, rangeEnd]);
 
   const selectedUpdates = useMemo(() => {
     if (!rangeStart) return [];
     const end = rangeEnd ?? rangeStart;
     return updates
-      .filter((u) => {
-        if (symbol !== 'all' && u.symbol !== symbol) return false;
-        if (query && !u.symbol.includes(query.toUpperCase())) return false;
-        const key = dayKey(u.created_at);
+      .filter((update) => {
+        if (symbol !== 'all' && update.symbol !== symbol) return false;
+        if (query && !update.symbol.includes(query.toUpperCase())) return false;
+        const key = dayKey(update.created_at);
         return key >= rangeStart && key <= end;
       })
       .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
   }, [updates, rangeStart, rangeEnd, symbol, query]);
+
+  const selectedClosed = selectedTrades.filter(isClosed);
+  const selectedPl = selectedClosed
+    .map(tradePl)
+    .filter((value): value is number => value !== null)
+    .reduce((sum, value) => sum + value, 0);
 
   const handleDayClick = (key: string) => {
     if (!rangeStart || (rangeStart && rangeEnd && rangeStart !== rangeEnd)) {
@@ -169,14 +258,14 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
       ? prettyDay(rangeStart)
       : `${prettyDay(rangeStart)} – ${prettyDay(rangeEnd ?? rangeStart)}`;
 
-  if (loading) return <Spinner label="Loading TradeCycle history" />;
+  if (loading) return <Spinner label="Loading TradeCycle activity" />;
 
   return (
     <div className="space-y-4">
       <SectionHeading
-        eyebrow="TradeCycle history"
-        title="Review recorded activity by date"
-        description="Select one day or a range of days to inspect the market analyses and material changes URSORA recorded during that period."
+        eyebrow="Activity"
+        title="TradeCycle Calendar"
+        description="A chronological view of analyses, trades, meaningful thesis changes, outcomes, and flagged behavior. Select one day or a range to zoom into the underlying activity."
       />
 
       <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-end">
@@ -189,7 +278,7 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
               <select
                 id="sh-sym"
                 value={symbol}
-                onChange={(e) => setSymbol(e.target.value)}
+                onChange={(event) => setSymbol(event.target.value)}
                 className="mt-1 rounded-sm border border-zinc-800 bg-black/40 px-2 py-1 font-mono text-xs text-zinc-200 focus-visible:border-sky-500/60 focus-visible:outline-none"
               >
                 <option value="all">all</option>
@@ -205,7 +294,7 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
                 <input
                   id="sh-q"
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  onChange={(event) => setQuery(event.target.value)}
                   placeholder="NVDA"
                   className="w-24 bg-transparent py-1 font-mono text-xs uppercase text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
                 />
@@ -232,7 +321,7 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
 
       <Panel
         title="Calendar"
-        subtitle="Dates with recorded activity show the number of analyses and any material thesis changes. Click once for a day; click another date to create a range."
+        subtitle="Each date summarizes the activity URSORA actually has. Click once for a day; click another date to analyze a range."
         right={
           <div className="flex items-center gap-1">
             <button
@@ -266,10 +355,18 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
           {calendarDays.map((date) => {
             const key = dayKey(date);
             const daySignals = recordsByDay.get(key) ?? [];
+            const dayTrades = tradesByDay.get(key) ?? [];
+            const dayClosed = dayTrades.filter(isClosed);
+            const dayPl = dayClosed
+              .map(tradePl)
+              .filter((value): value is number => value !== null)
+              .reduce((sum, value) => sum + value, 0);
             const dayUpdates = updatesByDay.get(key) ?? [];
+            const dayFlags = observationsByDay.get(key) ?? [];
             const inMonth = date.getMonth() === month.getMonth();
             const selected = Boolean(rangeStart && key >= rangeStart && key <= (rangeEnd ?? rangeStart));
-            const symbols = [...new Set(daySignals.map((s) => s.symbol))].slice(0, 3);
+            const symbols = [...new Set([...dayTrades.map((trade) => trade.symbol), ...daySignals.map((signal) => signal.symbol)])].slice(0, 3);
+            const hasActivity = dayTrades.length > 0 || daySignals.length > 0 || dayUpdates.length > 0 || dayFlags.length > 0;
 
             return (
               <button
@@ -277,10 +374,10 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
                 key={key}
                 onClick={() => handleDayClick(key)}
                 className={cn(
-                  'min-h-[86px] rounded-md border p-2 text-left transition-colors',
+                  'min-h-[108px] rounded-md border p-2 text-left transition-colors',
                   inMonth ? 'border-zinc-800 bg-black/20' : 'border-zinc-900 bg-black/10 opacity-35',
                   selected && 'border-sky-500/50 bg-sky-500/[0.08]',
-                  !selected && daySignals.length > 0 && 'hover:border-zinc-700 hover:bg-black/30',
+                  !selected && hasActivity && 'hover:border-zinc-700 hover:bg-black/30',
                 )}
               >
                 <div className="flex items-center justify-between gap-1">
@@ -289,27 +386,40 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
                   </span>
                   {dayUpdates.length > 0 && (
                     <span className="rounded-sm border border-sky-500/30 bg-sky-500/[0.08] px-1 py-[1px] font-mono text-[8px] text-sky-300">
-                      {dayUpdates.length} change{dayUpdates.length === 1 ? '' : 's'}
+                      {dayUpdates.length} thesis
                     </span>
                   )}
                 </div>
+
+                {dayTrades.length > 0 && (
+                  <div className="mt-2 space-y-0.5">
+                    <div className="font-mono text-[9px] text-zinc-300">
+                      {dayTrades.length} trade{dayTrades.length === 1 ? '' : 's'} · {dayClosed.length} closed
+                    </div>
+                    <div className={cn('font-mono text-[10px] font-semibold', dayPl > 0 ? 'text-emerald-400' : dayPl < 0 ? 'text-red-400' : 'text-zinc-500')}>
+                      {signedMoney(dayPl) ?? '$0.00'} realized
+                    </div>
+                    {dayFlags.length > 0 && (
+                      <div className="font-mono text-[9px] text-amber-300">
+                        {dayFlags.length} flagged behavior{dayFlags.length === 1 ? '' : 's'}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {daySignals.length > 0 && (
-                  <div className="mt-2">
-                    <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">
-                      {daySignals.length} analys{daySignals.length === 1 ? 'is' : 'es'}
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {symbols.map((ticker) => (
-                        <span key={ticker} className="rounded-sm bg-zinc-800/80 px-1 py-[1px] font-mono text-[8px] text-zinc-300">
-                          {ticker}
-                        </span>
-                      ))}
-                      {new Set(daySignals.map((s) => s.symbol)).size > 3 && (
-                        <span className="font-mono text-[8px] text-zinc-600">
-                          +{new Set(daySignals.map((s) => s.symbol)).size - 3}
-                        </span>
-                      )}
-                    </div>
+                  <div className={cn('font-mono text-[9px] uppercase tracking-wider text-zinc-500', dayTrades.length ? 'mt-1.5' : 'mt-2')}>
+                    {daySignals.length} analys{daySignals.length === 1 ? 'is' : 'es'}
+                  </div>
+                )}
+
+                {symbols.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {symbols.map((ticker) => (
+                      <span key={ticker} className="rounded-sm bg-zinc-800/80 px-1 py-[1px] font-mono text-[8px] text-zinc-300">
+                        {ticker}
+                      </span>
+                    ))}
                   </div>
                 )}
               </button>
@@ -320,10 +430,115 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
 
       {rangeStart && (
         <>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-md border border-zinc-800 bg-[#14171c] p-3">
+              <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">Trades</div>
+              <div className="mt-1 text-lg font-semibold text-zinc-100">{selectedTrades.length}</div>
+              <div className="text-[10px] text-zinc-500">{selectedClosed.length} closed</div>
+            </div>
+            <div className="rounded-md border border-zinc-800 bg-[#14171c] p-3">
+              <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">Realized return</div>
+              <div className={cn('mt-1 text-lg font-semibold', selectedPl > 0 ? 'text-emerald-400' : selectedPl < 0 ? 'text-red-400' : 'text-zinc-300')}>
+                {signedMoney(selectedPl) ?? '$0.00'}
+              </div>
+            </div>
+            <div className="rounded-md border border-zinc-800 bg-[#14171c] p-3">
+              <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">Flagged behaviors</div>
+              <div className="mt-1 text-lg font-semibold text-amber-300">{selectedObservations.length}</div>
+            </div>
+            <div className="rounded-md border border-zinc-800 bg-[#14171c] p-3">
+              <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">Analyses reviewed</div>
+              <div className="mt-1 text-lg font-semibold text-sky-300">{selectedSignals.length}</div>
+              <div className="text-[10px] text-zinc-500">{selectedUpdates.length} material thesis changes</div>
+            </div>
+          </div>
+
+          {selectedTrades.length > 0 && (
+            <Panel
+              title="TradeCycles in selected period"
+              subtitle="Brokerage-connected trades will populate this automatically. A linked analysis opens the market thesis associated with that trade."
+            >
+              <div className="grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
+                {selectedTrades.map((trade) => {
+                  const pl = isClosed(trade) ? tradePl(trade) : null;
+                  return (
+                    <article key={trade.id} className="rounded-md border border-zinc-800 bg-black/20 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-mono text-sm font-semibold text-zinc-100">{trade.symbol}</div>
+                          <div className="mt-0.5 text-[10px] text-zinc-500">
+                            {trade.option_type ? trade.option_type.toUpperCase() : trade.asset_type ?? 'position'}
+                            {trade.strike ? ` · ${num(trade.strike)} strike` : ''}
+                          </div>
+                        </div>
+                        <span className={cn(
+                          'rounded-sm border px-1.5 py-[1px] font-mono text-[9px] uppercase',
+                          isClosed(trade)
+                            ? 'border-zinc-700 text-zinc-400'
+                            : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+                        )}>
+                          {isClosed(trade) ? 'closed' : 'open'}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-3 gap-2 border-t border-zinc-800 pt-2.5">
+                        <div>
+                          <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Entry</div>
+                          <div className="mt-0.5 font-mono text-[10px] text-zinc-300">{stampET(trade.entry_at ?? trade.created_at)}</div>
+                        </div>
+                        <div>
+                          <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">P/L</div>
+                          <div className={cn('mt-0.5 font-mono text-[10px] font-semibold', (pl ?? 0) > 0 ? 'text-emerald-400' : (pl ?? 0) < 0 ? 'text-red-400' : 'text-zinc-400')}>
+                            {pl === null ? 'open' : signedMoney(pl)}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Origin</div>
+                          <div className="mt-0.5 truncate font-mono text-[10px] text-zinc-400">{trade.origin ?? 'unclassified'}</div>
+                        </div>
+                      </div>
+                      {trade.signal_id && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenThesis(trade.signal_id as number)}
+                          className="mt-3 font-mono text-[10px] uppercase tracking-wider text-sky-400 hover:text-sky-300"
+                        >
+                          open linked analysis
+                        </button>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            </Panel>
+          )}
+
+          {selectedObservations.length > 0 && (
+            <Panel
+              title="Flagged behavior"
+              subtitle="Observed process deviations recorded during the selected period. These are behavioral measurements, not psychological judgments."
+            >
+              <div className="grid gap-2 lg:grid-cols-2 2xl:grid-cols-3">
+                {selectedObservations.map((observation, index) => (
+                  <div key={observation.id ?? `${observation.observation_type}-${index}`} className="rounded-sm border border-amber-500/25 bg-amber-500/[0.04] p-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-sm border border-amber-500/30 px-1.5 py-[1px] font-mono text-[8px] uppercase text-amber-300">
+                        {observation.severity}
+                      </span>
+                      <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">
+                        {observation.category}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 line-clamp-3 text-[11px] leading-relaxed text-zinc-400">{observation.statement}</p>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
+
           {selectedUpdates.length > 0 && (
             <Panel
-              title="Material changes in selected period"
-              subtitle="These are recorded changes in direction or evidence strength, not ordinary price movement."
+              title="Material thesis changes"
+              subtitle="These are evidence changes substantial enough to be recorded separately from ordinary market noise."
               right={<DemoBadge />}
             >
               <div className="grid gap-2 lg:grid-cols-2 2xl:grid-cols-3">
@@ -345,12 +560,12 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
           )}
 
           <Panel
-            title={rangeStart === rangeEnd ? `Records for ${prettyDay(rangeStart)}` : 'Records for selected date range'}
-            subtitle={`${selectedSignals.length} preserved analysis record${selectedSignals.length === 1 ? '' : 's'} in this period.`}
+            title={rangeStart === rangeEnd ? `Analysis history for ${prettyDay(rangeStart)}` : 'Analysis history for selected range'}
+            subtitle={`${selectedSignals.length} preserved market analysis record${selectedSignals.length === 1 ? '' : 's'} in this period.`}
             bodyClassName="p-0"
           >
             {selectedSignals.length ? (
-              <div className="max-h-[520px] overflow-auto">
+              <div className="max-h-[440px] overflow-auto">
                 <table className="w-full min-w-[980px] text-left text-[11px]">
                   <thead className="sticky top-0 z-10 bg-[#101318] font-mono text-[10px] uppercase tracking-wider text-zinc-500">
                     <tr>
@@ -405,6 +620,10 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
           action={<CalendarDays className="h-4 w-4 text-sky-400" aria-hidden="true" />}
         />
       )}
+
+      <div className="rounded-md border border-zinc-800 bg-black/20 px-3 py-2 text-[10px] leading-relaxed text-zinc-600">
+        The calendar is the chronological index. Analyses and trades remain separate records underneath it so URSORA never treats an analyzed ticker as a trade unless brokerage or trade-ledger data confirms one.
+      </div>
 
       <Disclaimer />
     </div>
