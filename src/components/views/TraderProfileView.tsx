@@ -323,7 +323,7 @@ export const TraderProfileView: React.FC<{ onboarding?: boolean; onSaved?: () =>
             ) : (
               <Button size="sm" variant="outline" onClick={() => { setEditing(true); setMessage(null); }} className="gap-1.5 border-zinc-700">
                 <Pencil className="h-3.5 w-3.5" />
-                Edit profile
+                Edit baseline
               </Button>
             )}
           </div>
