@@ -6,7 +6,10 @@ const REMEMBER_LOGIN_KEY = 'ursora_remember_login';
 const authStorage = {
   getItem(key: string): string | null {
     if (typeof window === 'undefined') return null;
-    return window.sessionStorage.getItem(key) ?? window.localStorage.getItem(key);
+    const remember = window.localStorage.getItem(REMEMBER_LOGIN_KEY) !== 'false';
+    return remember
+      ? window.localStorage.getItem(key)
+      : window.sessionStorage.getItem(key);
   },
   setItem(key: string, value: string): void {
     if (typeof window === 'undefined') return;
