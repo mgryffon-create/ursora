@@ -47,6 +47,12 @@ function massiveKey() {
 
 type AnyRow = Record<string, any>;
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  try { return JSON.stringify(error); } catch { return String(error); }
+}
+
 function n(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
@@ -129,7 +135,7 @@ async function massiveGet(path: string, params: Record<string, string | number |
       return body;
     } catch (error) {
       lastError = error;
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       if (!/429|rate|limit|5\d\d|temporar/i.test(message) || attempt === 2) throw error;
       await sleep(14000);
     }
@@ -218,7 +224,7 @@ Deno.serve(async (req) => {
         if (ticker) snapshots.set(ticker, row);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       if (/401|403|not.?authorized|subscription|entitle|plan|snapshot/i.test(message)) {
         snapshotStatus = 'not_entitled_or_unavailable';
       } else {
@@ -406,7 +412,7 @@ Deno.serve(async (req) => {
     });
   } catch (error) {
     if (error instanceof AuthError) return json({ error: error.message }, error.status);
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return json({ error: message, stage }, 500);
   }
 });
