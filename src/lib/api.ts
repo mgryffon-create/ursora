@@ -1,7 +1,7 @@
 import db from '@/lib/db';
 import { APP_CONFIG } from '@/lib/config';
 import type {
-  AnalysisRun, Bar, ContractCandidate, EarningsEvent, EconomicEvent, FeedEvent, Filing,
+  ActiveAnalysis, AnalysisRun, Bar, ContractCandidate, EarningsEvent, EconomicEvent, FeedEvent, Filing,
   MarketMover, MarketSnapshot, NewsItem, PaperTrade, ProviderConfig, Quote,
   RiskAssessment, SentimentReading, Signal, SignalUpdate, Ticker, TranscriptStatement,
 } from '@/lib/types';
@@ -280,6 +280,22 @@ export async function fetchMovers(): Promise<MarketMover[]> {
     .limit(60);
   if (error) throw error;
   return rows<MarketMover>(data as MarketMover[]);
+}
+
+export async function fetchActiveAnalyses(): Promise<ActiveAnalysis[]> {
+  const { data, error } = await db
+    .from('active_analyses')
+    .select('*')
+    .eq('status', 'active')
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+
+  const now = Date.now();
+  return rows<ActiveAnalysis>(data as ActiveAnalysis[]).filter((item) => {
+    if (!item.valid_until) return true;
+    const expires = new Date(item.valid_until).getTime();
+    return !Number.isFinite(expires) || expires >= now;
+  });
 }
 
 export async function fetchTodaySignals(): Promise<Signal[]> {
