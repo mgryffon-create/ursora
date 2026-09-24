@@ -3,7 +3,7 @@ import {
   Brain, ChevronDown, CircleHelp, FlaskConical, LineChart,
   ListChecks, LogOut, Menu, Radar, ScrollText, X,
 } from 'lucide-react';
-import { fetchSnapshot, refreshMarketSymbols } from '@/lib/api';
+import { fetchSnapshot, fetchTickers, refreshMarketSymbols } from '@/lib/api';
 import db from '@/lib/db';
 import type { MarketSnapshot } from '@/lib/types';
 import { changeColor, marketStatus, num, pct, stampET } from '@/lib/format';
@@ -161,21 +161,32 @@ export const AppLayout: React.FC = () => {
 
     const loginKey = `ursora_login_market_refresh_${user.id}`;
     const today = new Date().toISOString().slice(0, 10);
-    const dailyKey = 'ursora_daily_index_refresh';
+    const dailyDiscoveryKey = 'ursora_daily_discovery_refresh';
 
     const loginAlreadyRefreshed = window.sessionStorage.getItem(loginKey) === 'done';
-    const indexesFreshToday = window.localStorage.getItem(dailyKey) === today;
+    const discoveryFreshToday = window.localStorage.getItem(dailyDiscoveryKey) === today;
 
     const run = async () => {
       try {
+        const tickerRows = await fetchTickers();
+        const discoveryUniverse = tickerRows
+          .map((ticker) => String(ticker.symbol).toUpperCase())
+          .filter(Boolean);
+        const coreIndexes = ['SPY', 'IWM', 'QQQ'];
+
+        // The center route is a once-daily market scan. Refresh the complete configured
+        // discovery universe once per day so every non-favorite has a current snapshot.
+        if (!discoveryFreshToday) {
+          await refreshMarketSymbols([...new Set([...discoveryUniverse, ...coreIndexes])], true);
+          window.localStorage.setItem(dailyDiscoveryKey, today);
+        }
+
+        // Favorites get an additional lightweight quote refresh once per login.
+        // This does not invoke options/news/full thesis analysis.
         if (!loginAlreadyRefreshed) {
-          const loginSymbols = [...new Set([...favorites, 'SPY', 'IWM', 'QQQ'])];
-          await refreshMarketSymbols(loginSymbols, true);
+          const loginSymbols = [...new Set([...favorites, ...coreIndexes])];
+          if (loginSymbols.length) await refreshMarketSymbols(loginSymbols, true);
           window.sessionStorage.setItem(loginKey, 'done');
-          window.localStorage.setItem(dailyKey, today);
-        } else if (!indexesFreshToday) {
-          await refreshMarketSymbols(['SPY', 'IWM', 'QQQ'], true);
-          window.localStorage.setItem(dailyKey, today);
         }
 
         const nextSnapshot = await fetchSnapshot();
@@ -190,17 +201,26 @@ export const AppLayout: React.FC = () => {
 
     const id = window.setInterval(() => {
       const currentDay = new Date().toISOString().slice(0, 10);
-      if (window.localStorage.getItem(dailyKey) !== currentDay) {
-        void refreshMarketSymbols(['SPY', 'IWM', 'QQQ'], true)
+      if (window.localStorage.getItem(dailyDiscoveryKey) !== currentDay) {
+        void fetchTickers()
+          .then((tickerRows) =>
+            refreshMarketSymbols(
+              [...new Set([
+                ...tickerRows.map((ticker) => String(ticker.symbol).toUpperCase()).filter(Boolean),
+                'SPY', 'IWM', 'QQQ',
+              ])],
+              true,
+            )
+          )
           .then(() => {
-            window.localStorage.setItem(dailyKey, currentDay);
+            window.localStorage.setItem(dailyDiscoveryKey, currentDay);
             return fetchSnapshot();
           })
           .then((nextSnapshot) => {
             setSnapshot(nextSnapshot);
             window.dispatchEvent(new CustomEvent('ursora-market-refreshed'));
           })
-          .catch((error) => console.warn('URSORA daily index refresh did not complete:', error));
+          .catch((error) => console.warn('URSORA daily discovery refresh did not complete:', error));
       }
     }, 15 * 60 * 1000);
 
