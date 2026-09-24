@@ -3,7 +3,7 @@ import {
   Brain, ChevronDown, CircleHelp, FlaskConical, LineChart,
   ListChecks, LogOut, Menu, Radar, ScrollText, X,
 } from 'lucide-react';
-import { fetchSnapshot } from '@/lib/api';
+import { fetchSnapshot, refreshMarketSymbols } from '@/lib/api';
 import db from '@/lib/db';
 import type { MarketSnapshot } from '@/lib/types';
 import { changeColor, marketStatus, num, pct, stampET } from '@/lib/format';
@@ -125,7 +125,7 @@ const StatusBar: React.FC<{ snapshot: MarketSnapshot | null }> = ({ snapshot }) 
 };
 
 export const AppLayout: React.FC = () => {
-  const { user, loading, signOut } = useAuth();
+  const { user, favorites, loading, signOut } = useAuth();
   const [entered, setEntered] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup' | null>(null);
   const [view, setView] = useState<ViewKey>('opportunities');
@@ -156,6 +156,53 @@ export const AppLayout: React.FC = () => {
       setAuthMode(null);
     }
   }, [user]);
+  useEffect(() => {
+    if (!user) return;
+
+    const loginKey = `ursora_login_market_refresh_${user.id}`;
+    const today = new Date().toISOString().slice(0, 10);
+    const dailyKey = 'ursora_daily_index_refresh';
+
+    const loginAlreadyRefreshed = window.sessionStorage.getItem(loginKey) === 'done';
+    const indexesFreshToday = window.localStorage.getItem(dailyKey) === today;
+
+    const run = async () => {
+      try {
+        if (!loginAlreadyRefreshed) {
+          const loginSymbols = [...new Set([...favorites, 'SPY', 'IWM', 'QQQ'])];
+          await refreshMarketSymbols(loginSymbols, true);
+          window.sessionStorage.setItem(loginKey, 'done');
+          window.localStorage.setItem(dailyKey, today);
+        } else if (!indexesFreshToday) {
+          await refreshMarketSymbols(['SPY', 'IWM', 'QQQ'], true);
+          window.localStorage.setItem(dailyKey, today);
+        }
+
+        const nextSnapshot = await fetchSnapshot();
+        setSnapshot(nextSnapshot);
+      } catch (error) {
+        console.warn('URSORA automatic market refresh did not complete:', error);
+      }
+    };
+
+    void run();
+
+    const id = window.setInterval(() => {
+      const currentDay = new Date().toISOString().slice(0, 10);
+      if (window.localStorage.getItem(dailyKey) !== currentDay) {
+        void refreshMarketSymbols(['SPY', 'IWM', 'QQQ'], true)
+          .then(() => {
+            window.localStorage.setItem(dailyKey, currentDay);
+            return fetchSnapshot();
+          })
+          .then((nextSnapshot) => setSnapshot(nextSnapshot))
+          .catch((error) => console.warn('URSORA daily index refresh did not complete:', error));
+      }
+    }, 15 * 60 * 1000);
+
+    return () => window.clearInterval(id);
+  }, [favorites, user]);
+
 
   useEffect(() => {
     if (!entered && !user) return;
