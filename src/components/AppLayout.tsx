@@ -136,6 +136,7 @@ export const AppLayout: React.FC = () => {
   const [navOpen, setNavOpen] = useState(false);
   const [expandedGroup, setExpandedGroup] = useState<NavGroupKey>('today');
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [historicalEvidenceTradeIds, setHistoricalEvidenceTradeIds] = useState<number[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -250,6 +251,13 @@ export const AppLayout: React.FC = () => {
     setExpandedGroup(groupForView(view));
   }, [view]);
 
+  const openHistoricalEvidence = useCallback((tradeIds: number[]) => {
+    setHistoricalEvidenceTradeIds([...new Set(tradeIds.filter(Number.isFinite))]);
+    setView('backtest');
+    setNavOpen(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
   const openThesis = useCallback((id: number) => {
     setThesisId(id);
     setView('thesis');
@@ -288,9 +296,14 @@ export const AppLayout: React.FC = () => {
       case 'history':
         return <SignalHistoryView onOpenThesis={openThesis} />;
       case 'backtest':
-        return <BacktestView />;
+        return <BacktestView initialTradeIds={historicalEvidenceTradeIds} />;
       case 'trader':
-        return <TraderIntelligenceView onOpenThesis={openThesis} />;
+        return (
+          <TraderIntelligenceView
+            onOpenThesis={openThesis}
+            onOpenHistoricalEvidence={openHistoricalEvidence}
+          />
+        );
       case 'profile':
         return <TraderProfileView />;
       case 'about':
@@ -298,7 +311,7 @@ export const AppLayout: React.FC = () => {
       default:
         return <OpportunitiesView onOpenThesis={openThesis} />;
     }
-  }, [go, openThesis, thesisId, view]);
+  }, [go, historicalEvidenceTradeIds, openHistoricalEvidence, openThesis, thesisId, view]);
 
   if (loading) {
     return (
