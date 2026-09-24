@@ -125,7 +125,15 @@ Deno.serve(async (req) => {
       .order('retrieved_at', { ascending: false });
     if (optionError) throw optionError;
 
-    const optionRows = options ?? [];
+    const rawOptionRows = options ?? [];
+    const latestBatchBySymbol = new Map<string, string>();
+    const optionRows = rawOptionRows.filter((row: AnyRow) => {
+      const symbol = String(row.underlying_symbol ?? '').toUpperCase();
+      if (!symbol) return false;
+      const retrieved = String(row.retrieved_at ?? '');
+      if (!latestBatchBySymbol.has(symbol)) latestBatchBySymbol.set(symbol, retrieved);
+      return retrieved === latestBatchBySymbol.get(symbol);
+    });
     const candidates: AnyRow[] = [];
     const risks: AnyRow[] = [];
 
