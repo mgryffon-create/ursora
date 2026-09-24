@@ -5,7 +5,7 @@ import { EDGE_FUNCTIONS, callEdge, track } from '@/lib/api';
 import type { ChatMessage } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { DemoBadge, Spinner } from '@/components/common/Primitives';
+import { DataBadge, Spinner } from '@/components/common/Primitives';
 import { clockET } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -128,7 +128,7 @@ export const AnalystChat: React.FC<{
           <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-300">
             AI Analyst{symbol ? ` — ${symbol}` : ''}
           </h3>
-          <DemoBadge label="BASED ON URSORA DATA" />
+          <DataBadge kind="derived" label="BASED ON URSORA DATA" />
         </div>
         {messages.length > 0 && (
           <button
