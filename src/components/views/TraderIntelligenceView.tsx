@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity, BarChart3, BookOpen, Brain, CheckCircle2, FlaskConical, Gauge,
-  Loader2, Microscope, ShieldCheck, Sparkles, XCircle,
+  History, Loader2, Microscope, ShieldCheck, Sparkles, XCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -53,7 +53,8 @@ const Stat: React.FC<{ label: string; value: React.ReactNode; hint?: string; ton
 const ProfilePatternCheckCard: React.FC<{
   insight: ProfileContextInsight;
   tone: (status: ProfileContextInsight['status']) => string;
-}> = ({ insight, tone }) => (
+  onOpenEvidence?: (tradeIds: number[]) => void;
+}> = ({ insight, tone, onOpenEvidence }) => (
   <article className="rounded-md border border-zinc-800 bg-[#111419] p-3">
     <div className="flex flex-wrap items-start justify-between gap-2">
       <div>
@@ -89,8 +90,20 @@ const ProfilePatternCheckCard: React.FC<{
     )}
 
     <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">{insight.detail}</p>
-    <div className="mt-2 border-t border-zinc-800/70 pt-2 font-mono text-[9px] uppercase tracking-wider text-zinc-600">
-      {insight.sample > 0 ? `${insight.sample} evidence episode${insight.sample === 1 ? '' : 's'}` : 'Awaiting measurable episodes'}
+    <div className="mt-2 flex items-center justify-between gap-2 border-t border-zinc-800/70 pt-2">
+      <span className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">
+        {insight.sample > 0 ? `${insight.sample} evidence episode${insight.sample === 1 ? '' : 's'}` : 'Awaiting measurable episodes'}
+      </span>
+      {insight.evidenceTradeIds.length > 0 && onOpenEvidence && (
+        <button
+          type="button"
+          onClick={() => onOpenEvidence(insight.evidenceTradeIds)}
+          className="inline-flex items-center gap-1 rounded-sm border border-sky-500/30 bg-sky-500/[0.06] px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-sky-300 transition-colors hover:border-sky-400/60 hover:bg-sky-500/10"
+        >
+          <History className="h-3 w-3" aria-hidden="true" />
+          View episodes
+        </button>
+      )}
     </div>
   </article>
 );
@@ -123,7 +136,10 @@ const Table: React.FC<{ head: string[]; rows: (React.ReactNode[])[]; empty?: str
   </div>
 );
 
-export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => void }> = () => {
+export const TraderIntelligenceView: React.FC<{
+  onOpenThesis?: (id: number) => void;
+  onOpenHistoricalEvidence?: (tradeIds: number[]) => void;
+}> = ({ onOpenHistoricalEvidence }) => {
   const { user } = useAuth();
   const [tab, setTab] = useState<Tab>('patterns');
   const [loading, setLoading] = useState(true);
@@ -629,7 +645,12 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
               {profileRowsFor('patterns').length > 0 ? (
                 <div className="grid gap-2 lg:grid-cols-2">
                   {profileRowsFor('patterns').map((row) => (
-                    <ProfilePatternCheckCard key={row.key} insight={row} tone={contextTone} />
+                    <ProfilePatternCheckCard
+                      key={row.key}
+                      insight={row}
+                      tone={contextTone}
+                      onOpenEvidence={onOpenHistoricalEvidence}
+                    />
                   ))}
                 </div>
               ) : (
