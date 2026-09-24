@@ -359,9 +359,12 @@ Deno.serve(async (req) => {
       const snapshotTrade = n(snapshot?.lastTrade?.p);
       const snapshotMinute = n(snapshot?.min?.c);
       const snapshotDayClose = n(snapshot?.day?.c);
-      const frozenQuote = session.phase === 'after_hours'
+      const frozenCandidate = session.phase === 'after_hours'
         ? frozenBySymbol.get(symbol)
         : latestFrozenBySymbol.get(symbol);
+      // Do not carry forward legacy rows that were explicitly marked simulated.
+      // Once Massive is connected, the swing anchor must come from provider data.
+      const frozenQuote = frozenCandidate?.is_demo === true ? undefined : frozenCandidate;
 
       // The current URSORA engine is a 1–5 day swing/tactical engine. Only the
       // regular session is allowed to move its stock-price evidence. Premarket,
