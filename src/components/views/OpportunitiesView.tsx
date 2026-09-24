@@ -138,17 +138,27 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
   const meetingCriteria = useMemo(() => signals.filter((s) => s.strategy !== 'No Trade'), [signals]);
   const noTrade = useMemo(() => signals.filter((s) => s.strategy === 'No Trade'), [signals]);
 
+  const normalizedSymbolQuery = symbolQuery.trim().toUpperCase();
+
   const filtered = useMemo(
     () =>
       meetingCriteria.filter((s) => {
         if (direction !== 'any' && s.direction !== direction) return false;
         if (risk !== 'any' && s.risk_level !== risk) return false;
         if (s.opportunity_score < minScore) return false;
-        if (symbolQuery && !s.symbol.includes(symbolQuery.toUpperCase())) return false;
+        if (normalizedSymbolQuery && !s.symbol.toUpperCase().includes(normalizedSymbolQuery)) return false;
         if (watchlistOnly && !watchlist.includes(s.symbol)) return false;
         return true;
       }),
-    [meetingCriteria, direction, risk, minScore, symbolQuery, watchlistOnly, watchlist],
+    [meetingCriteria, direction, risk, minScore, normalizedSymbolQuery, watchlistOnly, watchlist],
+  );
+
+  const filteredNoTrade = useMemo(
+    () =>
+      noTrade.filter((s) =>
+        !normalizedSymbolQuery || s.symbol.toUpperCase().includes(normalizedSymbolQuery)
+      ),
+    [noTrade, normalizedSymbolQuery],
   );
 
   const selected = useMemo(
@@ -210,6 +220,31 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
       )}
 
       <div className="flex flex-wrap items-center gap-2 rounded-md border border-zinc-800 bg-[#111419] px-3 py-2">
+        <div className="order-first flex w-full items-center gap-2 rounded-sm border border-zinc-700 bg-black/40 px-2.5 focus-within:border-sky-500/70 sm:w-auto sm:min-w-[240px] lg:min-w-[300px]">
+          <Search className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden="true" />
+          <input
+            id="opportunity-ticker-search"
+            value={symbolQuery}
+            onChange={(e) => setSymbolQuery(e.target.value.toUpperCase())}
+            placeholder="Search ticker — NVDA"
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+            aria-label="Search opportunities by ticker"
+            className="min-w-0 flex-1 bg-transparent py-1.5 font-mono text-xs uppercase text-zinc-100 placeholder:normal-case placeholder:text-zinc-600 focus:outline-none"
+          />
+          {symbolQuery && (
+            <button
+              type="button"
+              onClick={() => setSymbolQuery('')}
+              aria-label="Clear ticker search"
+              className="rounded-sm p-0.5 text-zinc-500 transition-colors hover:text-zinc-200"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          )}
+        </div>
+
         <button
           type="button"
           onClick={() => setShowFilters((value) => !value)}
@@ -222,8 +257,11 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
           Filters
         </button>
         <span className="font-mono text-[10px] text-zinc-500">
-          {filtered.length} meetingCriteria · {noTrade.length} not selected
+          {filtered.length} meeting criteria · {filteredNoTrade.length} not selected
         </span>
+        {normalizedSymbolQuery && (
+          <span className="font-mono text-[10px] text-sky-300">ticker: {normalizedSymbolQuery}</span>
+        )}
         {compareIds.length > 0 && (
           <span className="font-mono text-[10px] text-sky-300">{compareIds.length} selected to compare</span>
         )}
@@ -269,19 +307,6 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
                 onChange={(e) => setMinScore(Number(e.target.value))}
                 className="mt-2 w-full accent-sky-500"
               />
-            </div>
-            <div>
-              <label htmlFor="flt-sym" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">Ticker</label>
-              <div className="mt-1 flex items-center gap-1.5 rounded-sm border border-zinc-800 bg-black/40 px-2 focus-within:border-sky-500/60">
-                <Search className="h-3 w-3 text-zinc-500" aria-hidden="true" />
-                <input
-                  id="flt-sym"
-                  value={symbolQuery}
-                  onChange={(e) => setSymbolQuery(e.target.value)}
-                  placeholder="NVDA"
-                  className="w-24 bg-transparent py-1 font-mono text-xs uppercase text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
-                />
-              </div>
             </div>
             <label className="flex cursor-pointer items-center gap-2 pb-1 text-[11px] text-zinc-400">
               <input
@@ -368,7 +393,9 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
         </table>
         {filtered.length === 0 && (
           <div className="border-t border-zinc-800 px-3 py-2 text-[11px] text-zinc-500">
-            No opportunity matches these filters. Adjust the filters or review the rejected setups below.
+            {normalizedSymbolQuery
+              ? `No selected opportunity for ${normalizedSymbolQuery}. Check NO TRADE / WAIT below to see whether URSORA evaluated and rejected it.`
+              : 'No opportunity matches these filters. Adjust the filters or review the rejected setups below.'}
           </div>
         )}
       </div>
@@ -457,11 +484,16 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
         subtitle="These names were analysed and deliberately rejected. The rule that fired is stated on each card — the engine does not manufacture a setup to fill the board."
         right={<DemoBadge />}
       >
-        {noTrade.length === 0 ? (
-          <EmptyState title="No evaluated setups in this run" body="This run did not produce any current signal records to classify as opportunities or rejections." />
+        {filteredNoTrade.length === 0 ? (
+          <EmptyState
+            title={normalizedSymbolQuery ? `No rejected setup for ${normalizedSymbolQuery}` : 'No evaluated setups in this run'}
+            body={normalizedSymbolQuery
+              ? 'This ticker is not present in the rejected setups for the latest analysis run.'
+              : 'This run did not produce any current signal records to classify as opportunities or rejections.'}
+          />
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {noTrade.map((s) => {
+            {filteredNoTrade.map((s) => {
               const picked = compareIds.includes(s.id);
               return (
                 <article
