@@ -219,7 +219,7 @@ Deno.serve(async (req) => {
 
     // Explicitly requested symbols are analyzed exactly as requested. Fallback
     // refreshes prioritize persistent favorites first, then the default discovery universe.
-    symbols = [...new Set(symbols)].slice(0, 20);
+    symbols = [...new Set(symbols)].slice(0, 60);
     if (!symbols.length) return json({ error: 'No symbols configured.' }, 400);
 
     const to = new Date();
@@ -259,7 +259,7 @@ Deno.serve(async (req) => {
       .in('symbol', symbols)
       .eq('timeframe', '1d')
       .order('bar_time', { ascending: true })
-      .limit(12000);
+      .limit(30000);
     if (cachedBarsError) throw cachedBarsError;
 
     const cachedBarsBySymbol = new Map<string, AnyRow[]>();
