@@ -174,6 +174,27 @@ export interface TraderProfile {
   updated_at?: string;
 }
 
+export interface SnapTradeAccount {
+  id: string;
+  user_id: string;
+  connection_id: string | null;
+  institution_name: string | null;
+  name: string | null;
+  masked_number: string | null;
+  account_category: string | null;
+  raw_type: string | null;
+  status: string | null;
+  is_paper: boolean;
+  total_value: number | null;
+  total_value_currency: string | null;
+  transactions_initial_sync_completed: boolean | null;
+  transactions_last_successful_sync: string | null;
+  holdings_initial_sync_completed: boolean | null;
+  holdings_last_successful_sync: string | null;
+  holdings_unavailable: boolean | null;
+  synced_at: string;
+}
+
 export interface ActiveAnalysis {
   user_id: string;
   symbol: string;
