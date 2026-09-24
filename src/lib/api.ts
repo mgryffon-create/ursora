@@ -1,7 +1,7 @@
 import db from '@/lib/db';
 import { APP_CONFIG } from '@/lib/config';
 import type {
-  ActiveAnalysis, AnalysisRun, Bar, ContractCandidate, EarningsEvent, EconomicEvent, FeedEvent, Filing,
+  ActiveAnalysis, AnalysisRun, Bar, ContractCandidate, EarningsEvent, EconomicEvent, FeedEvent, Filing, TraderProfile,
   MarketMover, MarketSnapshot, NewsItem, PaperTrade, ProviderConfig, Quote,
   RiskAssessment, SentimentReading, Signal, SignalUpdate, Ticker, TranscriptStatement,
 } from '@/lib/types';
@@ -325,6 +325,26 @@ export async function fetchMovers(): Promise<MarketMover[]> {
     .limit(60);
   if (error) throw error;
   return rows<MarketMover>(data as MarketMover[]);
+}
+
+export async function fetchTraderProfile(): Promise<TraderProfile | null> {
+  const { data, error } = await db
+    .from('trader_profiles')
+    .select('*')
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as TraderProfile | null) ?? null;
+}
+
+export async function saveTraderProfile(profile: Omit<TraderProfile, 'user_id'> & { user_id: string }): Promise<void> {
+  const { error } = await db
+    .from('trader_profiles')
+    .upsert({
+      ...profile,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id' });
+  if (error) throw error;
 }
 
 export async function fetchActiveAnalyses(): Promise<ActiveAnalysis[]> {
