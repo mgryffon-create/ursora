@@ -100,6 +100,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let active = true;
 
     (async () => {
+      const remember = typeof window === 'undefined'
+        ? true
+        : window.localStorage.getItem('ursora_remember_login') !== 'false';
+      const sessionOnlyActive = typeof window !== 'undefined'
+        && window.sessionStorage.getItem('ursora_session_only_active') === 'true';
+
+      // Supabase always uses its durable localStorage session. When the user explicitly
+      // opts out of Remember me, the session is valid only while this browser session
+      // marker exists. A remembered login never passes through this sign-out path.
+      if (!remember && !sessionOnlyActive) {
+        await db.auth.signOut({ scope: 'local' });
+      }
+
       const { data } = await db.auth.getSession();
       if (!active) return;
       setSession(data.session ?? null);
@@ -124,11 +137,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       window.localStorage.setItem('ursora_remember_login', remember ? 'true' : 'false');
     }
 
-    const { error } = await db.auth.signInWithPassword({ email, password });
+    const { data, error } = await db.auth.signInWithPassword({ email, password });
     if (error) throw new Error(error.message);
+
+    if (typeof window !== 'undefined') {
+      if (remember) {
+        window.sessionStorage.removeItem('ursora_session_only_active');
+      } else {
+        window.sessionStorage.setItem('ursora_session_only_active', 'true');
+      }
+    }
+
+    if (!data.session?.refresh_token) {
+      throw new Error('Sign-in completed without a renewable session. Please sign in again.');
+    }
   }, []);
 
   const signUp = useCallback(async (email: string, password: string) => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('ursora_remember_login', 'true');
+      window.sessionStorage.removeItem('ursora_session_only_active');
+    }
     const { data, error } = await db.auth.signUp({ email, password });
     if (error) throw new Error(error.message);
     // Record the new trader in the owner's CRM (upsert by email, consent-aware).
@@ -156,6 +185,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = useCallback(async () => {
     if (typeof window !== 'undefined') {
       if (user?.id) window.sessionStorage.removeItem(`ursora_login_market_refresh_${user.id}`);
+      window.sessionStorage.removeItem('ursora_session_only_active');
     }
     await db.auth.signOut();
     setWatchlist(DEFAULT_UNIVERSE);
