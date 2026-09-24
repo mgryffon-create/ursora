@@ -73,6 +73,7 @@ type RouteCardProps = {
   selected?: boolean;
   selectable?: boolean;
   discovery?: boolean;
+  route?: 'watchlist' | 'market' | 'suggested';
   onSelect?: () => void;
   onOpen?: () => void;
   onFavorite?: () => void;
@@ -80,12 +81,21 @@ type RouteCardProps = {
 
 const RouteCard: React.FC<RouteCardProps> = ({
   symbol, quote, ticker, signal, active, favorite = false, selected = false,
-  selectable = false, discovery = false, onSelect, onOpen, onFavorite,
+  selectable = false, discovery = false, route = 'watchlist', onSelect, onOpen, onFavorite,
 }) => {
   const fullThesisAvailable = Boolean(onOpen);
   const setupText = discovery && !active
     ? curiositySummary(quote)
     : thesisSummary(signal) ?? curiositySummary(quote);
+  const direction = signal?.direction ?? null;
+  const directionSurface =
+    direction === 'bullish'
+      ? 'border-emerald-500/30 bg-emerald-500/[0.06]'
+      : direction === 'bearish'
+        ? 'border-red-500/30 bg-red-500/[0.06]'
+        : direction === 'neutral'
+          ? 'border-sky-500/30 bg-sky-500/[0.06]'
+          : 'border-zinc-800 bg-black/25';
 
   const openOrSelect = () => {
     if (onOpen) onOpen();
@@ -104,14 +114,27 @@ const RouteCard: React.FC<RouteCardProps> = ({
         }
       }}
       className={cn(
-        'rounded-md border bg-black/25 p-3 transition-all',
-        fullThesisAvailable ? 'cursor-pointer hover:border-sky-500/40' : selectable ? 'cursor-pointer hover:border-zinc-700' : '',
-        selected ? 'border-sky-500/60 bg-sky-500/[0.07]' : 'border-zinc-800',
-        discovery && !selected && 'border-sky-500/25 bg-sky-500/[0.045] shadow-[inset_3px_0_0_rgba(56,189,248,0.45)] hover:border-sky-400/55 hover:bg-sky-500/[0.07]',
-        active && 'border-emerald-500/30 bg-emerald-500/[0.035]',
+        'relative overflow-hidden rounded-md border p-3 transition-all',
+        directionSurface,
+        fullThesisAvailable ? 'cursor-pointer hover:brightness-110' : selectable ? 'cursor-pointer hover:brightness-110' : '',
+        selected && 'ring-1 ring-sky-400/60',
+        route === 'market' && 'border-zinc-700/80 bg-[#14171c] shadow-[0_0_0_1px_rgba(255,255,255,0.015)] hover:border-zinc-500',
+        active && 'ring-1 ring-emerald-500/20',
       )}
     >
-      <div className="flex items-start gap-2">
+      {route === 'market' && (
+        <>
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute right-0 top-0 h-0 w-0 border-b-[22px] border-l-[22px] border-b-zinc-700/80 border-l-transparent"
+          />
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute right-0 top-0 h-0 w-0 border-r-[17px] border-t-[17px] border-r-sky-400/70 border-t-sky-400/70"
+          />
+        </>
+      )}
+      <div className="flex items-start gap-2 pr-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             {onFavorite && (
@@ -132,7 +155,7 @@ const RouteCard: React.FC<RouteCardProps> = ({
             )}
             <span className="font-mono text-sm font-semibold text-zinc-100">{symbol}</span>
             {discovery && (
-              <span className="rounded-sm border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.12em] text-sky-300">
+              <span className="rounded-sm border border-zinc-600/80 bg-black/25 px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.12em] text-zinc-300">
                 {curiosityTag(quote)}
               </span>
             )}
@@ -197,8 +220,8 @@ const RouteCard: React.FC<RouteCardProps> = ({
       </div>
 
       {discovery ? (
-        <div className="mt-3 rounded-sm border border-sky-500/15 bg-black/20 px-2.5 py-2">
-          <div className="font-mono text-[8px] uppercase tracking-[0.16em] text-sky-400/80">Why it is on the radar</div>
+        <div className="mt-3 rounded-sm border border-zinc-700/80 bg-black/20 px-2.5 py-2 shadow-[inset_2px_0_0_rgba(56,189,248,0.45)]">
+          <div className="font-mono text-[8px] uppercase tracking-[0.16em] text-zinc-400">Why it is on the radar</div>
           <p className="mt-1 text-[11px] leading-relaxed text-zinc-300">{setupText}</p>
         </div>
       ) : (
@@ -503,6 +526,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
                     favorite
                     selected={analysisSelection.includes(symbol)}
                     selectable
+                    route="watchlist"
                     onSelect={() => toggleAnalysisSelection(symbol)}
                     onOpen={signal ? () => onOpenThesis(signal.id) : undefined}
                     onFavorite={() => void onToggleFavorite(symbol)}
@@ -543,6 +567,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
                     selected={analysisSelection.includes(symbol)}
                     selectable
                     discovery
+                    route="market"
                     onSelect={() => toggleAnalysisSelection(symbol)}
                     onOpen={signal ? () => onOpenThesis(signal.id) : undefined}
                     onFavorite={() => void onToggleFavorite(symbol)}
@@ -579,6 +604,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
                     signal={signal}
                     active={item}
                     favorite={favoriteSet.has(item.symbol)}
+                    route="suggested"
                     onOpen={() => onOpenThesis(item.signal_id)}
                     onFavorite={() => void onToggleFavorite(item.symbol)}
                   />
