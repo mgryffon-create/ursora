@@ -129,16 +129,29 @@ Deno.serve(async (req) => {
     const cacheHours = 18;
     const staleBefore = Date.now() - cacheHours * 3600000;
 
-    const { data: states, error: stateError } = await db
+    let states: any[] = [];
+    let syncStateAvailable = true;
+    const stateResult = await db
       .from('provider_symbol_syncs')
       .select('symbol,last_attempt,last_success,last_error,item_count')
       .eq('provider_key', providerKey)
       .eq('capability', capability)
       .in('symbol', symbols);
-    if (stateError) throw stateError;
+
+    if (stateResult.error) {
+      const message = errorMessage(stateResult.error);
+      if (/PGRST205|provider_symbol_syncs|schema cache/i.test(message)) {
+        syncStateAvailable = false;
+        states = [];
+      } else {
+        throw stateResult.error;
+      }
+    } else {
+      states = stateResult.data ?? [];
+    }
 
     const stateBySymbol = new Map(
-      (states ?? []).map((row: any) => [String(row.symbol).toUpperCase(), row]),
+      states.map((row: any) => [String(row.symbol).toUpperCase(), row]),
     );
 
     const refreshSymbols = symbols
@@ -235,30 +248,34 @@ Deno.serve(async (req) => {
           inserted += rows.length;
         }
 
-        const { error: syncError } = await db.from('provider_symbol_syncs').upsert({
-          provider_key: providerKey,
-          capability,
-          symbol,
-          last_attempt: attemptedAt,
-          last_success: attemptedAt,
-          last_error: null,
-          item_count: rows.length,
-          updated_at: attemptedAt,
-        }, { onConflict: 'provider_key,capability,symbol' });
-        if (syncError) throw syncError;
+        if (syncStateAvailable) {
+          const { error: syncError } = await db.from('provider_symbol_syncs').upsert({
+            provider_key: providerKey,
+            capability,
+            symbol,
+            last_attempt: attemptedAt,
+            last_success: attemptedAt,
+            last_error: null,
+            item_count: rows.length,
+            updated_at: attemptedAt,
+          }, { onConflict: 'provider_key,capability,symbol' });
+          if (syncError) throw syncError;
+        }
 
         refreshed += 1;
         results.push({ symbol, ok: true, articles: rows.length });
       } catch (error) {
         const message = errorMessage(error);
-        await db.from('provider_symbol_syncs').upsert({
-          provider_key: providerKey,
-          capability,
-          symbol,
-          last_attempt: attemptedAt,
-          last_error: message,
-          updated_at: attemptedAt,
-        }, { onConflict: 'provider_key,capability,symbol' });
+        if (syncStateAvailable) {
+          await db.from('provider_symbol_syncs').upsert({
+            provider_key: providerKey,
+            capability,
+            symbol,
+            last_attempt: attemptedAt,
+            last_error: message,
+            updated_at: attemptedAt,
+          }, { onConflict: 'provider_key,capability,symbol' });
+        }
 
         results.push({ symbol, ok: false, error: message });
 
@@ -301,6 +318,7 @@ Deno.serve(async (req) => {
       refreshed,
       cached: symbols.length - refreshSymbols.length,
       inserted,
+      sync_state_available: syncStateAvailable,
       results,
     });
   } catch (error) {
