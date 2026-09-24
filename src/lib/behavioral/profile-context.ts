@@ -114,6 +114,7 @@ export function deriveProfileContext(
   if (!profile) return [];
   const insights: ProfileContextInsight[] = [];
   const closed = trades.filter(isClosed);
+  const losingClosed = closed.filter((trade) => (tradePl(trade) ?? 0) < 0);
 
   const eventsByTrade = new Map<number, TradeCycleThesisEvent[]>();
   for (const event of thesisEvents) {
@@ -345,8 +346,8 @@ export function deriveProfileContext(
           : status === 'DIVERGENT'
             ? 'Your recorded holding-time history currently does not support the habit you identified.'
             : 'The holding-time difference is not large enough for a clear confirmation or contradiction.';
-        sample = baseline.closedSample;
-        ids = closed.map((trade) => trade.id).slice(0, 200);
+        sample = losingClosed.length;
+        ids = losingClosed.map((trade) => trade.id).slice(0, 200);
       }
       if (baseline.medianHoldingLosersMin !== null) {
         contextItems.push({ label: 'Median loser hold', value: `${Math.round(baseline.medianHoldingLosersMin)}m` });
