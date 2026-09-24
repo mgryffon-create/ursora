@@ -1,3 +1,4 @@
+// SNAPTRADE_STANDALONE_V2 — self-contained for Supabase Dashboard deployment; no ../_shared imports.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const corsHeaders = {
