@@ -830,9 +830,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               <Metric label="Liquidity score" value={balanced?.liquidity_score} />
             </div>
             <div className="mt-3 rounded-sm border border-zinc-800 bg-black/20 p-2.5 text-[11px] leading-relaxed text-zinc-500">
-              Large individual trades and block transactions: <span className="font-mono text-zinc-300">DATA UNAVAILABLE</span> in
-              demo mode. When a real OptionsDataProvider is connected, individual prints with size, side and exchange
-              appear here with their own provenance.
+              Large individual trades and block transactions: <span className="font-mono text-zinc-300">DATA UNAVAILABLE</span>.
+              Massive Options Starter supplies delayed chain snapshots, Greeks, IV, volume and open interest, but this
+              plan does not supply the individual trade-print context URSORA would need to show size, side and exchange here.
             </div>
             {quote && (
               <Provenance
