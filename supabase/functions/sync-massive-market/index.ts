@@ -97,6 +97,15 @@ function rsi(closes: number[], period = 14): number | null {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function massiveTimestamp(value: unknown): string | null {
+  const parsed = n(value);
+  if (parsed === null) return null;
+  const ms = parsed > 1e15 ? parsed / 1e6 : parsed > 1e12 ? parsed : parsed > 1e9 ? parsed * 1000 : null;
+  if (ms === null || !Number.isFinite(ms)) return null;
+  const date = new Date(ms);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
 async function massiveGet(path: string, params: Record<string, string | number | boolean> = {}) {
   const url = new URL(`https://api.massive.com${path}`);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
@@ -165,6 +174,30 @@ Deno.serve(async (req) => {
     const results: AnyRow[] = [];
     let barsWritten = 0;
 
+    // One snapshot request can cover the whole test universe and gives URSORA the
+    // most current price Massive exposes to this plan. If snapshot access is not
+    // included, history still refreshes and the response reports the entitlement gap.
+    stage = 'request Massive stock snapshots';
+    let snapshotStatus: 'available' | 'not_entitled_or_unavailable' = 'available';
+    const snapshots = new Map<string, AnyRow>();
+    try {
+      const snapshotPayload = await massiveGet(
+        '/v2/snapshot/locale/us/markets/stocks/tickers',
+        { tickers: symbols.join(','), include_otc: false },
+      );
+      for (const row of Array.isArray(snapshotPayload?.tickers) ? snapshotPayload.tickers : []) {
+        const ticker = String(row?.ticker ?? '').toUpperCase();
+        if (ticker) snapshots.set(ticker, row);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/401|403|not.?authorized|subscription|entitle|plan|snapshot/i.test(message)) {
+        snapshotStatus = 'not_entitled_or_unavailable';
+      } else {
+        throw error;
+      }
+    }
+
     for (let index = 0; index < symbols.length; index++) {
       const symbol = symbols[index];
       stage = `request Massive daily aggregates for ${symbol}`;
@@ -212,8 +245,13 @@ Deno.serve(async (req) => {
       const latest = bars.at(-1);
       const previous = bars.at(-2);
       const latestClose = n(latest?.c);
-      const previousClose = n(previous?.c);
-      const latestVolume = n(latest?.v);
+      const snapshot = snapshots.get(symbol);
+      const snapshotTrade = n(snapshot?.lastTrade?.p);
+      const snapshotMinute = n(snapshot?.min?.c);
+      const snapshotDayClose = n(snapshot?.day?.c);
+      const currentPrice = snapshotTrade ?? snapshotMinute ?? snapshotDayClose ?? latestClose;
+      const previousClose = n(snapshot?.prevDay?.c) ?? n(previous?.c);
+      const latestVolume = n(snapshot?.day?.v) ?? n(latest?.v);
       const averageVolume = sma(volumes, 20);
       const s20 = sma(closes, 20);
       const s50 = sma(closes, 50);
@@ -225,51 +263,53 @@ Deno.serve(async (req) => {
       const highs = recent20.map((bar: any) => n(bar.h)).filter((value: number | null): value is number => value !== null);
       const support = lows.length ? Math.min(...lows) : null;
       const resistance = highs.length ? Math.max(...highs) : null;
-      const changeAbs = latestClose !== null && previousClose !== null ? latestClose - previousClose : null;
-      const changePct = changeAbs !== null && previousClose ? (changeAbs / previousClose) * 100 : null;
+      const changeAbs = n(snapshot?.todaysChange)
+        ?? (currentPrice !== null && previousClose !== null ? currentPrice - previousClose : null);
+      const changePct = n(snapshot?.todaysChangePerc)
+        ?? (changeAbs !== null && previousClose ? (changeAbs / previousClose) * 100 : null);
 
       let trend = 'insufficient data';
-      if (latestClose !== null && s20 !== null && s50 !== null) {
-        trend = latestClose > s20 && s20 > s50 && (s200 === null || s50 > s200)
+      if (currentPrice !== null && s20 !== null && s50 !== null) {
+        trend = currentPrice > s20 && s20 > s50 && (s200 === null || s50 > s200)
           ? 'uptrend'
-          : latestClose < s20 && s20 < s50 && (s200 === null || s50 < s200)
+          : currentPrice < s20 && s20 < s50 && (s200 === null || s50 < s200)
             ? 'downtrend'
             : 'mixed';
       }
 
       const quoteRow = {
         symbol,
-        price: latestClose,
+        price: currentPrice,
         change_abs: changeAbs,
         change_pct: changePct,
-        day_open: n(latest?.o),
-        day_high: n(latest?.h),
-        day_low: n(latest?.l),
+        day_open: n(snapshot?.day?.o) ?? n(latest?.o),
+        day_high: n(snapshot?.day?.h) ?? n(latest?.h),
+        day_low: n(snapshot?.day?.l) ?? n(latest?.l),
         prev_close: previousClose,
-        prev_day_high: n(previous?.h),
-        prev_day_low: n(previous?.l),
+        prev_day_high: n(snapshot?.prevDay?.h) ?? n(previous?.h),
+        prev_day_low: n(snapshot?.prevDay?.l) ?? n(previous?.l),
         volume: latestVolume,
         avg_volume: averageVolume === null ? null : Math.round(averageVolume),
         rel_volume: averageVolume && latestVolume ? latestVolume / averageVolume : null,
-        vwap: n(latest?.vw),
+        vwap: n(snapshot?.day?.vw) ?? n(latest?.vw),
         sma20: s20,
         sma50: s50,
         sma200: s200,
         support,
         resistance,
-        gap_pct: n(latest?.o) !== null && previousClose
-          ? ((Number(latest.o) - previousClose) / previousClose) * 100
+        gap_pct: (n(snapshot?.day?.o) ?? n(latest?.o)) !== null && previousClose
+          ? (((n(snapshot?.day?.o) ?? n(latest?.o)) as number) - previousClose) / previousClose * 100
           : null,
         atr: a14,
         momentum_score: rsi14,
         trend,
-        source_name: 'Massive Test Data',
-        source_type: 'market_data_test',
-        published_at: latest?.t ? new Date(Number(latest.t)).toISOString() : now,
+        source_name: snapshots.has(symbol) ? 'Massive Stock Snapshot + Aggregates' : 'Massive Daily Aggregates',
+        source_type: snapshots.has(symbol) ? 'market_data_snapshot_test' : 'market_data_test',
+        published_at: massiveTimestamp(snapshot?.updated) ?? (latest?.t ? new Date(Number(latest.t)).toISOString() : now),
         retrieved_at: now,
-        confidence: 0.90,
+        confidence: snapshots.has(symbol) ? 0.95 : 0.90,
         is_demo: true,
-        as_of: latest?.t ? new Date(Number(latest.t)).toISOString() : now,
+        as_of: massiveTimestamp(snapshot?.updated) ?? (latest?.t ? new Date(Number(latest.t)).toISOString() : now),
       };
 
       stage = `store Massive quote for ${symbol}`;
@@ -281,7 +321,11 @@ Deno.serve(async (req) => {
         ok: true,
         bars: rows.length,
         latest_bar: quoteRow.as_of,
-        price: latestClose,
+        price: currentPrice,
+        quote_source: snapshots.has(symbol) ? 'snapshot' : 'daily_aggregate_fallback',
+        last_trade: snapshotTrade,
+        last_quote_bid: n(snapshot?.lastQuote?.p),
+        last_quote_ask: n(snapshot?.lastQuote?.P),
         rel_volume: quoteRow.rel_volume,
         trend,
       });
@@ -294,14 +338,16 @@ Deno.serve(async (req) => {
     await db.from('provider_configs').upsert({
       provider_key: 'market',
       interface_name: 'MarketDataProvider',
-      display_name: 'Massive Test Market Data',
-      adapter: 'MassiveRestTestAdapter',
+      display_name: 'Massive Market Data',
+      adapter: 'MassiveSnapshotAndAggregatesAdapter',
       mode: 'demo',
-      supplies: ['daily OHLCV history', 'price trend inputs', 'volume participation inputs', 'derived technical context'],
+      supplies: ['stock snapshots when entitled', 'daily OHLCV history', 'price trend inputs', 'volume participation inputs', 'derived technical context'],
       candidate_providers: ['Massive'],
       secret_env_name: 'MASSIVE_API_KEY',
       docs_url: 'https://massive.com/docs/rest/stocks/overview',
-      notes: 'Massive REST test integration. Uses end-of-day daily aggregates and is capped at five symbols per refresh while testing against the Basic API allowance.',
+      notes: snapshotStatus === 'available'
+        ? 'Massive snapshot + daily aggregate integration. Current price uses last trade, then minute/day snapshot fallbacks; historical bars drive technical context.'
+        : 'Massive daily aggregates are connected, but stock snapshot access was not available to this API key/plan during the latest refresh.',
       last_sync: now,
       last_error: results.find((row) => row.ok === false)?.error ?? null,
     }, { onConflict: 'provider_key' });
@@ -312,6 +358,8 @@ Deno.serve(async (req) => {
       mode: 'test',
       symbols_requested: symbols,
       bars_written: barsWritten,
+      snapshot_status: snapshotStatus,
+      snapshot_symbols: [...snapshots.keys()],
       results,
       is_demo: true,
     });
