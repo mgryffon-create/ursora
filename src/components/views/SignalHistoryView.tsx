@@ -93,12 +93,15 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
       setModifications([]);
     }
 
-    const dated = [
-      ...sig.map((s) => s.generated_at),
-      ...loadedTrades.map((trade) => trade.entry_at ?? trade.created_at),
-    ].filter(Boolean).sort();
-
-    const latest = dated.at(-1) ?? sig.map((s) => s.generated_at).filter(Boolean).sort().at(-1);
+    // Activity is a trader-behavior surface. When brokerage trades exist, open on
+    // the most recent actual trade instead of letting today's analysis records pull
+    // the calendar months away from the user's trading history.
+    const tradeDates = loadedTrades
+      .map((trade) => trade.entry_at ?? trade.created_at)
+      .filter(Boolean)
+      .sort();
+    const latest = tradeDates.at(-1)
+      ?? sig.map((s) => s.generated_at).filter(Boolean).sort().at(-1);
     if (latest) {
       const latestDate = new Date(latest);
       const latestKey = dayKey(latestDate);
@@ -377,7 +380,7 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
       <SectionHeading
         eyebrow="Activity"
         title="TradeCycle Calendar"
-        description="A chronological view of analyses, trades, meaningful thesis changes, outcomes, and flagged behavior. Select one day or a range to zoom into the underlying activity."
+        description="A chronological view of your actual trades, TradeCycle changes, outcomes, and flagged behavior. Market analyses remain supporting context rather than the primary activity record."
       />
 
       <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-end">
@@ -433,7 +436,7 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
 
       <Panel
         title="Calendar"
-        subtitle="Each date summarizes the activity URSORA actually has. Click once for a day; click another date to analyze a range."
+        subtitle="Trade dates are the primary index. Select a day or range to inspect the brokerage episodes and TradeCycle context attached to them."
         right={
           <div className="flex items-center gap-1">
             <button
@@ -686,8 +689,9 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
             </div>
           )}
 
+          {selectedTrades.length > 0 && (
           <Panel
-            title={rangeStart === rangeEnd ? `Analysis history for ${prettyDay(rangeStart)}` : 'Analysis history for selected range'}
+            title="Supporting market analyses"
             subtitle={`${selectedSignals.length} preserved market analysis record${selectedSignals.length === 1 ? '' : 's'} in this period.`}
             bodyClassName="p-0"
           >
@@ -737,6 +741,7 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
               </div>
             )}
           </Panel>
+          )}
         </>
       )}
 
