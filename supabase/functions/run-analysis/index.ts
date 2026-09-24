@@ -464,8 +464,8 @@ Deno.serve(async (req) => {
     const { data: latestQuotes, error: quoteError } = await db
       .from('quotes')
       .select('*')
+      .eq('is_demo', false)
       .in('source_name', [
-        'Massive Test Data',
         'Massive Stock Snapshot + Aggregates',
         'Massive Daily Aggregates',
         'Massive Frozen Session Close',
@@ -491,10 +491,13 @@ Deno.serve(async (req) => {
       // Premarket/after-hours test prints must not make a swing thesis oscillate
       // minute-to-minute. During the regular session, use the freshest live/test row.
       const chosen = marketPhase.regularOpen
-        ? rows.find((row) => String(row.source_name) !== 'Massive Frozen Session Close') ?? rows[0]
+        ? rows.find((row) => String(row.source_name) === 'Massive Stock Snapshot + Aggregates')
+          ?? rows.find((row) => String(row.source_name) === 'Massive Daily Aggregates')
+          ?? rows[0]
         : rows
             .filter((row) => String(row.source_name) === 'Massive Frozen Session Close')
             .sort((a, b) => String(b.as_of ?? '').localeCompare(String(a.as_of ?? '')))[0]
+          ?? rows.find((row) => String(row.source_name) === 'Massive Daily Aggregates')
           ?? rows[0];
       if (chosen) bySymbol.set(symbol, chosen);
     }
@@ -523,16 +526,37 @@ Deno.serve(async (req) => {
     }
 
     // Optional evidence tables. Missing integrations reduce completeness rather than failing the run.
+    // Fetch each symbol's latest chain batch directly. A single broad query can be
+    // truncated by PostgREST row caps once the universe contains thousands of contracts,
+    // which made some tickers appear to have aggregate option activity but no chain/liquidity data.
     let optionRows: AnyRow[] = [];
     try {
-      const { data } = await db
-        .from('option_market_snapshots')
-        .select('*')
-        .neq('source_name', 'Webull PaperTrade Sandbox')
-        .gte('retrieved_at', new Date(nowMs - 36 * 3600000).toISOString())
-        .order('retrieved_at', { ascending: false })
-        .limit(4000);
-      optionRows = data ?? [];
+      const targetSymbols = [...bySymbol.keys()];
+      for (const underlying of targetSymbols) {
+        const { data: latestBatch } = await db
+          .from('option_market_snapshots')
+          .select('retrieved_at')
+          .eq('underlying_symbol', underlying)
+          .neq('source_name', 'Webull PaperTrade Sandbox')
+          .gte('retrieved_at', new Date(nowMs - 36 * 3600000).toISOString())
+          .order('retrieved_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!latestBatch?.retrieved_at) continue;
+
+        const { data: batchRows, error: batchError } = await db
+          .from('option_market_snapshots')
+          .select('*')
+          .eq('underlying_symbol', underlying)
+          .eq('retrieved_at', latestBatch.retrieved_at)
+          .neq('source_name', 'Webull PaperTrade Sandbox')
+          .order('expiration', { ascending: true })
+          .order('strike', { ascending: true })
+          .limit(1000);
+        if (batchError) throw batchError;
+        optionRows.push(...(batchRows ?? []));
+      }
     } catch { optionRows = []; }
 
     let recentNews: AnyRow[] = [];
@@ -1682,7 +1706,7 @@ Deno.serve(async (req) => {
         },
         regime: snapshot?.regime ?? 'Mixed',
         regime_explanation: snapshot?.regime_note ?? 'Broader market conditions derived from the latest stored market data.',
-        engine_version: 'tradecycle-5.2.2',
+        engine_version: 'tradecycle-5.2.3',
         is_demo: Boolean(q.is_demo ?? true),
         generated_at: started,
       });
@@ -1704,7 +1728,7 @@ Deno.serve(async (req) => {
       feed_events: 0,
       regime: snapshot?.regime ?? null,
       notes: signalCount
-        ? `TradeCycle v5.2.2 swing analysis completed for authenticated user ${user.id}; outside regular hours, price evidence is anchored to the most recent frozen session close.`
+        ? `TradeCycle v5.2.3 swing analysis completed for authenticated user ${user.id}; outside regular hours, price evidence is anchored to the most recent frozen session close.`
         : 'No stored quote data were available; no signals were generated.',
       started_at: started,
       finished_at: new Date().toISOString(),
@@ -1716,7 +1740,7 @@ Deno.serve(async (req) => {
       signals: signalCount,
       updates: 0,
       run_id: runId,
-      engine_version: 'tradecycle-5.2.2',
+      engine_version: 'tradecycle-5.2.3',
       note: signalCount ? 'Signals generated using all currently available evidence categories.' : 'No stored quote data available.',
     });
   } catch (e) {
