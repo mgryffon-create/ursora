@@ -467,14 +467,11 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
 
       {/* --------------------------------- BASELINE -------------------------------- */}
       {tab === 'baseline' && (
-        emptyForNewUser ? (
-          <EmptyState title="Insufficient data" body="No trades are recorded for this account, so there is no baseline to compute. URSORA will not populate an example baseline — an invented baseline would make every later deviation meaningless." />
-        ) : (
           <div className="space-y-3">
             {traderProfile && (
               <Panel
-                title="MyURSORA baseline alignment"
-                subtitle="Compares the trading identity you stated in MyURSORA with observed trade history. These comparisons describe fit; they do not alter market evidence."
+                title="MyURSORA baseline context"
+                subtitle="Your stated trading identity belongs here even before brokerage history arrives. Observed alignment fills in as trade data accumulates."
               >
                 <Table
                   head={['MyURSORA', 'Observed behavior', 'Alignment', 'Context']}
@@ -484,10 +481,14 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
                     <span key="status" className={cn('font-semibold', contextTone(row.status))}>{row.status}</span>,
                     <span key="detail" className="text-zinc-500">{row.detail}</span>,
                   ])}
-                  empty="Add trading style or trade-type preferences in MyURSORA to create baseline comparisons."
+                  empty="Add trading style or trade-type preferences in MyURSORA to create baseline context."
                 />
               </Panel>
             )}
+            {emptyForNewUser ? (
+              <EmptyState title="Waiting for trade history" body="Your MyURSORA baseline is set. Once brokerage or recorded trade history is available, this tab will compare your actual holding periods, structures, sizing and trading cadence with that stated baseline." />
+            ) : (
+              <>
             <Panel title="Derived baseline" subtitle={`Computed from ${baseline.sampleSize} recorded trades across ${baseline.sessions} sessions. Every figure below is derived from your own history only.`}>
               <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-6">
                 <Stat label="Trades / session" value={`${baseline.tradesPerSessionMedian ?? '—'} med`} hint={`${baseline.tradesPerSessionMean ?? '—'} mean`} />
@@ -564,8 +565,9 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
                 ])}
               />
             </Panel>
+              </>
+            )}
           </div>
-        )
       )}
 
       {/* --------------------------------- PATTERNS -------------------------------- */}
@@ -627,14 +629,11 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
 
       {/* --------------------------------- PROCESS --------------------------------- */}
       {tab === 'process' && (
-        emptyForNewUser ? (
-          <EmptyState title="Insufficient data" body="Process adherence is measured against a stored pre-entry plan. Record a paper trade from an opportunity to create the first plan." />
-        ) : (
           <div className="space-y-3">
             {traderProfile && (
               <Panel
-                title="MyURSORA process alignment"
-                subtitle="Checks whether recorded behavior is consistent with your stated limits and process goals. Profitability does not excuse a process mismatch."
+                title="MyURSORA process context"
+                subtitle="Your stated goals and boundaries are shown immediately. Brokerage and plan data later determines whether actual behavior is aligned, mixed, or divergent."
               >
                 <Table
                   head={['MyURSORA goal / boundary', 'Observed behavior', 'Alignment', 'Context']}
@@ -644,11 +643,15 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
                     <span key="status" className={cn('font-semibold', contextTone(row.status))}>{row.status}</span>,
                     <span key="detail" className="text-zinc-500">{row.detail}</span>,
                   ])}
-                  empty="Add a process goal, target, or risk boundary in MyURSORA to create process comparisons."
+                  empty="Add a process goal, target, or risk boundary in MyURSORA to create process context."
                 />
               </Panel>
             )}
 
+            {emptyForNewUser ? (
+              <EmptyState title="Waiting for trade history" body="Your process goals are recorded. Once trade and plan data is available, URSORA will compare actual loss limits, planning consistency, re-entry behavior and adherence with those stated goals." />
+            ) : (
+              <>
             <Panel title="Process adherence" subtitle="Scored from plan adherence only. Profitability is deliberately excluded and must never be added.">
               <Table
                 head={['Trade', 'Origin', 'Adherence', 'Outcome', 'Process × outcome']}
@@ -708,8 +711,9 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
                 empty="No plan deviations are recorded."
               />
             </Panel>
+              </>
+            )}
           </div>
-        )
       )}
 
       {/* ------------------------------- PERFORMANCE ------------------------------- */}
