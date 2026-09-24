@@ -19,6 +19,7 @@ import {
 import {
   computeTraderIntelligence, assessAdherence, tradePl, positionSize, holdingMinutes, isClosed,
 } from '@/lib/behavioral/engine';
+import { deriveProfileContext, type ProfileContextInsight } from '@/lib/behavioral/profile-context';
 import {
   DEFAULT_BEHAVIORAL_PREFS, enabledCategories, fetchBehavioralPrefs, fetchLiterature,
   fetchModifications, fetchTradePlans, fetchTradeRecords, saveBehavioralPrefs, setTradeOrigin,
@@ -140,6 +141,22 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
   );
 
   const { baseline, sessions, today, risk, patterns, observations } = intel;
+  const profileContext = useMemo(
+    () => deriveProfileContext(traderProfile, activeTrades, baseline),
+    [traderProfile, activeTrades, baseline],
+  );
+  const profileRowsFor = (category: ProfileContextInsight['category']) =>
+    profileContext.filter((row) => row.category === category);
+  const contextTone = (status: ProfileContextInsight['status']) =>
+    status === 'ALIGNED'
+      ? 'text-emerald-400'
+      : status === 'DIVERGENT'
+        ? 'text-red-300'
+        : status === 'MIXED'
+          ? 'text-amber-300'
+          : status === 'PROFILE ONLY'
+            ? 'text-sky-300'
+            : 'text-zinc-500';
   const constructFor = (key: string | null) => lit.constructs.find((c) => c.construct_key === key) ?? null;
 
   const toggleCategory = async (key: string) => {
@@ -454,6 +471,23 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
           <EmptyState title="Insufficient data" body="No trades are recorded for this account, so there is no baseline to compute. URSORA will not populate an example baseline — an invented baseline would make every later deviation meaningless." />
         ) : (
           <div className="space-y-3">
+            {traderProfile && (
+              <Panel
+                title="MyURSORA baseline alignment"
+                subtitle="Compares the trading identity you stated in MyURSORA with observed trade history. These comparisons describe fit; they do not alter market evidence."
+              >
+                <Table
+                  head={['MyURSORA', 'Observed behavior', 'Alignment', 'Context']}
+                  rows={profileRowsFor('baseline').map((row) => [
+                    row.profileSignal,
+                    row.observed,
+                    <span key="status" className={cn('font-semibold', contextTone(row.status))}>{row.status}</span>,
+                    <span key="detail" className="text-zinc-500">{row.detail}</span>,
+                  ])}
+                  empty="Add trading style or trade-type preferences in MyURSORA to create baseline comparisons."
+                />
+              </Panel>
+            )}
             <Panel title="Derived baseline" subtitle={`Computed from ${baseline.sampleSize} recorded trades across ${baseline.sessions} sessions. Every figure below is derived from your own history only.`}>
               <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-6">
                 <Stat label="Trades / session" value={`${baseline.tradesPerSessionMedian ?? '—'} med`} hint={`${baseline.tradesPerSessionMean ?? '—'} mean`} />
@@ -537,6 +571,24 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
       {/* --------------------------------- PATTERNS -------------------------------- */}
       {tab === 'patterns' && (
         <div className="space-y-3">
+          {traderProfile && (
+            <Panel
+              title="MyURSORA pattern checks"
+              subtitle="Self-reported habits are treated as hypotheses. URSORA checks them against observed behavior when the required data exists and leaves them unresolved when it does not."
+            >
+              <Table
+                head={['MyURSORA hypothesis / goal', 'Observed behavior', 'Current read', 'Context']}
+                rows={profileRowsFor('patterns').map((row) => [
+                  row.profileSignal,
+                  row.observed,
+                  <span key="status" className={cn('font-semibold', contextTone(row.status))}>{row.status}</span>,
+                  <span key="detail" className="text-zinc-500">{row.detail}</span>,
+                ])}
+                empty="Add habits or Trader Intelligence goals in MyURSORA to create personal pattern checks."
+              />
+            </Panel>
+          )}
+
           {patterns.length === 0 ? (
             <EmptyState
               title={emptyForNewUser ? 'Insufficient data' : 'No statistically meaningful personal pattern identified'}
@@ -579,6 +631,24 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
           <EmptyState title="Insufficient data" body="Process adherence is measured against a stored pre-entry plan. Record a paper trade from an opportunity to create the first plan." />
         ) : (
           <div className="space-y-3">
+            {traderProfile && (
+              <Panel
+                title="MyURSORA process alignment"
+                subtitle="Checks whether recorded behavior is consistent with your stated limits and process goals. Profitability does not excuse a process mismatch."
+              >
+                <Table
+                  head={['MyURSORA goal / boundary', 'Observed behavior', 'Alignment', 'Context']}
+                  rows={profileRowsFor('process').map((row) => [
+                    row.profileSignal,
+                    row.observed,
+                    <span key="status" className={cn('font-semibold', contextTone(row.status))}>{row.status}</span>,
+                    <span key="detail" className="text-zinc-500">{row.detail}</span>,
+                  ])}
+                  empty="Add a process goal, target, or risk boundary in MyURSORA to create process comparisons."
+                />
+              </Panel>
+            )}
+
             <Panel title="Process adherence" subtitle="Scored from plan adherence only. Profitability is deliberately excluded and must never be added.">
               <Table
                 head={['Trade', 'Origin', 'Adherence', 'Outcome', 'Process × outcome']}
