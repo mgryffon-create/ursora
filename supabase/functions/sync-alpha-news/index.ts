@@ -135,11 +135,20 @@ Deno.serve(async (req) => {
       (states ?? []).map((row: any) => [String(row.symbol).toUpperCase(), row]),
     );
 
-    const refreshSymbols = symbols.filter((symbol) => {
-      const state: any = stateBySymbol.get(symbol);
-      const lastAttempt = state?.last_attempt ? new Date(state.last_attempt).getTime() : 0;
-      return !Number.isFinite(lastAttempt) || lastAttempt < staleBefore;
-    });
+    const refreshSymbols = symbols
+      .filter((symbol) => {
+        const state: any = stateBySymbol.get(symbol);
+        const lastAttempt = state?.last_attempt ? new Date(state.last_attempt).getTime() : 0;
+        return !Number.isFinite(lastAttempt) || lastAttempt < staleBefore;
+      })
+      .sort((a, b) => {
+        const aState: any = stateBySymbol.get(a);
+        const bState: any = stateBySymbol.get(b);
+        const aTime = aState?.last_attempt ? new Date(aState.last_attempt).getTime() : 0;
+        const bTime = bState?.last_attempt ? new Date(bState.last_attempt).getTime() : 0;
+        return aTime - bTime;
+      })
+      .slice(0, 4);
 
     const results: any[] = [];
     let inserted = 0;
@@ -251,7 +260,6 @@ Deno.serve(async (req) => {
         if (/rate|frequency|limit|call frequency|standard api rate/i.test(message)) break;
       }
 
-      await sleep(900);
     }
 
     for (const symbol of symbols) {
