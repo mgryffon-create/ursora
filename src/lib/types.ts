@@ -157,6 +157,23 @@ export interface Signal {
   generated_at: string;
 }
 
+export interface TraderProfile {
+  user_id: string;
+  brokerages: string[];
+  trading_styles: string[];
+  trade_types: string[];
+  primary_goals: string[];
+  profit_target_type: 'none' | 'per_trade_dollar' | 'per_trade_percent' | 'weekly_dollar' | 'monthly_dollar';
+  profit_target_value: number | null;
+  risk_comfort: 'conservative' | 'moderate' | 'aggressive';
+  max_loss_type: 'none' | 'dollar' | 'percent';
+  max_loss_value: number | null;
+  ursora_goals: string[];
+  self_reported_habits: string[];
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface ActiveAnalysis {
   user_id: string;
   symbol: string;
