@@ -173,14 +173,21 @@ export async function runFreshAnalysis(
   body: Record<string, unknown> = { kind: 'manual' },
 ): Promise<FreshAnalysisResult> {
   const warnings: string[] = [];
-  const symbols = Array.isArray(body.symbols) ? { symbols: body.symbols } : {};
+  const selectedSymbols = Array.isArray(body.symbols)
+    ? [...new Set(body.symbols.map((value) => String(value).trim().toUpperCase()).filter(Boolean))]
+    : [];
+  const selectedPayload = selectedSymbols.length ? { symbols: selectedSymbols } : {};
+  const marketSymbols = selectedSymbols.length
+    ? [...new Set([...selectedSymbols, 'SPY', 'QQQ', 'IWM'])]
+    : [];
+  const marketPayload = marketSymbols.length ? { symbols: marketSymbols } : {};
 
   const stages: Array<{ label: string; slug: EdgeFunctionSlug; payload: Record<string, unknown> }> = [
-    { label: 'Massive market quotes and historical data', slug: EDGE_FUNCTIONS.marketSync, payload: symbols },
-    { label: 'Massive options chain', slug: EDGE_FUNCTIONS.optionsSync, payload: symbols },
+    { label: 'Massive market quotes and historical data', slug: EDGE_FUNCTIONS.marketSync, payload: marketPayload },
+    { label: 'Massive options chain', slug: EDGE_FUNCTIONS.optionsSync, payload: selectedPayload },
     { label: 'market context', slug: EDGE_FUNCTIONS.marketContextSync, payload: { force: true } },
-    { label: 'verified news and sentiment', slug: EDGE_FUNCTIONS.alphaNewsSync, payload: symbols },
-    { label: 'earnings calendar', slug: EDGE_FUNCTIONS.alphaEarningsSync, payload: symbols },
+    { label: 'verified news and sentiment', slug: EDGE_FUNCTIONS.alphaNewsSync, payload: selectedPayload },
+    { label: 'earnings calendar', slug: EDGE_FUNCTIONS.alphaEarningsSync, payload: selectedPayload },
   ];
 
   for (const stage of stages) {
