@@ -33,9 +33,9 @@ export const EDGE_FUNCTIONS = {
   alphaEarningsSync: 'sync-alpha-earnings',
   marketContextSync: 'sync-market-context',
   historicalPlayback: 'historical-session-playback',
-  snapTradeRegister: 'snaptrade-register-user',
-  snapTradePortal: 'snaptrade-connection-portal',
-  snapTradeSync: 'sync-snaptrade-accounts',
+  snapTradeRegister: 'snaptrade-register-user-v2',
+  snapTradePortal: 'snaptrade-connection-portal-v2',
+  snapTradeSync: 'sync-snaptrade-accounts-v2',
 } as const;
 
 export type EdgeFunctionSlug = (typeof EDGE_FUNCTIONS)[keyof typeof EDGE_FUNCTIONS];
