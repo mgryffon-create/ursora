@@ -127,26 +127,13 @@ Deno.serve(async (req) => {
     const universe = [...new Set(symbols)].slice(0, 20);
     if (!universe.length) return json({ error: 'No symbols configured.' }, 400);
 
-    // Rotate a small batch each run instead of holding one Edge Function open
-    // across the whole universe. Recent option snapshots remain usable for 36h
-    // in TradeCycle, so several runs progressively seed the full universe.
+    // Options Starter has unlimited API calls. A swing-analysis run should not
+    // have partial option coverage simply because the previous implementation
+    // rotated five symbols at a time. Refresh every symbol in the configured
+    // universe on each run so evidence coverage is complete on the first pass.
     const providerKey = 'massive_options';
     const capability = 'option_chain';
-    const { data: syncStates } = await db
-      .from('provider_symbol_syncs')
-      .select('symbol,last_attempt')
-      .eq('provider_key', providerKey)
-      .eq('capability', capability)
-      .in('symbol', universe);
-
-    const stateBySymbol = new Map((syncStates ?? []).map((row: any) => [
-      String(row.symbol).toUpperCase(),
-      row.last_attempt ? new Date(row.last_attempt).getTime() : 0,
-    ]));
-
-    symbols = [...universe]
-      .sort((a, b) => (stateBySymbol.get(a) ?? 0) - (stateBySymbol.get(b) ?? 0))
-      .slice(0, 5);
+    symbols = [...universe];
 
     const now = new Date().toISOString();
     const expirationMin = dateOnly(new Date(Date.now() + 7 * 86400000));
@@ -183,15 +170,15 @@ Deno.serve(async (req) => {
           {
             'expiration_date.gte': expirationMin,
             'expiration_date.lte': expirationMax,
-            'strike_price.gte': Math.max(0.5, underlyingPrice * 0.75).toFixed(2),
-            'strike_price.lte': (underlyingPrice * 1.25).toFixed(2),
+            'strike_price.gte': Math.max(0.5, underlyingPrice * 0.88).toFixed(2),
+            'strike_price.lte': (underlyingPrice * 1.12).toFixed(2),
             order: 'asc',
             sort: 'expiration_date',
             limit: 250,
           },
         );
 
-        for (let page = 0; page < 4; page++) {
+        for (let page = 0; page < 2; page++) {
           if (Array.isArray(payload?.results)) chain.push(...payload.results);
           const nextUrl = typeof payload?.next_url === 'string' ? payload.next_url : null;
           if (!nextUrl) break;
@@ -374,6 +361,8 @@ Deno.serve(async (req) => {
       mode: 'connected_delayed',
       entitlement_status: 'available_or_partial',
       contracts_written: totalRows,
+      symbols_requested: universe,
+      symbols_with_contracts: results.filter((row) => row.ok && row.contracts > 0).map((row) => row.symbol),
       results,
       is_demo: false,
     });
