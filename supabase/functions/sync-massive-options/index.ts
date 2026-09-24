@@ -106,7 +106,7 @@ Deno.serve(async (req) => {
 
   let stage = 'startup';
   try {
-    const { db } = await requireUser(req);
+    const { user, db } = await requireUser(req);
     const body = await req.json().catch(() => ({}));
 
     let symbols: string[] = Array.isArray(body.symbols)
@@ -114,14 +114,17 @@ Deno.serve(async (req) => {
       : [];
 
     if (!symbols.length) {
-      const { data, error } = await db
-        .from('tickers')
-        .select('symbol')
-        .eq('is_default', true)
-        .order('priority')
-        .limit(20);
-      if (error) throw error;
-      symbols = (data ?? []).map((row: any) => String(row.symbol).toUpperCase()).filter(Boolean);
+      const [{ data: favoriteRows, error: favoriteError }, { data: tickerRows, error: tickerError }] = await Promise.all([
+        db.from('user_favorites').select('symbol').eq('user_id', user.id).order('added_at', { ascending: true }),
+        db.from('tickers').select('symbol').eq('is_default', true).order('priority').limit(20),
+      ]);
+      if (favoriteError) throw favoriteError;
+      if (tickerError) throw tickerError;
+
+      symbols = [
+        ...(favoriteRows ?? []).map((row: any) => String(row.symbol).toUpperCase()).filter(Boolean),
+        ...(tickerRows ?? []).map((row: any) => String(row.symbol).toUpperCase()).filter(Boolean),
+      ];
     }
 
     const universe = [...new Set(symbols)].slice(0, 20);
