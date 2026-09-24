@@ -230,7 +230,7 @@ Deno.serve(async (req) => {
       .from('quotes')
       .select('*')
       .in('symbol', symbols)
-      .eq('source_type', 'market_data_eod_test')
+      .eq('source_type', 'market_data_eod')
       .order('retrieved_at', { ascending: true })
       .limit(500);
     if (frozenRowsError) throw frozenRowsError;
@@ -442,12 +442,12 @@ Deno.serve(async (req) => {
           ? 'Massive Frozen Session Close'
           : (snapshots.has(symbol) ? 'Massive Stock Snapshot + Aggregates' : 'Massive Daily Aggregates'),
         source_type: freezeForSession
-          ? 'market_data_eod_test'
-          : (snapshots.has(symbol) ? 'market_data_snapshot_test' : 'market_data_test'),
+          ? 'market_data_eod'
+          : (snapshots.has(symbol) ? 'market_data_snapshot' : 'market_data'),
         published_at: frozenAsOf,
         retrieved_at: now,
         confidence: snapshots.has(symbol) ? 0.95 : 0.90,
-        is_demo: true,
+        is_demo: false,
         as_of: frozenAsOf,
       };
 
@@ -491,7 +491,7 @@ Deno.serve(async (req) => {
       interface_name: 'MarketDataProvider',
       display_name: 'Massive Market Data',
       adapter: 'MassiveSnapshotAndAggregatesAdapter',
-      mode: 'demo',
+      mode: 'connected',
       supplies: ['stock snapshots when entitled', 'daily OHLCV history', 'price trend inputs', 'volume participation inputs', 'derived technical context'],
       candidate_providers: ['Massive'],
       secret_env_name: 'MASSIVE_API_KEY',
@@ -506,7 +506,7 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       provider: 'Massive',
-      mode: 'test',
+      mode: snapshotStatus === 'available' ? 'connected_snapshot' : 'connected_eod',
       symbols_requested: symbols,
       bars_written: barsWritten,
       snapshot_status: snapshotStatus,
@@ -515,7 +515,7 @@ Deno.serve(async (req) => {
       session_key: session.sessionKey,
       frozen_symbols: [...frozenBySymbol.keys()],
       results,
-      is_demo: true,
+      is_demo: false,
     });
   } catch (error) {
     if (error instanceof AuthError) return json({ error: error.message }, error.status);
