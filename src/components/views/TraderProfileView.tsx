@@ -216,7 +216,7 @@ export const TraderProfileView: React.FC<{ onboarding?: boolean; onSaved?: () =>
 
   if (!user) {
     return (
-      <Panel title="Trader profile">
+      <Panel title="MyURSORA">
         <p className="text-sm text-zinc-400">Sign in to create a persistent trader profile.</p>
       </Panel>
     );
@@ -249,7 +249,7 @@ export const TraderProfileView: React.FC<{ onboarding?: boolean; onSaved?: () =>
   return (
     <div className="space-y-4">
       <SectionHeading
-        eyebrow="Trader profile"
+        eyebrow="MyURSORA"
         title={editing ? 'Set your trading baseline' : 'Your trading baseline'}
         description={onboarding
           ? "This is optional, but Trader Intelligence becomes much more personal when URSORA knows your goals, style, risk comfort, and the habits you want to watch."
