@@ -65,7 +65,7 @@ function factorSummary(signal: any) {
       label: String(f?.label ?? f?.factor ?? 'factor'),
       factor: String(f?.factor ?? ''),
       contribution: n(f?.contribution) ?? 0,
-      weight: n(f?.effective_weight) ?? 0,
+      weight: (n(f?.effective_weight) ?? 0) * 100,
       band: String(f?.strength_band ?? ''),
       vote: String(f?.thesis_vote ?? ''),
       explanation: String(f?.explanation ?? ''),
@@ -132,15 +132,44 @@ Deno.serve(async (req) => {
         answer = `${topFactor.label} had the largest absolute contribution to this run's score. It ${direction} the score by about ${Math.abs(topFactor.contribution).toFixed(1)} weighted points, with ${topFactor.band || 'unclassified'} evidence and a ${topFactor.weight.toFixed(1)}% effective weight. ${topFactor.explanation || ''}`.trim();
       }
     } else if (/strongest reasons not to take|reasons not to take|why.*not.*trade|avoid.*trade/.test(ql)) {
-      const reasons = blockers.length ? blockers : [
-        signal?.no_trade_reason,
-        risk?.liquidity_risk,
-        risk?.catalyst_risk,
-      ].filter(Boolean);
+      const opposingFactors = factors
+        .filter((factor) => factor.vote === 'OPPOSE')
+        .sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
+
+      const reasons: string[] = [];
+      for (const factor of opposingFactors.slice(0, 2)) {
+        const weightText = factor.weight > 0 ? ` at ${factor.weight.toFixed(1)}% effective weight` : '';
+        reasons.push(`${factor.label} is ${factor.band || 'meaningful'} opposing evidence${weightText}. ${factor.explanation}`.trim());
+      }
+
+      if (!contracts?.length && risk?.liquidity_risk) {
+        reasons.push(String(risk.liquidity_risk));
+      }
+
+      if (!reasons.length && blockers.length) {
+        reasons.push(...blockers.slice(0, 3));
+      }
+
+      if (!reasons.length && signal?.no_trade_reason) {
+        reasons.push(String(signal.no_trade_reason));
+      }
+
+      // A headline is not automatically a reason against the trade. Only include
+      // catalyst risk when the stored risk assessment explicitly characterizes it
+      // as a risk rather than merely noting that an event exists.
+      const catalystRisk = String(risk?.catalyst_risk ?? '').trim();
+      if (
+        catalystRisk &&
+        !/monitor the identified market event/i.test(catalystRisk) &&
+        reasons.length < 3
+      ) {
+        reasons.push(catalystRisk);
+      }
+
       if (reasons.length) {
         answer = `The strongest reasons not to take ${sym ?? 'this setup'} are: ${reasons.slice(0, 3).join(' ')}`;
       } else {
-        answer = `URSORA does not currently have a stored hard blocker for ${sym ?? 'this setup'}, but the thesis state is ${thesisState} and contract-specific execution quality still has to be satisfied before entry.`;
+        answer = `URSORA does not currently have a stored opposing evidence family or hard blocker for ${sym ?? 'this setup'}. The thesis state is ${thesisState}, but contract-specific execution quality still has to be satisfied before entry.`;
       }
     } else if (/no longer valid|invalidate|invalidation|what evidence would make/.test(ql)) {
       const level = n(signal?.invalidation_level);
