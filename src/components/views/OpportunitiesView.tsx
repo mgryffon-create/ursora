@@ -93,6 +93,8 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
           map[c.signal_id] = [...(map[c.signal_id] ?? []), c];
         }
         setCandidates(map);
+      } else {
+        setCandidates({});
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
