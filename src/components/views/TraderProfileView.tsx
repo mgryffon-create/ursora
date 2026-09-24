@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, Loader2, Save, UserRound } from 'lucide-react';
+import { Check, Loader2, Pencil, Save, UserRound } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { fetchTraderProfile, saveTraderProfile } from '@/lib/api';
 import type { TraderProfile } from '@/lib/types';
@@ -130,12 +130,42 @@ const FieldTitle: React.FC<{ title: string; hint?: string }> = ({ title, hint })
   </div>
 );
 
+const readableError = (error: unknown) => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object') {
+    const row = error as Record<string, unknown>;
+    const detail = [row.message, row.details, row.hint, row.code].filter(Boolean).join(' · ');
+    if (detail) return detail;
+    try { return JSON.stringify(error); } catch { return 'Trader profile could not be loaded.'; }
+  }
+  return 'Trader profile could not be loaded.';
+};
+
+const labelsFor = (values: string[], choices: Choice[]) =>
+  values.map((value) => choices.find((choice) => choice.value === value)?.label ?? value.replaceAll('_', ' '));
+
+const OverviewRow: React.FC<{ label: string; values: string[]; empty?: string }> = ({ label, values, empty = 'Not set' }) => (
+  <div className="rounded-sm border border-zinc-800 bg-black/20 p-3">
+    <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">{label}</div>
+    <div className="mt-1.5 flex flex-wrap gap-1.5">
+      {values.length ? values.map((value) => (
+        <span key={value} className="rounded-sm border border-zinc-700 bg-black/25 px-2 py-1 text-[10px] text-zinc-300">
+          {value}
+        </span>
+      )) : <span className="text-[11px] text-zinc-600">{empty}</span>}
+    </div>
+  </div>
+);
+
 export const TraderProfileView: React.FC<{ onboarding?: boolean; onSaved?: () => void }> = ({ onboarding = false, onSaved }) => {
   const { user } = useAuth();
   const [profile, setProfile] = useState<TraderProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [editing, setEditing] = useState(true);
+  const [hasSavedProfile, setHasSavedProfile] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -147,9 +177,21 @@ export const TraderProfileView: React.FC<{ onboarding?: boolean; onSaved?: () =>
       }
       try {
         const existing = await fetchTraderProfile();
-        if (active) setProfile(existing ?? EMPTY_PROFILE(user.id));
+        if (active) {
+          setProfile(existing ?? EMPTY_PROFILE(user.id));
+          setHasSavedProfile(Boolean(existing));
+          setEditing(!existing);
+        }
       } catch (error) {
-        if (active) setMessage(error instanceof Error ? error.message : String(error));
+        if (active) {
+          // The profile page is also the setup surface. A read/storage problem should
+          // never turn the page into a dead end: keep an editable local profile visible
+          // and show the underlying persistence error separately.
+          setProfile(EMPTY_PROFILE(user.id));
+          setHasSavedProfile(false);
+          setEditing(true);
+          setMessage(readableError(error));
+        }
       } finally {
         if (active) setLoading(false);
       }
@@ -180,14 +222,7 @@ export const TraderProfileView: React.FC<{ onboarding?: boolean; onSaved?: () =>
     );
   }
 
-  if (!profile) {
-    return (
-      <Panel title="Trader profile">
-        <p className="text-sm text-zinc-300">Your account is signed in, but the trader profile could not be loaded.</p>
-        {message && <p className="mt-2 text-[11px] text-amber-300">{message}</p>}
-      </Panel>
-    );
-  }
+  if (!profile) return <Spinner label="Preparing trader profile" />;
 
   const update = <K extends keyof TraderProfile>(key: K, value: TraderProfile[K]) => {
     setProfile((current) => current ? { ...current, [key]: value } : current);
@@ -200,10 +235,12 @@ export const TraderProfileView: React.FC<{ onboarding?: boolean; onSaved?: () =>
     try {
       const { user_id: _userId, created_at: _created, updated_at: _updated, ...payload } = profile;
       await saveTraderProfile({ user_id: user.id, ...payload });
+      setHasSavedProfile(true);
+      setEditing(false);
       setMessage('Trader profile saved.');
       onSaved?.();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      setMessage(readableError(error));
     } finally {
       setSaving(false);
     }
@@ -213,25 +250,82 @@ export const TraderProfileView: React.FC<{ onboarding?: boolean; onSaved?: () =>
     <div className="space-y-4">
       <SectionHeading
         eyebrow="Trader profile"
-        title="Set your trading baseline"
+        title={editing ? 'Set your trading baseline' : 'Your trading baseline'}
         description={onboarding
           ? "This is optional, but Trader Intelligence becomes much more personal when URSORA knows your goals, style, risk comfort, and the habits you want to watch."
-          : "Tell URSORA what you are trying to do. Trader Intelligence can later compare your stated plan with your observed behavior without changing the market thesis."}
+          : editing
+            ? "Set or update the preferences Trader Intelligence uses as your personal reference point. These preferences never change the market thesis."
+            : "A compact view of the goals, preferences, and habits URSORA uses as your personal reference point."}
         right={
           <div className="flex items-center gap-2">
             <span className="font-mono text-[10px] text-zinc-500">{completion}% complete</span>
-            <Button size="sm" onClick={() => void save()} disabled={saving} className="gap-1.5">
-              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-              Save profile
-            </Button>
+            {editing ? (
+              <Button size="sm" onClick={() => void save()} disabled={saving} className="gap-1.5">
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                Save profile
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => { setEditing(true); setMessage(null); }} className="gap-1.5 border-zinc-700">
+                <Pencil className="h-3.5 w-3.5" />
+                Edit profile
+              </Button>
+            )}
           </div>
         }
       />
 
       {message && (
-        <div className="rounded-sm border border-zinc-800 bg-black/20 px-3 py-2 text-[11px] text-zinc-300">{message}</div>
+        <div className={cn(
+          'rounded-sm border px-3 py-2 text-[11px]',
+          message === 'Trader profile saved.'
+            ? 'border-emerald-500/30 bg-emerald-500/[0.06] text-emerald-200'
+            : 'border-amber-500/30 bg-amber-500/[0.06] text-amber-200',
+        )}>
+          {message}
+        </div>
       )}
 
+      {!editing && hasSavedProfile ? (
+        <>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <OverviewRow label="Brokerage" values={labelsFor(profile.brokerages, BROKERAGES)} />
+            <OverviewRow label="Trading style" values={labelsFor(profile.trading_styles, STYLES)} />
+            <OverviewRow label="Trade types" values={labelsFor(profile.trade_types, TRADE_TYPES)} />
+            <OverviewRow label="Primary goals" values={labelsFor(profile.primary_goals, PRIMARY_GOALS)} />
+            <OverviewRow label="URSORA focus" values={labelsFor(profile.ursora_goals, URSORA_GOALS)} />
+            <OverviewRow label="Self-reported habits" values={labelsFor(profile.self_reported_habits, HABITS)} empty="No pattern flags set" />
+          </div>
+
+          <Panel title="Risk & targets" subtitle="Your stated boundaries, not market recommendations.">
+            <div className="grid gap-2 sm:grid-cols-3">
+              <OverviewRow label="Risk comfort" values={[profile.risk_comfort]} />
+              <OverviewRow
+                label="Profit target"
+                values={profile.profit_target_type === 'none'
+                  ? []
+                  : [`${profile.profit_target_type.replaceAll('_', ' ')} · ${profile.profit_target_value ?? 'not set'}`]}
+                empty="No fixed target"
+              />
+              <OverviewRow
+                label="Max loss"
+                values={profile.max_loss_type === 'none'
+                  ? []
+                  : [`${profile.max_loss_type.replaceAll('_', ' ')} · ${profile.max_loss_value ?? 'not set'}`]}
+                empty="No fixed limit"
+              />
+            </div>
+          </Panel>
+
+          <Panel title="How Trader Intelligence uses this" subtitle="Your profile is a reference baseline, not a market input.">
+            <div className="flex items-start gap-2">
+              <UserRound className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" />
+              <p className="text-[11px] leading-relaxed text-zinc-400">
+                URSORA can compare your observed trading behavior with what you said you want to do — your preferred time horizon, risk comfort, targets, structures, and habits — while keeping market evidence separate.
+              </p>
+            </div>
+          </Panel>
+        </>
+      ) : (
       <div className="grid gap-3 lg:grid-cols-2">
         <Panel title="Brokerage" subtitle="Where you trade today.">
           <ChipGroup choices={BROKERAGES} values={profile.brokerages} onChange={(value) => update('brokerages', value)} />
@@ -335,6 +429,7 @@ export const TraderProfileView: React.FC<{ onboarding?: boolean; onSaved?: () =>
           </div>
         </Panel>
       </div>
+      )}
     </div>
   );
 };
