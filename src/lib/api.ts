@@ -36,6 +36,7 @@ export const EDGE_FUNCTIONS = {
   snapTradeRegister: 'snaptrade-register-user-v2',
   snapTradePortal: 'snaptrade-connection-portal-v2',
   snapTradeSync: 'sync-snaptrade-accounts-v2',
+  snapTradeNormalize: 'normalize-snaptrade-trades-v2',
 } as const;
 
 export type EdgeFunctionSlug = (typeof EDGE_FUNCTIONS)[keyof typeof EDGE_FUNCTIONS];
@@ -182,6 +183,9 @@ export interface SnapTradeSyncResult {
   activities: number;
   warnings: string[];
   synced_at: string;
+  episodes?: number;
+  closed_episodes?: number;
+  open_episodes?: number;
 }
 
 export async function registerSnapTradeUser(): Promise<{ success: boolean; registered: boolean; created: boolean }> {
@@ -193,7 +197,22 @@ export async function createSnapTradeConnectionPortal(): Promise<{ success: bool
 }
 
 export async function syncSnapTradeAccounts(includeActivities = true): Promise<SnapTradeSyncResult> {
-  return callEdge<SnapTradeSyncResult>(EDGE_FUNCTIONS.snapTradeSync, { include_activities: includeActivities });
+  const synced = await callEdge<SnapTradeSyncResult>(EDGE_FUNCTIONS.snapTradeSync, { include_activities: includeActivities });
+  if (!includeActivities) return synced;
+
+  const normalized = await callEdge<{
+    success: boolean;
+    episodes: number;
+    closed: number;
+    open: number;
+  }>(EDGE_FUNCTIONS.snapTradeNormalize, {});
+
+  return {
+    ...synced,
+    episodes: normalized.episodes,
+    closed_episodes: normalized.closed,
+    open_episodes: normalized.open,
+  };
 }
 
 export async function fetchSnapTradeAccounts(): Promise<SnapTradeAccount[]> {
