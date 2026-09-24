@@ -157,6 +157,23 @@ export interface Signal {
   generated_at: string;
 }
 
+export interface ActiveAnalysis {
+  user_id: string;
+  symbol: string;
+  signal_id: number;
+  status: string;
+  direction: Direction;
+  holding_period: string | null;
+  analyzed_at: string;
+  valid_until: string | null;
+  suggested_expiration: string | null;
+  target_price: number | null;
+  invalidation_level: number | null;
+  opportunity_score: number | null;
+  confidence_score: number | null;
+  updated_at: string;
+}
+
 export interface ContractCandidate {
   id: number;
   signal_id: number;
