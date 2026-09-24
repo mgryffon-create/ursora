@@ -10,7 +10,7 @@ import { changeColor, marketStatus, num, pct, stampET } from '@/lib/format';
 import { useAuth } from '@/contexts/AuthContext';
 import { CompactMark } from '@/brand';
 import { cn } from '@/lib/utils';
-import { DemoBadge, Spinner, Unavailable } from '@/components/common/Primitives';
+import { DataBadge, DemoBadge, Spinner, Unavailable } from '@/components/common/Primitives';
 import Landing from '@/components/Landing';
 import AuthPanel from '@/components/AuthPanel';
 import OpportunitiesView from '@/components/views/OpportunitiesView';
@@ -118,7 +118,7 @@ const StatusBar: React.FC<{ snapshot: MarketSnapshot | null }> = ({ snapshot }) 
         <span className="hidden font-mono text-[10px] text-zinc-600 lg:inline">
           {stampET(snapshot?.as_of) ?? 'DATA UNAVAILABLE'}
         </span>
-        <DemoBadge />
+        {snapshot?.is_demo ? <DemoBadge /> : <DataBadge kind="derived" label="MARKET CONTEXT" />}
       </span>
     </div>
   );
@@ -289,9 +289,6 @@ export const AppLayout: React.FC = () => {
             {activeLabel}
           </span>
           <div className="ml-auto flex items-center gap-2">
-            <span className="hidden rounded-sm border border-amber-500/30 bg-amber-500/[0.06] px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-amber-300 lg:inline">
-              sandbox data
-            </span>
             <button
               type="button"
               onClick={() => go('about')}
