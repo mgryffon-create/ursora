@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  Area, AreaChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer,
+  Area, AreaChart, CartesianGrid, Line, LineChart, ReferenceDot, ReferenceLine, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from 'recharts';
 import type { Bar } from '@/lib/types';
@@ -117,6 +117,133 @@ export const PriceChart: React.FC<{ bars: Bar[]; levels?: KeyLevel[]; height?: n
           </span>
         ))}
         <span>{bars.length} daily bars, modelled by the simulation adapter</span>
+      </div>
+    </div>
+  );
+};
+
+export interface SessionPlaybackMarker {
+  kind: 'entry' | 'weakening' | 'invalidation' | 'exit';
+  label: string;
+  at: string;
+  price: number | null;
+  detail?: string;
+}
+
+const markerColor = (kind: SessionPlaybackMarker['kind']) =>
+  kind === 'entry' ? '#34d399'
+    : kind === 'weakening' ? '#fbbf24'
+      : kind === 'invalidation' ? '#f87171'
+        : '#60a5fa';
+
+const sessionTime = (iso: string) =>
+  new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(iso));
+
+export const SessionPlaybackChart: React.FC<{
+  bars: Bar[];
+  markers: SessionPlaybackMarker[];
+  height?: number;
+}> = ({ bars, markers, height = 360 }) => {
+  if (!bars.length) {
+    return (
+      <div className="flex h-56 items-center justify-center rounded-sm border border-dashed border-zinc-800">
+        <Unavailable />
+      </div>
+    );
+  }
+
+  const validMarkers = markers.filter((item) => item.price !== null && Number.isFinite(Number(item.price)));
+  const lows = bars.map((b) => b.low);
+  const highs = bars.map((b) => b.high);
+  const markerValues = validMarkers.map((item) => Number(item.price));
+  const min = Math.min(...lows, ...markerValues);
+  const max = Math.max(...highs, ...markerValues);
+  const pad = (max - min) * 0.08 || 1;
+
+  return (
+    <div>
+      <div style={{ height }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={bars} margin={{ top: 20, right: 64, bottom: 4, left: 0 }}>
+            <defs>
+              <linearGradient id="ursoraPlaybackPrice" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.22} />
+                <stop offset="100%" stopColor="#38bdf8" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke="#1c2027" strokeDasharray="2 4" vertical={false} />
+            <XAxis
+              dataKey="bar_time"
+              tick={axisStyle}
+              tickLine={false}
+              axisLine={{ stroke: '#1c2027' }}
+              minTickGap={56}
+              tickFormatter={(v: string) => sessionTime(v)}
+            />
+            <YAxis
+              orientation="right"
+              domain={[min - pad, max + pad]}
+              tick={axisStyle}
+              tickLine={false}
+              axisLine={{ stroke: '#1c2027' }}
+              width={58}
+              tickFormatter={(v: number) => v.toFixed(v > 100 ? 1 : 2)}
+            />
+            <Tooltip content={<TooltipBox />} />
+            <Area
+              type="monotone"
+              dataKey="close"
+              stroke="#38bdf8"
+              strokeWidth={1.5}
+              fill="url(#ursoraPlaybackPrice)"
+              dot={false}
+              animationDuration={500}
+            />
+            {validMarkers.map((item) => (
+              <ReferenceDot
+                key={`${item.kind}-${item.at}`}
+                x={bars.reduce((best, bar) => {
+                  const target = new Date(item.at).getTime();
+                  const bestD = Math.abs(new Date(best.bar_time).getTime() - target);
+                  const nextD = Math.abs(new Date(bar.bar_time).getTime() - target);
+                  return nextD < bestD ? bar : best;
+                }, bars[0]).bar_time}
+                y={Number(item.price)}
+                r={5}
+                fill={markerColor(item.kind)}
+                stroke="#0b0d10"
+                strokeWidth={2}
+                label={{
+                  value: item.label,
+                  position: item.kind === 'invalidation' ? 'top' : 'bottom',
+                  fill: markerColor(item.kind),
+                  fontSize: 9,
+                  fontWeight: 700,
+                  fontFamily: 'JetBrains Mono, monospace',
+                }}
+              />
+            ))}
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-2">
+        {markers.map((item) => (
+          <div key={`${item.kind}-${item.at}-legend`} className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1.5">
+            <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider" style={{ color: markerColor(item.kind) }}>
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: markerColor(item.kind) }} />
+              {item.label}
+            </div>
+            <div className="mt-0.5 font-mono text-[10px] text-zinc-400">
+              {sessionTime(item.at)}{item.price !== null ? ` · ${Number(item.price).toFixed(2)}` : ''}
+            </div>
+            {item.detail && <div className="mt-0.5 text-[9px] text-zinc-600">{item.detail}</div>}
+          </div>
+        ))}
       </div>
     </div>
   );
