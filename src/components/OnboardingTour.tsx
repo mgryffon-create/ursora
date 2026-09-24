@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BookOpen, Brain, LineChart, ShieldCheck } from 'lucide-react';
+import { BookOpen, Brain, LineChart, ShieldCheck, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const STEPS = [
@@ -19,18 +19,28 @@ const STEPS = [
     Icon: Brain,
   },
   {
+    title: 'Make Trader Intelligence yours',
+    body: 'Your trader profile gives URSORA a personal baseline for your goals, trading style, risk comfort, preferred structures, and the habits you want to watch. It is optional, but Trader Intelligence is more unique and useful when you fill it out.',
+    Icon: UserRound,
+    traderSetup: true,
+  },
+  {
     title: 'Understand the limits',
     body: 'URSORA is a research and learning tool, not investment advice. Scores are summaries of available evidence, not probabilities of profit. Missing data increases uncertainty. Trading and options involve the risk of loss.',
     Icon: ShieldCheck,
   },
 ];
 
-export const OnboardingTour: React.FC<{ onFinish: () => void }> = ({ onFinish }) => {
+export const OnboardingTour: React.FC<{
+  onFinish: () => void;
+  onSetupTraderProfile?: () => void;
+}> = ({ onFinish, onSetupTraderProfile }) => {
   const [step, setStep] = useState(0);
   const [acknowledged, setAcknowledged] = useState(false);
   const current = STEPS[step];
   const Icon = current.Icon;
   const final = step === STEPS.length - 1;
+  const traderSetup = Boolean((current as typeof current & { traderSetup?: boolean }).traderSetup);
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
@@ -69,12 +79,27 @@ export const OnboardingTour: React.FC<{ onFinish: () => void }> = ({ onFinish })
           >
             Back
           </button>
-          <Button
-            onClick={() => final ? onFinish() : setStep((value) => value + 1)}
-            disabled={final && !acknowledged}
-          >
-            {final ? 'Enter URSORA' : 'Continue'}
-          </Button>
+          {traderSetup ? (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setStep((value) => value + 1)}
+                className="px-2 py-1 text-[11px] text-zinc-500 transition-colors hover:text-zinc-300"
+              >
+                Skip for now
+              </button>
+              <Button onClick={onSetupTraderProfile}>
+                Set up my profile
+              </Button>
+            </div>
+          ) : (
+            <Button
+              onClick={() => final ? onFinish() : setStep((value) => value + 1)}
+              disabled={final && !acknowledged}
+            >
+              {final ? 'Enter URSORA' : 'Continue'}
+            </Button>
+          )}
         </div>
       </div>
     </div>
