@@ -157,7 +157,7 @@ export const AppLayout: React.FC = () => {
     }
   }, [user]);
   useEffect(() => {
-    if (!user) return;
+    if (!user || loading) return;
 
     const loginKey = `ursora_login_market_refresh_${user.id}`;
     const today = new Date().toISOString().slice(0, 10);
@@ -205,7 +205,7 @@ export const AppLayout: React.FC = () => {
     }, 15 * 60 * 1000);
 
     return () => window.clearInterval(id);
-  }, [favorites, user]);
+  }, [favorites, loading, user]);
 
 
   useEffect(() => {
