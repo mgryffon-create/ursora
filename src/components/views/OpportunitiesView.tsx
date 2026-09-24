@@ -9,7 +9,7 @@ import { changeColor, compact, dte, ivPct, money, num, pct, scoreColor, stampET 
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import {
-  DemoBadge, DirectionTag, Disclaimer, EmptyState, FlagTag, Metric, Panel, RiskTag, ScoreBar,
+  DataBadge, DemoBadge, DirectionTag, Disclaimer, EmptyState, FlagTag, Metric, Panel, RiskTag, ScoreBar,
   SectionHeading, Spinner, Unavailable, Val,
 } from '@/components/common/Primitives';
 import CompareView from '@/components/views/CompareView';
@@ -18,6 +18,16 @@ import { cn } from '@/lib/utils';
 const DIRECTIONS = ['any', 'bullish', 'bearish', 'neutral'] as const;
 const RISKS = ['any', 'Low', 'Moderate', 'High', 'Extreme'] as const;
 const MAX_COMPARE = 3;
+
+const signalIncludesInferred = (signal: Signal) =>
+  (signal.score_breakdown?.factors ?? []).some((factor) => factor.provenance === 'imputed');
+
+const SignalDataBadge: React.FC<{ signal: Signal }> = ({ signal }) =>
+  signal.is_demo
+    ? <DemoBadge />
+    : signalIncludesInferred(signal)
+      ? <DataBadge kind="inferred" label="INCLUDES INFERRED DATA" />
+      : <DataBadge kind="derived" label="DERIVED ANALYSIS" />;
 
 /** Checkbox that adds a signal to the side-by-side comparison. */
 const CompareToggle: React.FC<{
@@ -489,7 +499,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
                       <Star className={cn('h-4 w-4', favoriteSet.has(s.symbol) && 'fill-current')} aria-hidden="true" />
                     </button>
                     <span className="font-mono text-sm font-semibold text-zinc-100">{s.symbol}</span>
-                    <DemoBadge />
+                    <SignalDataBadge signal={s} />
                   </div>
                   <div className="mt-0.5 text-[11px] text-zinc-500">{tickers[s.symbol]?.company ?? <Unavailable />}</div>
                 </div>
@@ -552,7 +562,13 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
       <Panel
         title="NO TRADE / WAIT"
         subtitle="These names were analysed and deliberately rejected. The rule that fired is stated on each card — the engine does not manufacture a setup to fill the board."
-        right={<DemoBadge />}
+        right={
+          filteredNoTrade.some((signal) => signal.is_demo)
+            ? <DemoBadge />
+            : filteredNoTrade.some(signalIncludesInferred)
+              ? <DataBadge kind="inferred" label="INCLUDES INFERRED DATA" />
+              : <DataBadge kind="derived" label="DERIVED ANALYSIS" />
+        }
       >
         {filteredNoTrade.length === 0 ? (
           <EmptyState
