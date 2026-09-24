@@ -94,7 +94,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await db.from('user_prefs').insert({ user_id: uid, ...DEFAULT_PREFS });
       setPrefs(DEFAULT_PREFS);
     }
-  }, [user]);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -180,7 +180,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setWatchlist(DEFAULT_UNIVERSE);
     setFavorites([]);
     setPrefs(DEFAULT_PREFS);
-  }, []);
+  }, [user]);
 
   const addToWatchlist = useCallback(
     async (symbol: string) => {
