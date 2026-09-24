@@ -100,19 +100,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let active = true;
 
     (async () => {
-      const remember = typeof window === 'undefined'
-        ? true
-        : window.localStorage.getItem('ursora_remember_login') !== 'false';
-      const sameBrowserSession = typeof window !== 'undefined'
-        && window.sessionStorage.getItem('ursora_session_active') === 'true';
-
-      // When "Remember me" was disabled, Supabase still writes its refresh token
-      // to localStorage. The session-only marker disappears when the browser
-      // session ends, so discard that persisted token on the next browser launch.
-      if (!remember && !sameBrowserSession) {
-        await db.auth.signOut({ scope: 'local' });
-      }
-
       const { data } = await db.auth.getSession();
       if (!active) return;
       setSession(data.session ?? null);
@@ -135,11 +122,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signIn = useCallback(async (email: string, password: string, remember = true) => {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('ursora_remember_login', remember ? 'true' : 'false');
-      if (remember) {
-        window.sessionStorage.removeItem('ursora_session_active');
-      } else {
-        window.sessionStorage.setItem('ursora_session_active', 'true');
-      }
     }
 
     const { error } = await db.auth.signInWithPassword({ email, password });
@@ -173,7 +155,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOut = useCallback(async () => {
     if (typeof window !== 'undefined') {
-      window.sessionStorage.removeItem('ursora_session_active');
       if (user?.id) window.sessionStorage.removeItem(`ursora_login_market_refresh_${user.id}`);
     }
     await db.auth.signOut();
