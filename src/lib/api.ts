@@ -257,16 +257,40 @@ export async function fetchTickers(): Promise<Ticker[]> {
 }
 
 export async function fetchLatestQuotes(): Promise<Record<string, Quote>> {
-  const { data, error } = await db
-    .from('quotes')
-    .select('*')
-    .eq('is_demo', false)
-    .order('retrieved_at', { ascending: false })
-    .order('as_of', { ascending: false })
-    .limit(400);
-  if (error) throw error;
+  // Do not take the newest N quote rows globally: frequently-refreshed favorites can
+  // crowd older-but-current discovery symbols out of that window. Fetch the latest
+  // real quote for each configured ticker so every route gets one stable snapshot.
+  const { data: tickerRows, error: tickerError } = await db
+    .from('tickers')
+    .select('symbol')
+    .order('priority', { ascending: true });
+  if (tickerError) throw tickerError;
+
+  const symbols = [...new Set(
+    ((tickerRows as Array<{ symbol: string }> | null) ?? [])
+      .map((row) => String(row.symbol).toUpperCase())
+      .filter(Boolean),
+  )];
+
+  const results = await Promise.all(
+    symbols.map(async (symbol) => {
+      const { data, error } = await db
+        .from('quotes')
+        .select('*')
+        .eq('symbol', symbol)
+        .eq('is_demo', false)
+        .order('retrieved_at', { ascending: false })
+        .order('as_of', { ascending: false })
+        .limit(1);
+      if (error) throw error;
+      return (data as Quote[] | null)?.[0] ?? null;
+    }),
+  );
+
   const map: Record<string, Quote> = {};
-  for (const q of rows<Quote>(data as Quote[])) if (!map[q.symbol]) map[q.symbol] = q;
+  for (const quote of results) {
+    if (quote) map[quote.symbol] = quote;
+  }
   return map;
 }
 
