@@ -1706,7 +1706,7 @@ Deno.serve(async (req) => {
         },
         regime: snapshot?.regime ?? 'Mixed',
         regime_explanation: snapshot?.regime_note ?? 'Broader market conditions derived from the latest stored market data.',
-        engine_version: 'tradecycle-5.2.3',
+        engine_version: 'tradecycle-5.3.0',
         is_demo: Boolean(q.is_demo ?? true),
         generated_at: started,
       });
@@ -1714,9 +1714,49 @@ Deno.serve(async (req) => {
 
     let signalCount = 0;
     if (created.length) {
-      const { error } = await db.from('signals').insert(created);
+      const { data: insertedSignals, error } = await db
+        .from('signals')
+        .insert(created)
+        .select('id,symbol,direction,strategy,holding_period,suggested_expiration,target_price,invalidation_level,opportunity_score,confidence_score,generated_at');
       if (error) throw error;
-      signalCount = created.length;
+      signalCount = insertedSignals?.length ?? created.length;
+
+      const validUntil = new Date(nowMs + 5 * 86400000).toISOString();
+      const activeRows = (insertedSignals ?? [])
+        .filter((signal: AnyRow) => String(signal.strategy) !== 'No Trade')
+        .map((signal: AnyRow) => ({
+          user_id: user.id,
+          symbol: String(signal.symbol).toUpperCase(),
+          signal_id: signal.id,
+          status: 'active',
+          direction: signal.direction,
+          holding_period: signal.holding_period,
+          analyzed_at: signal.generated_at ?? started,
+          valid_until: validUntil,
+          suggested_expiration: signal.suggested_expiration,
+          target_price: signal.target_price,
+          invalidation_level: signal.invalidation_level,
+          opportunity_score: signal.opportunity_score,
+          confidence_score: signal.confidence_score,
+          updated_at: started,
+        }));
+
+      if (activeRows.length) {
+        const { error: activeError } = await db
+          .from('active_analyses')
+          .upsert(activeRows, { onConflict: 'user_id,symbol' });
+        if (activeError) throw activeError;
+      }
+
+      // Old supported analyses remain visible through their intended swing horizon.
+      // A later unrelated or incomplete run must not erase them merely because that
+      // symbol was not selected or its enrichment was unavailable.
+      await db
+        .from('active_analyses')
+        .update({ status: 'expired', updated_at: started })
+        .eq('user_id', user.id)
+        .eq('status', 'active')
+        .lt('valid_until', started);
     }
 
     const { error: runError } = await db.from('analysis_runs').insert({
@@ -1728,7 +1768,7 @@ Deno.serve(async (req) => {
       feed_events: 0,
       regime: snapshot?.regime ?? null,
       notes: signalCount
-        ? `TradeCycle v5.2.3 swing analysis completed for authenticated user ${user.id}; outside regular hours, price evidence is anchored to the most recent frozen session close.`
+        ? `TradeCycle v5.3.0 swing analysis completed for authenticated user ${user.id}; outside regular hours, price evidence is anchored to the most recent frozen session close.`
         : 'No stored quote data were available; no signals were generated.',
       started_at: started,
       finished_at: new Date().toISOString(),
@@ -1740,7 +1780,7 @@ Deno.serve(async (req) => {
       signals: signalCount,
       updates: 0,
       run_id: runId,
-      engine_version: 'tradecycle-5.2.3',
+      engine_version: 'tradecycle-5.3.0',
       note: signalCount ? 'Signals generated using all currently available evidence categories.' : 'No stored quote data available.',
     });
   } catch (e) {
