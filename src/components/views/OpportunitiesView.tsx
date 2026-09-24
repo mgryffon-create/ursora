@@ -1,114 +1,227 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertOctagon, Ban, Clock, Layers, Filter, Loader2, RefreshCw, Search, Star, TrendingUp, X,
+  AlertOctagon, Loader2, RefreshCw, Search, Star, X,
 } from 'lucide-react';
 import db from '@/lib/db';
-import { fetchActiveAnalyses, fetchLatestQuotes, fetchRuns, fetchTickers, fetchTodaySignals, runFreshAnalysis, track } from '@/lib/api';
-import type { ActiveAnalysis, AnalysisRun, ContractCandidate, Quote, Signal, Ticker } from '@/lib/types';
-import { changeColor, compact, dte, ivPct, money, num, pct, scoreColor, stampET } from '@/lib/format';
+import {
+  fetchActiveAnalyses, fetchLatestQuotes, fetchRuns, fetchTickers, fetchTodaySignals,
+  runFreshAnalysis, track,
+} from '@/lib/api';
+import type { ActiveAnalysis, AnalysisRun, Quote, Signal, Ticker } from '@/lib/types';
+import { changeColor, money, pct, stampET } from '@/lib/format';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import {
-  DataBadge, DemoBadge, DirectionTag, Disclaimer, EmptyState, FlagTag, Metric, Panel, RiskTag, ScoreBar,
-  SectionHeading, Spinner, Unavailable, Val,
+  DirectionTag, RiskTag, SectionHeading, Spinner,
 } from '@/components/common/Primitives';
-import CompareView from '@/components/views/CompareView';
 import { cn } from '@/lib/utils';
 
-const DIRECTIONS = ['any', 'bullish', 'bearish', 'neutral'] as const;
-const RISKS = ['any', 'Low', 'Moderate', 'High', 'Extreme'] as const;
-const MAX_COMPARE = 3;
 const MAX_ANALYSIS = 6;
 
-const signalIncludesInferred = (signal: Signal) =>
-  (signal.score_breakdown?.factors ?? []).some((factor) => factor.provenance === 'imputed');
+const thesisSummary = (signal?: Signal | null) => {
+  if (!signal) return null;
+  if (signal.strategy === 'No Trade') {
+    return signal.no_trade_reason || 'The latest full analysis did not clear URSORA’s evidence gate.';
+  }
 
-const SignalDataBadge: React.FC<{ signal: Signal }> = ({ signal }) =>
-  signal.is_demo
-    ? <DemoBadge />
-    : signalIncludesInferred(signal)
-      ? <DataBadge kind="inferred" label="INCLUDES INFERRED DATA" />
-      : <DataBadge kind="derived" label="DERIVED ANALYSIS" />;
+  const hierarchy = signal.score_breakdown?.thesis_hierarchy;
+  const primary = hierarchy?.primary?.band ? String(hierarchy.primary.band).toLowerCase() : 'established';
+  const confirmation = hierarchy?.confirmation?.state ? String(hierarchy.confirmation.state).replaceAll('_', ' ') : 'partial';
+  const context = hierarchy?.context?.state ? String(hierarchy.context.state).replaceAll('_', ' ') : 'mixed';
 
-/** Checkbox that adds a signal to the side-by-side comparison. */
-const CompareToggle: React.FC<{
+  return `${signal.direction === 'bearish' ? 'Bearish' : signal.direction === 'bullish' ? 'Bullish' : 'Neutral'} ${signal.holding_period ?? 'swing'} thesis: ${primary} price structure, ${confirmation} confirmation, and ${context} context.`;
+};
+
+const curiositySummary = (quote?: Quote | null) => {
+  if (!quote) return 'No recent snapshot is stored yet. Select this ticker to refresh and analyze it.';
+  const move = quote.change_pct ?? 0;
+  const relVolume = quote.rel_volume ?? null;
+  const trend = String(quote.trend ?? '').toLowerCase();
+
+  if (Math.abs(move) >= 2) {
+    return `${Math.abs(move).toFixed(1)}% recent move with ${move >= 0 ? 'upside' : 'downside'} pressure worth examining more closely.`;
+  }
+  if (relVolume !== null && relVolume >= 1.5) {
+    return `Participation stands out at ${relVolume.toFixed(1)}x relative volume; direction still needs a full evidence pass.`;
+  }
+  if (trend.includes('up')) return 'Stored price structure is trending upward; full analysis is required before URSORA treats it as a setup.';
+  if (trend.includes('down')) return 'Stored price structure is trending downward; full analysis is required before URSORA treats it as a setup.';
+  return 'Recent market activity is available, but this ticker has not earned a suggestion without a full evidence analysis.';
+};
+
+type RouteCardProps = {
   symbol: string;
-  checked: boolean;
-  disabled: boolean;
-  onChange: () => void;
-  withLabel?: boolean;
-}> = ({ symbol, checked, disabled, onChange, withLabel = false }) => (
-  <label
-    className={cn(
-      'inline-flex items-center gap-1.5 whitespace-nowrap',
-      disabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer',
-    )}
-    title={disabled ? `Comparison holds ${MAX_COMPARE} signals — drop one first` : `Compare ${symbol} side by side`}
-  >
-    <input
-      type="checkbox"
-      checked={checked}
-      disabled={disabled}
-      onChange={onChange}
-      aria-label={`Add ${symbol} to the comparison`}
-      className="h-3.5 w-3.5 accent-sky-500"
-    />
-    {withLabel && (
-      <span className={cn('font-mono text-[10px] uppercase tracking-wider', checked ? 'text-sky-300' : 'text-zinc-500')}>
-        compare
-      </span>
-    )}
-  </label>
-);
+  quote?: Quote | null;
+  ticker?: Ticker | null;
+  signal?: Signal | null;
+  active?: ActiveAnalysis | null;
+  favorite?: boolean;
+  selected?: boolean;
+  selectable?: boolean;
+  onSelect?: () => void;
+  onOpen?: () => void;
+  onFavorite?: () => void;
+};
+
+const RouteCard: React.FC<RouteCardProps> = ({
+  symbol, quote, ticker, signal, active, favorite = false, selected = false,
+  selectable = false, onSelect, onOpen, onFavorite,
+}) => {
+  const fullThesisAvailable = Boolean(onOpen);
+  const setupText = thesisSummary(signal) ?? curiositySummary(quote);
+
+  const openOrSelect = () => {
+    if (onOpen) onOpen();
+    else if (selectable && onSelect) onSelect();
+  };
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={openOrSelect}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openOrSelect();
+        }
+      }}
+      className={cn(
+        'rounded-md border bg-black/25 p-3 transition-colors',
+        fullThesisAvailable ? 'cursor-pointer hover:border-sky-500/40' : selectable ? 'cursor-pointer hover:border-zinc-700' : '',
+        selected ? 'border-sky-500/60 bg-sky-500/[0.07]' : 'border-zinc-800',
+        active && 'border-emerald-500/30 bg-emerald-500/[0.035]',
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            {onFavorite && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onFavorite();
+                }}
+                aria-label={favorite ? `Unfavorite ${symbol}` : `Favorite ${symbol}`}
+                className={cn(
+                  'rounded-sm p-0.5 transition-colors',
+                  favorite ? 'text-amber-300' : 'text-zinc-600 hover:text-amber-300',
+                )}
+              >
+                <Star className={cn('h-3.5 w-3.5', favorite && 'fill-current')} aria-hidden="true" />
+              </button>
+            )}
+            <span className="font-mono text-sm font-semibold text-zinc-100">{symbol}</span>
+            {signal && <DirectionTag direction={signal.direction} />}
+          </div>
+          <div className="mt-0.5 truncate text-[10px] text-zinc-500">{ticker?.company ?? '—'}</div>
+        </div>
+
+        {selectable && onSelect && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelect();
+            }}
+            className={cn(
+              'shrink-0 rounded-sm border px-2 py-1 font-mono text-[9px] uppercase tracking-wider',
+              selected
+                ? 'border-sky-500/50 bg-sky-500/10 text-sky-300'
+                : 'border-zinc-700 text-zinc-500 hover:text-zinc-200',
+            )}
+          >
+            {selected ? 'selected' : 'analyze'}
+          </button>
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="font-mono text-base text-zinc-100">{money(quote?.price ?? signal?.stock_price_at_generation) ?? '—'}</span>
+        <span className={cn('font-mono text-[10px]', changeColor(quote?.change_pct ?? null))}>
+          {pct(quote?.change_pct ?? null) ?? '—'}
+        </span>
+        {signal && (
+          <span className="font-mono text-[10px] text-zinc-500">
+            score {signal.opportunity_score} · conf {signal.confidence_score}
+          </span>
+        )}
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {signal?.risk_level && <RiskTag level={signal.risk_level} />}
+        {quote?.trend && (
+          <span className="rounded-sm border border-zinc-700 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-zinc-400">
+            {quote.trend}
+          </span>
+        )}
+        {quote?.rel_volume !== null && quote?.rel_volume !== undefined && (
+          <span className="rounded-sm border border-zinc-700 px-1.5 py-0.5 font-mono text-[9px] text-zinc-400">
+            RVOL {Number(quote.rel_volume).toFixed(1)}x
+          </span>
+        )}
+        {active && (
+          <span className="rounded-sm border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-emerald-300">
+            active
+          </span>
+        )}
+        {signal?.strategy === 'No Trade' && (
+          <span className="rounded-sm border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-amber-300">
+            last analysis · no trade
+          </span>
+        )}
+      </div>
+
+      <p className="mt-3 text-[11px] leading-relaxed text-zinc-400">{setupText}</p>
+
+      <div className="mt-3 flex items-center justify-between gap-2 border-t border-zinc-800/80 pt-2 font-mono text-[9px] uppercase tracking-wider">
+        <span className={fullThesisAvailable ? 'text-sky-300' : 'text-zinc-600'}>
+          {fullThesisAvailable ? 'open full thesis' : 'select for full analysis'}
+        </span>
+        {active?.valid_until && <span className="text-zinc-600">through {stampET(active.valid_until)}</span>}
+      </div>
+    </div>
+  );
+};
 
 export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => void }> = ({ onOpenThesis }) => {
-  const { user, watchlist, favorites, toggleFavorite } = useAuth();
+  const { user, favorites, toggleFavorite } = useAuth();
   const [signals, setSignals] = useState<Signal[]>([]);
-  const [candidates, setCandidates] = useState<Record<number, ContractCandidate[]>>({});
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
   const [tickers, setTickers] = useState<Record<string, Ticker>>({});
   const [runs, setRuns] = useState<AnalysisRun[]>([]);
   const [activeAnalyses, setActiveAnalyses] = useState<ActiveAnalysis[]>([]);
+  const [activeSignals, setActiveSignals] = useState<Record<string, Signal>>({});
   const [analysisSelection, setAnalysisSelection] = useState<string[]>([]);
+  const [symbolQuery, setSymbolQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pipelineWarnings, setPipelineWarnings] = useState<string[]>([]);
 
-  const [direction, setDirection] = useState<(typeof DIRECTIONS)[number]>('any');
-  const [risk, setRisk] = useState<(typeof RISKS)[number]>('any');
-  const [minScore, setMinScore] = useState(0);
-  const [symbolQuery, setSymbolQuery] = useState('');
-  const [watchlistOnly, setWatchlistOnly] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
-
-  const [compareIds, setCompareIds] = useState<number[]>([]);
-  const [comparing, setComparing] = useState(false);
-
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [sig, q, tk, rn, active] = await Promise.all([
+      const [latestSignals, latestQuotes, tickerRows, runRows, activeRows] = await Promise.all([
         fetchTodaySignals(), fetchLatestQuotes(), fetchTickers(), fetchRuns(6), fetchActiveAnalyses(),
       ]);
-      setSignals(sig);
-      setQuotes(q);
-      setTickers(Object.fromEntries(tk.map((t) => [t.symbol, t])));
-      setRuns(rn);
-      setActiveAnalyses(active);
-      if (sig.length) {
-        const { data } = await db
-          .from('contract_candidates')
-          .select('*')
-          .in('signal_id', sig.map((s) => s.id))
-          .order('rank', { ascending: true });
-        const map: Record<number, ContractCandidate[]> = {};
-        for (const c of (data as ContractCandidate[]) ?? []) {
-          map[c.signal_id] = [...(map[c.signal_id] ?? []), c];
-        }
-        setCandidates(map);
+
+      setSignals(latestSignals);
+      setQuotes(latestQuotes);
+      setTickers(Object.fromEntries(tickerRows.map((ticker) => [ticker.symbol, ticker])));
+      setRuns(runRows);
+      setActiveAnalyses(activeRows);
+
+      const activeIds = [...new Set(activeRows.map((item) => item.signal_id).filter(Boolean))];
+      if (activeIds.length) {
+        const { data, error: signalError } = await db.from('signals').select('*').in('id', activeIds);
+        if (signalError) throw signalError;
+        const map: Record<string, Signal> = {};
+        for (const signal of (data as Signal[]) ?? []) map[signal.symbol] = signal;
+        setActiveSignals(map);
       } else {
-        setCandidates({});
+        setActiveSignals({});
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -119,7 +232,72 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
 
   useEffect(() => {
     void load();
+    const onMarketRefreshed = () => void load();
+    window.addEventListener('ursora-market-refreshed', onMarketRefreshed);
+    return () => window.removeEventListener('ursora-market-refreshed', onMarketRefreshed);
   }, [load]);
+
+  const latestSignalBySymbol = useMemo(
+    () => Object.fromEntries(signals.map((signal) => [signal.symbol, signal])) as Record<string, Signal>,
+    [signals],
+  );
+
+  const activeBySymbol = useMemo(
+    () => Object.fromEntries(activeAnalyses.map((item) => [item.symbol, item])) as Record<string, ActiveAnalysis>,
+    [activeAnalyses],
+  );
+
+  const signalFor = useCallback(
+    (symbol: string) => activeSignals[symbol] ?? latestSignalBySymbol[symbol] ?? null,
+    [activeSignals, latestSignalBySymbol],
+  );
+
+  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
+  const normalizedQuery = symbolQuery.trim().toUpperCase();
+
+  const discoveryQuotes = useMemo(
+    () =>
+      Object.values(quotes)
+        .filter((quote) => {
+          if (!tickers[quote.symbol]) return false;
+          if (normalizedQuery && !quote.symbol.includes(normalizedQuery)) return false;
+          const asOf = new Date(quote.as_of ?? quote.retrieved_at).getTime();
+          return !Number.isFinite(asOf) || Date.now() - asOf <= 36 * 3600000;
+        })
+        .sort((a, b) => {
+          const curiosityScore = (quote: Quote) =>
+            Math.abs(quote.change_pct ?? 0) + Math.max(0, (quote.rel_volume ?? 1) - 1) * 2;
+          return curiosityScore(b) - curiosityScore(a);
+        }),
+    [normalizedQuery, quotes, tickers],
+  );
+
+  const watchlistSymbols = useMemo(
+    () => favorites.filter((symbol) => !normalizedQuery || symbol.includes(normalizedQuery)),
+    [favorites, normalizedQuery],
+  );
+
+  const otherSetups = useMemo(
+    () => discoveryQuotes.filter((quote) => !favoriteSet.has(quote.symbol) && !activeBySymbol[quote.symbol]),
+    [activeBySymbol, discoveryQuotes, favoriteSet],
+  );
+
+  const suggested = useMemo(
+    () =>
+      activeAnalyses
+        .filter((item) => !normalizedQuery || item.symbol.includes(normalizedQuery))
+        .sort((a, b) => (b.opportunity_score ?? 0) - (a.opportunity_score ?? 0)),
+    [activeAnalyses, normalizedQuery],
+  );
+
+  const toggleAnalysisSelection = useCallback((symbol: string) => {
+    const normalized = symbol.toUpperCase();
+    setAnalysisSelection((previous) => {
+      if (previous.includes(normalized)) return previous.filter((item) => item !== normalized);
+      if (previous.length >= MAX_ANALYSIS) return previous;
+      return [...previous, normalized];
+    });
+  }, []);
 
   const runAnalysisFor = useCallback(async (requestedSymbols: string[], offerFavorites = true) => {
     let selectedSymbols = [...new Set(requestedSymbols.map((symbol) => symbol.toUpperCase()))];
@@ -137,10 +315,11 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
     if (offerFavorites && omittedFavorites.length) {
       const room = MAX_ANALYSIS - selectedSymbols.length;
       const canAddAll = omittedFavorites.length <= room;
-      const message = canAddAll
-        ? `Your favorites ${omittedFavorites.join(', ')} are not included. Add them to this run?\n\nOK = add favorites · Cancel = run selected only`
-        : `You have ${omittedFavorites.length} favorites outside this run, but only ${room} analysis slot${room === 1 ? '' : 's'} remain.\n\nOK = keep this selected run · Cancel = return and adjust your selection.`;
-      const confirmed = window.confirm(message);
+      const confirmed = window.confirm(
+        canAddAll
+          ? `Your watchlist also contains ${omittedFavorites.join(', ')}. Add them to this analysis?\n\nOK = add watchlist · Cancel = run selected only`
+          : `Your watchlist has ${omittedFavorites.length} additional ticker(s), but this run only has ${room} slot(s) left.\n\nOK = run selected only · Cancel = return and adjust your selection.`,
+      );
       if (canAddAll && confirmed) selectedSymbols = [...selectedSymbols, ...omittedFavorites];
       if (!canAddAll && !confirmed) return;
     }
@@ -148,14 +327,15 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
     setRunning(true);
     setError(null);
     setPipelineWarnings([]);
+
     try {
-      const res = await runFreshAnalysis({ kind: 'manual', symbols: selectedSymbols });
-      track('analysis_run', { signals: res.signals ?? 0, updates: res.updates ?? 0, symbols: selectedSymbols });
-      setPipelineWarnings(res.warnings);
-      if (res.warnings.length) {
-        console.warn('URSORA completed analysis with data-refresh warnings:', res.warnings);
-      }
-      setCompareIds([]);
+      const result = await runFreshAnalysis({ kind: 'manual', symbols: selectedSymbols });
+      track('analysis_run', {
+        signals: result.signals ?? 0,
+        updates: result.updates ?? 0,
+        symbols: selectedSymbols.join(','),
+      });
+      setPipelineWarnings(result.warnings);
       setAnalysisSelection([]);
       await load();
     } catch (e) {
@@ -165,765 +345,224 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
     }
   }, [favorites, load]);
 
-  const toggleAnalysisSelection = useCallback((symbol: string) => {
-    const sym = symbol.toUpperCase();
-    setAnalysisSelection((prev) => {
-      if (prev.includes(sym)) return prev.filter((item) => item !== sym);
-      if (prev.length >= MAX_ANALYSIS) return prev;
-      return [...prev, sym];
-    });
-  }, []);
-
   const runFavorites = useCallback(() => {
     if (!favorites.length) {
-      setError('Favorite at least one ticker before running a favorites-only analysis.');
+      setError('Star at least one ticker before running a watchlist analysis.');
       return;
     }
     if (favorites.length > MAX_ANALYSIS) {
-      setError(`You have ${favorites.length} favorites. Select up to ${MAX_ANALYSIS} of them for one analysis run.`);
+      setError(`Your watchlist has ${favorites.length} tickers. Select up to ${MAX_ANALYSIS} for one full analysis run.`);
       return;
     }
     void runAnalysisFor(favorites, false);
   }, [favorites, runAnalysisFor]);
 
-  const toggleCompare = useCallback((id: number) => {
-    setCompareIds((prev) => {
-      if (prev.includes(id)) return prev.filter((x) => x !== id);
-      if (prev.length >= MAX_COMPARE) return prev;
-      return [...prev, id];
-    });
-  }, []);
-
-  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
-
-  const favoriteFirst = useCallback(
-    (items: Signal[]) =>
-      items
-        .map((signal, index) => ({ signal, index }))
-        .sort((a, b) => {
-          const favoriteDelta =
-            Number(favoriteSet.has(b.signal.symbol)) - Number(favoriteSet.has(a.signal.symbol));
-          return favoriteDelta || a.index - b.index;
-        })
-        .map(({ signal }) => signal),
-    [favoriteSet],
-  );
-
-  const meetingCriteria = useMemo(
-    () => favoriteFirst(signals.filter((s) => s.strategy !== 'No Trade')),
-    [signals, favoriteFirst],
-  );
-  const noTrade = useMemo(
-    () => favoriteFirst(signals.filter((s) => s.strategy === 'No Trade')),
-    [signals, favoriteFirst],
-  );
-
-  const onToggleFavorite = useCallback(
-    async (symbol: string) => {
-      if (!user) {
-        setError('Sign in to save ticker favorites to your URSORA account.');
-        return;
-      }
-      try {
-        setError(null);
-        await toggleFavorite(symbol);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    },
-    [user, toggleFavorite],
-  );
-
-  const normalizedSymbolQuery = symbolQuery.trim().toUpperCase();
-
-  const filtered = useMemo(
-    () =>
-      meetingCriteria.filter((s) => {
-        if (direction !== 'any' && s.direction !== direction) return false;
-        if (risk !== 'any' && s.risk_level !== risk) return false;
-        if (s.opportunity_score < minScore) return false;
-        if (normalizedSymbolQuery && !s.symbol.toUpperCase().includes(normalizedSymbolQuery)) return false;
-        if (watchlistOnly && !watchlist.includes(s.symbol)) return false;
-        return true;
-      }),
-    [meetingCriteria, direction, risk, minScore, normalizedSymbolQuery, watchlistOnly, watchlist],
-  );
-
-  const filteredNoTrade = useMemo(
-    () =>
-      noTrade.filter((s) =>
-        !normalizedSymbolQuery || s.symbol.toUpperCase().includes(normalizedSymbolQuery)
-      ),
-    [noTrade, normalizedSymbolQuery],
-  );
-
-  const curiosityReason = useCallback((quote: Quote) => {
-    const move = Math.abs(quote.change_pct ?? 0);
-    const relVolume = quote.rel_volume ?? 0;
-    const trend = String(quote.trend ?? '').toLowerCase();
-    if (move >= 2) return `${move.toFixed(1)}% recent move — worth a closer look`;
-    if (relVolume >= 1.5) return `${relVolume.toFixed(1)}x relative volume — participation stands out`;
-    if (trend.includes('up')) return 'Uptrend structure in the stored market snapshot';
-    if (trend.includes('down')) return 'Downtrend structure in the stored market snapshot';
-    return 'Recent market activity available for a deeper analysis';
-  }, []);
-
-  const discoveryQuotes = useMemo(
-    () =>
-      Object.values(quotes)
-        .filter((quote) => {
-          if (!tickers[quote.symbol]) return false;
-          const asOf = new Date(quote.as_of ?? quote.retrieved_at).getTime();
-          return !Number.isFinite(asOf) || Date.now() - asOf <= 36 * 3600000;
-        })
-        .sort((a, b) => {
-          const score = (quote: Quote) =>
-            Math.abs(quote.change_pct ?? 0) + Math.max(0, (quote.rel_volume ?? 1) - 1) * 2;
-          return score(b) - score(a);
-        }),
-    [quotes, tickers],
-  );
-
-  const favoriteDiscovery = useMemo(
-    () => favorites.map((symbol) => quotes[symbol]).filter((quote): quote is Quote => Boolean(quote)),
-    [favorites, quotes],
-  );
-
-  const otherDiscovery = useMemo(
-    () => discoveryQuotes.filter((quote) => !favoriteSet.has(quote.symbol)),
-    [discoveryQuotes, favoriteSet],
-  );
-
-  const selected = useMemo(
-    () => compareIds.map((id) => signals.find((s) => s.id === id)).filter((s): s is Signal => Boolean(s)),
-    [compareIds, signals],
-  );
-  const compareFull = compareIds.length >= MAX_COMPARE;
+  const onToggleFavorite = useCallback(async (symbol: string) => {
+    if (!user) {
+      setError('Sign in to save a persistent watchlist.');
+      return;
+    }
+    try {
+      setError(null);
+      await toggleFavorite(symbol);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [toggleFavorite, user]);
 
   const lastRun = runs[0];
 
-  if (loading) return <Spinner label="Loading today's ranked opportunities" />;
+  if (loading) return <Spinner label="Loading URSORA routes" />;
 
-  if (comparing && compareIds.length >= 2) {
-    return (
-      <CompareView
-        signalIds={compareIds}
-        onBack={() => setComparing(false)}
-        onOpenThesis={onOpenThesis}
-        onRemove={(id) => setCompareIds((prev) => prev.filter((x) => x !== id))}
-      />
-    );
-  }
+  const columnClass =
+    'flex h-[calc(100vh-235px)] min-h-[610px] w-[88vw] min-w-[88vw] snap-start flex-col overflow-hidden rounded-md border border-zinc-800 bg-[#111419] sm:w-[420px] sm:min-w-[420px] lg:w-auto lg:min-w-0';
 
   return (
     <div className="space-y-4">
       <SectionHeading
         eyebrow="Today"
-        title="Market Discovery & Analysis"
-        description="Start with lightweight market snapshots, choose what interests you, then run a complete evidence analysis only on the tickers you want to investigate."
+        title="Choose your trading route"
+        description="Watch what matters to you, explore other market setups, or open a supported URSORA thesis. Full analysis only runs on the tickers you choose."
         right={
           <div className="flex flex-wrap items-center gap-2">
             {lastRun && (
-              <span className="hidden font-mono text-[10px] text-zinc-500 lg:inline">
-                Last run {stampET(lastRun.finished_at ?? lastRun.started_at)} · {lastRun.signals_generated} signals
+              <span className="hidden font-mono text-[10px] text-zinc-500 xl:inline">
+                Last full run {stampET(lastRun.finished_at ?? lastRun.started_at)}
               </span>
             )}
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void runAnalysisFor(analysisSelection)}
               disabled={running || analysisSelection.length === 0}
+              onClick={() => void runAnalysisFor(analysisSelection)}
               className="gap-1.5 border-zinc-700"
             >
               {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />}
-              {running ? 'Running…' : `Analyze selected (${analysisSelection.length}/${MAX_ANALYSIS})`}
+              {running ? 'Analyzing…' : `Analyze selected (${analysisSelection.length}/${MAX_ANALYSIS})`}
             </Button>
           </div>
         }
       />
 
-      <Panel>
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-800 pb-3">
-          <div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-300">Favorites</div>
-            <div className="mt-1 text-sm font-semibold text-zinc-100">Your static watchlist</div>
-            <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-zinc-500">
-              Favorites stay here across sessions. Select any ticker for a full analysis, or run the entire favorites list when it fits within the {MAX_ANALYSIS}-ticker analysis cap.
-            </p>
-          </div>
-          <Button size="sm" variant="outline" onClick={runFavorites} disabled={running || favorites.length === 0} className="border-zinc-700">
-            Analyze favorites
-          </Button>
+      <div className="flex flex-wrap items-center gap-2 rounded-md border border-zinc-800 bg-[#111419] px-3 py-2">
+        <div className="flex w-full items-center gap-2 rounded-sm border border-zinc-700 bg-black/40 px-2.5 focus-within:border-sky-500/70 sm:w-[320px]">
+          <Search className="h-3.5 w-3.5 text-zinc-500" aria-hidden="true" />
+          <input
+            value={symbolQuery}
+            onChange={(event) => setSymbolQuery(event.target.value.toUpperCase())}
+            placeholder="Search ticker — NVDA"
+            autoCapitalize="characters"
+            autoComplete="off"
+            spellCheck={false}
+            className="min-w-0 flex-1 bg-transparent py-1.5 font-mono text-xs uppercase text-zinc-100 placeholder:normal-case placeholder:text-zinc-600 focus:outline-none"
+          />
+          {symbolQuery && (
+            <button type="button" onClick={() => setSymbolQuery('')} className="text-zinc-500 hover:text-zinc-200" aria-label="Clear search">
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          )}
         </div>
-
-        {favorites.length === 0 ? (
-          <div className="py-4 text-[11px] text-zinc-500">Star a ticker anywhere in URSORA to build your persistent favorites watchlist.</div>
-        ) : (
-          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {favorites.map((symbol) => {
-              const quote = quotes[symbol];
-              const selectedForAnalysis = analysisSelection.includes(symbol);
-              return (
-                <button
-                  key={symbol}
-                  type="button"
-                  onClick={() => toggleAnalysisSelection(symbol)}
-                  className={cn(
-                    'rounded-md border p-3 text-left transition-colors',
-                    selectedForAnalysis
-                      ? 'border-sky-500/60 bg-sky-500/[0.08]'
-                      : 'border-zinc-800 bg-black/20 hover:border-zinc-700',
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <Star className="h-3.5 w-3.5 fill-current text-amber-300" aria-hidden="true" />
-                      <span className="font-mono text-sm font-semibold text-zinc-100">{symbol}</span>
-                    </div>
-                    <span className="font-mono text-[10px] text-sky-300">{selectedForAnalysis ? 'SELECTED' : 'SELECT'}</span>
-                  </div>
-                  <div className="mt-2 flex items-baseline gap-2">
-                    <span className="font-mono text-sm text-zinc-200">{money(quote?.price) ?? '—'}</span>
-                    <span className={cn('font-mono text-[10px]', changeColor(quote?.change_pct ?? null))}>{pct(quote?.change_pct ?? null) ?? '—'}</span>
-                  </div>
-                  <div className="mt-1 text-[10px] text-zinc-500">{quote ? curiosityReason(quote) : 'Snapshot not yet available — select to refresh it.'}</div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </Panel>
-
-      <Panel>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-sky-300">Other setups to check out</div>
-            <div className="mt-1 text-sm font-semibold text-zinc-100">Guided curiosity, not recommendations</div>
-            <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-zinc-500">
-              These are lightweight cached market snapshots from the latest stored session data. They are here to help you decide what deserves a complete URSORA analysis; they have not been suggestion-gated.
-            </p>
-          </div>
-          <div className="font-mono text-[10px] text-zinc-500">{analysisSelection.length} / {MAX_ANALYSIS} selected</div>
-        </div>
-
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-          {otherDiscovery.slice(0, 16).map((quote) => {
-            const selectedForAnalysis = analysisSelection.includes(quote.symbol);
-            return (
-              <button
-                key={quote.symbol}
-                type="button"
-                onClick={() => toggleAnalysisSelection(quote.symbol)}
-                className={cn(
-                  'rounded-md border p-3 text-left transition-colors',
-                  selectedForAnalysis
-                    ? 'border-sky-500/60 bg-sky-500/[0.08]'
-                    : 'border-zinc-800 bg-black/20 hover:border-zinc-700',
-                )}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-sm font-semibold text-zinc-100">{quote.symbol}</span>
-                  <span className="font-mono text-[10px] text-sky-300">{selectedForAnalysis ? 'SELECTED' : 'SELECT'}</span>
-                </div>
-                <div className="mt-1 text-[10px] text-zinc-500">{tickers[quote.symbol]?.company ?? '—'}</div>
-                <div className="mt-2 flex items-baseline gap-2">
-                  <span className="font-mono text-sm text-zinc-200">{money(quote.price) ?? '—'}</span>
-                  <span className={cn('font-mono text-[10px]', changeColor(quote.change_pct))}>{pct(quote.change_pct) ?? '—'}</span>
-                </div>
-                <div className="mt-1 text-[10px] leading-relaxed text-zinc-500">{curiosityReason(quote)}</div>
-              </button>
-            );
-          })}
-        </div>
-      </Panel>
-
-      {activeAnalyses.length > 0 && (
-        <Panel>
-          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-emerald-300">Active analyses</div>
-          <div className="mt-1 text-sm font-semibold text-zinc-100">Supported setups retained through their intended swing horizon</div>
-          <p className="mt-1 text-[11px] text-zinc-500">
-            These do not disappear just because you analyze different tickers later. They remain active until their stored validity window expires or a future workflow explicitly supersedes them.
-          </p>
-          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {activeAnalyses.map((item) => (
-              <button
-                key={item.symbol}
-                type="button"
-                onClick={() => onOpenThesis(item.signal_id)}
-                className="rounded-md border border-emerald-500/20 bg-emerald-500/[0.04] p-3 text-left hover:border-emerald-500/40"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-sm font-semibold text-zinc-100">{item.symbol}</span>
-                  <DirectionTag direction={item.direction} />
-                </div>
-                <div className="mt-2 font-mono text-[10px] text-zinc-400">
-                  score {item.opportunity_score ?? '—'} · confidence {item.confidence_score ?? '—'}
-                </div>
-                <div className="mt-1 text-[10px] text-zinc-500">
-                  {item.holding_period ?? 'swing'}{item.valid_until ? ` · valid window through ${stampET(item.valid_until)}` : ''}
-                </div>
-              </button>
-            ))}
-          </div>
-        </Panel>
-      )}
-
-      <SectionHeading
-        eyebrow="Analyzed"
-        title="Latest analysis results"
-        description="Only tickers explicitly analyzed in the most recent run appear below. A No Trade result means the selected ticker was evaluated and did not clear the evidence gate."
-      />
+        <span className="font-mono text-[10px] text-zinc-500">Full analysis cap: {MAX_ANALYSIS} tickers per run</span>
+        <span className="ml-auto hidden text-[10px] text-zinc-600 md:inline">
+          Watchlist quotes refresh on login · SPY / IWM / QQQ refresh daily
+        </span>
+      </div>
 
       {error && (
         <div className="flex items-start gap-2 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-[12px] text-red-200">
           <AlertOctagon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span className="break-words">{error}</span>
+          <span>{error}</span>
         </div>
       )}
 
       {pipelineWarnings.length > 0 && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-[12px] text-amber-100">
-          <div className="font-medium">Analysis completed, but some data refreshes did not complete:</div>
+          <div className="font-medium">Analysis completed with refresh warnings:</div>
           <ul className="mt-1 list-disc space-y-1 pl-5 text-amber-200/90">
             {pipelineWarnings.map((warning) => <li key={warning}>{warning}</li>)}
           </ul>
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2 rounded-md border border-zinc-800 bg-[#111419] px-3 py-2">
-        <div className="order-first flex w-full items-center gap-2 rounded-sm border border-zinc-700 bg-black/40 px-2.5 focus-within:border-sky-500/70 sm:w-auto sm:min-w-[240px] lg:min-w-[300px]">
-          <Search className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden="true" />
-          <input
-            id="opportunity-ticker-search"
-            value={symbolQuery}
-            onChange={(e) => setSymbolQuery(e.target.value.toUpperCase())}
-            placeholder="Search ticker — NVDA"
-            autoComplete="off"
-            autoCapitalize="characters"
-            spellCheck={false}
-            aria-label="Search opportunities by ticker"
-            className="min-w-0 flex-1 bg-transparent py-1.5 font-mono text-xs uppercase text-zinc-100 placeholder:normal-case placeholder:text-zinc-600 focus:outline-none"
-          />
-          {symbolQuery && (
-            <button
-              type="button"
-              onClick={() => setSymbolQuery('')}
-              aria-label="Clear ticker search"
-              className="rounded-sm p-0.5 text-zinc-500 transition-colors hover:text-zinc-200"
-            >
-              <X className="h-3.5 w-3.5" aria-hidden="true" />
-            </button>
-          )}
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setShowFilters((value) => !value)}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-sm px-2 py-1 text-[11px] transition-colors',
-            showFilters ? 'bg-sky-500/15 text-sky-200' : 'text-zinc-400 hover:text-zinc-200',
-          )}
-        >
-          <Filter className="h-3.5 w-3.5" aria-hidden="true" />
-          Filters
-        </button>
-        <span className="font-mono text-[10px] text-zinc-500">
-          {filtered.length} meeting criteria · {filteredNoTrade.length} not selected
-        </span>
-        {favorites.length > 0 && (
-          <span className="font-mono text-[10px] text-amber-300">{favorites.length} favorited · pinned first in each section</span>
-        )}
-        {normalizedSymbolQuery && (
-          <span className="font-mono text-[10px] text-sky-300">ticker: {normalizedSymbolQuery}</span>
-        )}
-        {compareIds.length > 0 && (
-          <span className="font-mono text-[10px] text-sky-300">{compareIds.length} selected to compare</span>
-        )}
-        <span className="ml-auto hidden text-[10px] text-zinc-600 md:inline">Select up to {MAX_COMPARE} rows for side-by-side comparison.</span>
-      </div>
-
-      {showFilters && (
-        <Panel>
-          <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <label htmlFor="flt-dir" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">Direction</label>
-              <select
-                id="flt-dir"
-                value={direction}
-                onChange={(e) => setDirection(e.target.value as (typeof DIRECTIONS)[number])}
-                className="mt-1 rounded-sm border border-zinc-800 bg-black/40 px-2 py-1 text-xs text-zinc-200 focus-visible:border-sky-500/60 focus-visible:outline-none"
-              >
-                {DIRECTIONS.map((d) => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="flt-risk" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">Risk</label>
-              <select
-                id="flt-risk"
-                value={risk}
-                onChange={(e) => setRisk(e.target.value as (typeof RISKS)[number])}
-                className="mt-1 rounded-sm border border-zinc-800 bg-black/40 px-2 py-1 text-xs text-zinc-200 focus-visible:border-sky-500/60 focus-visible:outline-none"
-              >
-                {RISKS.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
-            </div>
-            <div className="min-w-[180px]">
-              <label htmlFor="flt-score" className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                Min opportunity: <span className="text-zinc-200">{minScore}</span>
-              </label>
-              <input
-                id="flt-score"
-                type="range"
-                min={0}
-                max={95}
-                step={5}
-                value={minScore}
-                onChange={(e) => setMinScore(Number(e.target.value))}
-                className="mt-2 w-full accent-sky-500"
-              />
-            </div>
-            <label className="flex cursor-pointer items-center gap-2 pb-1 text-[11px] text-zinc-400">
-              <input
-                type="checkbox"
-                checked={watchlistOnly}
-                onChange={(e) => setWatchlistOnly(e.target.checked)}
-                className="h-3.5 w-3.5 accent-sky-500"
-              />
-              Watchlist only
-            </label>
-          </div>
-        </Panel>
-      )}
-
-      <div className="hidden overflow-hidden rounded-md border border-zinc-800 bg-[#14171c] xl:block">
-        <table className="w-full text-left text-[11px]">
-          <thead className="bg-black/50 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-            <tr>
-              <th scope="col" className="w-9 px-3 py-2"><span className="sr-only">Compare</span><Layers className="h-3.5 w-3.5 text-sky-400" aria-hidden="true" /></th>
-              {['Ticker', 'Price', 'Direction', 'Opportunity', 'Confidence', 'Risk', 'Contract', ''].map((h) => (
-                <th key={h} scope="col" className="whitespace-nowrap px-3 py-2">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-800/80">
-            {filtered.map((s) => {
-              const c = (candidates[s.id] ?? []).find((x) => x.profile === 'Balanced') ?? (candidates[s.id] ?? [])[0];
-              const q = quotes[s.symbol];
-              const picked = compareIds.includes(s.id);
-              const contract = s.suggested_expiration && s.suggested_strike
-                ? `${num(s.suggested_strike)} ${s.direction === 'bearish' ? 'PUT' : 'CALL'} · ${s.suggested_expiration}`
-                : c?.contract_symbol ?? null;
-              return (
-                <tr key={s.id} className={cn('transition-colors', picked ? 'bg-sky-500/[0.08]' : 'hover:bg-sky-500/[0.04]')}>
-                  <td className="px-3 py-3">
-                    <CompareToggle
-                      symbol={s.symbol}
-                      checked={picked}
-                      disabled={!picked && compareFull}
-                      onChange={() => toggleCompare(s.id)}
-                    />
-                  </td>
-                  <td className="px-3 py-3">
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => void onToggleFavorite(s.symbol)}
-                        aria-label={favoriteSet.has(s.symbol) ? `Unfavorite ${s.symbol}` : `Favorite ${s.symbol}`}
-                        title={user ? (favoriteSet.has(s.symbol) ? 'Remove from favorites' : 'Add to favorites') : 'Sign in to save favorites'}
-                        className={cn(
-                          'rounded-sm p-0.5 transition-colors',
-                          favoriteSet.has(s.symbol)
-                            ? 'text-amber-300 hover:text-amber-200'
-                            : 'text-zinc-600 hover:text-amber-300',
-                        )}
-                      >
-                        <Star className={cn('h-3.5 w-3.5', favoriteSet.has(s.symbol) && 'fill-current')} aria-hidden="true" />
-                      </button>
-                      <div className="font-mono text-[12px] font-semibold text-zinc-100">{s.symbol}</div>
-                    </div>
-                    <div className="max-w-[170px] truncate pl-5 text-[10px] text-zinc-500">{tickers[s.symbol]?.company ?? <Unavailable />}</div>
-                  </td>
-                  <td className="px-3 py-3">
-                    <div className="font-mono tabular-nums text-zinc-100">{money(s.stock_price_at_generation) ?? <Unavailable />}</div>
-                    <div className={cn(
-                      'font-mono text-[10px]',
-                      changeColor(typeof s.score_breakdown?.raw?.change_pct === 'number'
-                        ? s.score_breakdown.raw.change_pct
-                        : null),
-                    )}>
-                      {pct(typeof s.score_breakdown?.raw?.change_pct === 'number'
-                        ? s.score_breakdown.raw.change_pct
-                        : null) ?? '—'}
-                    </div>
-                  </td>
-                  <td className="px-3 py-3"><DirectionTag direction={s.direction} /></td>
-                  <td className={cn('px-3 py-3 font-mono text-base font-semibold tabular-nums', scoreColor(s.opportunity_score))}>{s.opportunity_score}</td>
-                  <td className={cn('px-3 py-3 font-mono font-semibold tabular-nums', scoreColor(s.confidence_score))}>{s.confidence_score}</td>
-                  <td className="px-3 py-3"><RiskTag level={s.risk_level} /></td>
-                  <td className="max-w-[260px] px-3 py-3">
-                    {contract ? (
-                      <div>
-                        <div className="font-mono text-[11px] text-zinc-300">{contract}</div>
-                        {(c?.bid || c?.ask) && <div className="mt-0.5 font-mono text-[9px] text-zinc-500">bid {num(c?.bid) ?? '—'} · ask {num(c?.ask) ?? '—'}</div>}
-                      </div>
-                    ) : (
-                      <span className="text-[10px] text-zinc-600">Options data pending</span>
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-3 text-right">
-                    <Button size="sm" variant="outline" className="h-7 gap-1 border-zinc-700 text-[10px]" onClick={() => onOpenThesis(s.id)}>
-                      <TrendingUp className="h-3 w-3" aria-hidden="true" />
-                      Open analysis
-                    </Button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {filtered.length === 0 && (
-          <div className="border-t border-zinc-800 px-3 py-2 text-[11px] text-zinc-500">
-            {normalizedSymbolQuery
-              ? `No selected opportunity for ${normalizedSymbolQuery}. Check NO TRADE / WAIT below to see whether URSORA evaluated and rejected it.`
-              : 'No opportunity matches these filters. Adjust the filters or review the rejected setups below.'}
-          </div>
-        )}
-      </div>
-
-      {/* MOBILE / TABLET CARDS */}
-      <div className="grid gap-3 md:grid-cols-2 xl:hidden">
-        {filtered.map((s, i) => {
-          const c = (candidates[s.id] ?? []).find((x) => x.profile === 'Balanced') ?? (candidates[s.id] ?? [])[0];
-          const q = quotes[s.symbol];
-          const picked = compareIds.includes(s.id);
-          return (
-            <article
-              key={s.id}
-              className={cn(
-                'rounded-md border bg-[#14171c] p-3 transition-colors',
-                picked ? 'border-sky-500/60 bg-sky-500/[0.05]' : 'border-zinc-800 hover:border-sky-500/40',
-              )}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[10px] text-zinc-500">#{i + 1}</span>
-                    <button
-                      type="button"
-                      onClick={() => void onToggleFavorite(s.symbol)}
-                      aria-label={favoriteSet.has(s.symbol) ? `Unfavorite ${s.symbol}` : `Favorite ${s.symbol}`}
-                      title={user ? (favoriteSet.has(s.symbol) ? 'Remove from favorites' : 'Add to favorites') : 'Sign in to save favorites'}
-                      className={cn(
-                        'rounded-sm p-0.5 transition-colors',
-                        favoriteSet.has(s.symbol)
-                          ? 'text-amber-300 hover:text-amber-200'
-                          : 'text-zinc-600 hover:text-amber-300',
-                      )}
-                    >
-                      <Star className={cn('h-4 w-4', favoriteSet.has(s.symbol) && 'fill-current')} aria-hidden="true" />
-                    </button>
-                    <span className="font-mono text-sm font-semibold text-zinc-100">{s.symbol}</span>
-                    <SignalDataBadge signal={s} />
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-zinc-500">{tickers[s.symbol]?.company ?? <Unavailable />}</div>
-                </div>
-                <div className="text-right">
-                  <div className="font-mono text-sm tabular-nums text-zinc-100">{money(s.stock_price_at_generation) ?? <Unavailable />}</div>
-                  <div className={cn(
-                    'font-mono text-[10px]',
-                    changeColor(typeof s.score_breakdown?.raw?.change_pct === 'number'
-                      ? s.score_breakdown.raw.change_pct
-                      : null),
-                  )}>
-                    {pct(typeof s.score_breakdown?.raw?.change_pct === 'number'
-                      ? s.score_breakdown.raw.change_pct
-                      : null) ?? '—'}
-                  </div>
-                </div>
+      <div className="flex snap-x gap-3 overflow-x-auto pb-2 lg:grid lg:grid-cols-3 lg:overflow-visible">
+        <section className={columnClass}>
+          <div className="border-b border-zinc-800 p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-300">Static watchlist</div>
+                <h2 className="mt-1 text-base font-semibold text-zinc-100">Your favorites</h2>
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                <DirectionTag direction={s.direction} />
-                <RiskTag level={s.risk_level} />
-                <span className="rounded-sm border border-zinc-700 px-1.5 py-[1px] font-mono text-[10px] text-zinc-300">{s.strategy}</span>
-                <span className="ml-auto">
-                  <CompareToggle
-                    symbol={s.symbol}
-                    checked={picked}
-                    disabled={!picked && compareFull}
-                    onChange={() => toggleCompare(s.id)}
-                    withLabel
-                  />
-                </span>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <ScoreBar label="Opportunity" score={s.opportunity_score} />
-                <ScoreBar label="Confidence" score={s.confidence_score} />
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                <Metric label="Strike" value={num(s.suggested_strike)} />
-                <Metric label="Expiration" value={s.suggested_expiration} hint={dte(s.suggested_expiration) !== null ? `${dte(s.suggested_expiration)} days` : undefined} />
-                <Metric label="Mid" value={num(c?.mid)} />
-                <Metric label="Bid / Ask" value={c ? `${num(c.bid)} / ${num(c.ask)}` : null} />
-                <Metric label="IV" value={ivPct(c?.implied_volatility)} />
-                <Metric label="Delta" value={num(c?.delta, 3)} />
-                <Metric label="Break-even" value={num(s.break_even)} />
-                <Metric label="Premium" value={money(s.est_premium)} />
-                <Metric label="Max loss" value={money(s.max_defined_loss)} valueClass="text-red-300" />
-              </div>
-              <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">{s.catalyst_summary ?? 'No dated catalyst in store.'}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button size="sm" className="h-7 gap-1 text-[10px]" onClick={() => onOpenThesis(s.id)}>
-                  <TrendingUp className="h-3 w-3" aria-hidden="true" />
-                  VIEW TRADE THESIS
-                </Button>
-              </div>
-            </article>
-          );
-        })}
-      </div>
-
-      {/* NO TRADE */}
-      <Panel
-        title="NO TRADE / WAIT"
-        subtitle="These names were analysed and deliberately rejected. The rule that fired is stated on each card — the engine does not manufacture a setup to fill the board."
-        right={
-          filteredNoTrade.some((signal) => signal.is_demo)
-            ? <DemoBadge />
-            : filteredNoTrade.some(signalIncludesInferred)
-              ? <DataBadge kind="inferred" label="INCLUDES INFERRED DATA" />
-              : <DataBadge kind="derived" label="DERIVED ANALYSIS" />
-        }
-      >
-        {filteredNoTrade.length === 0 ? (
-          <EmptyState
-            title={normalizedSymbolQuery ? `No rejected setup for ${normalizedSymbolQuery}` : 'No evaluated setups in this run'}
-            body={normalizedSymbolQuery
-              ? 'This ticker is not present in the rejected setups for the latest analysis run.'
-              : 'This run did not produce any current signal records to classify as opportunities or rejections.'}
-          />
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {filteredNoTrade.map((s) => {
-              const picked = compareIds.includes(s.id);
-              return (
-                <article
-                  key={s.id}
-                  className={cn(
-                    'rounded-md border p-3 transition-colors',
-                    picked ? 'border-sky-500/50 bg-sky-500/[0.06]' : 'border-amber-500/30 bg-amber-500/[0.04]',
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void onToggleFavorite(s.symbol)}
-                        aria-label={favoriteSet.has(s.symbol) ? `Unfavorite ${s.symbol}` : `Favorite ${s.symbol}`}
-                        title={user ? (favoriteSet.has(s.symbol) ? 'Remove from favorites' : 'Add to favorites') : 'Sign in to save favorites'}
-                        className={cn(
-                          'rounded-sm p-0.5 transition-colors',
-                          favoriteSet.has(s.symbol)
-                            ? 'text-amber-300 hover:text-amber-200'
-                            : 'text-zinc-600 hover:text-amber-300',
-                        )}
-                      >
-                        <Star className={cn('h-4 w-4', favoriteSet.has(s.symbol) && 'fill-current')} aria-hidden="true" />
-                      </button>
-                      <Ban className="h-3.5 w-3.5 text-amber-400" aria-hidden="true" />
-                      <span className="font-mono text-sm font-semibold text-zinc-100">{s.symbol}</span>
-                      <span className="font-mono text-[10px] uppercase tracking-wider text-amber-300">no trade</span>
-                    </div>
-                    <span className={cn('font-mono text-xs font-semibold tabular-nums', scoreColor(s.opportunity_score))}>
-                      {s.opportunity_score}
-                    </span>
-                  </div>
-                  <p className="mt-2 line-clamp-3 text-[11px] leading-relaxed text-zinc-400" title={s.no_trade_reason ?? undefined}>
-                    {s.no_trade_reason}
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <DirectionTag direction={s.direction} />
-                    <FlagTag flag="evidence below threshold" />
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onOpenThesis(s.id)}
-                      className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-sky-400 transition-colors hover:text-sky-300"
-                    >
-                      <Clock className="h-3 w-3" aria-hidden="true" />
-                      view the evidence anyway
-                    </button>
-                    <CompareToggle
-                      symbol={s.symbol}
-                      checked={picked}
-                      disabled={!picked && compareFull}
-                      onChange={() => toggleCompare(s.id)}
-                      withLabel
-                    />
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </Panel>
-
-      <Disclaimer />
-
-      {/* COMPARE TRAY */}
-      {selected.length > 0 && (
-        <div className="pointer-events-none fixed bottom-[62px] left-0 right-0 z-30 px-3 lg:bottom-4 lg:pl-64">
-          <div className="pointer-events-auto mx-auto flex w-full max-w-[1100px] flex-wrap items-center gap-2 rounded-md border border-sky-500/40 bg-[#0e1116]/98 p-2.5 shadow-lg shadow-black/60 backdrop-blur animate-fade-in">
-            <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-sky-300">
-              <Layers className="h-3.5 w-3.5" aria-hidden="true" />
-              compare
-            </span>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {selected.map((s) => (
-                <span
-                  key={s.id}
-                  className="inline-flex items-center gap-1.5 rounded-sm border border-zinc-700 bg-black/40 px-1.5 py-[2px] font-mono text-[10px] text-zinc-200"
-                >
-                  {s.symbol}
-                  <span className={cn('tabular-nums', scoreColor(s.opportunity_score))}>{s.opportunity_score}</span>
-                  <button
-                    type="button"
-                    onClick={() => toggleCompare(s.id)}
-                    aria-label={`Remove ${s.symbol} from the comparison`}
-                    className="text-zinc-500 transition-colors hover:text-red-300"
-                  >
-                    <X className="h-3 w-3" aria-hidden="true" />
-                  </button>
-                </span>
-              ))}
-            </div>
-            <span className="font-mono text-[10px] text-zinc-500">
-              {selected.length < 2 ? 'tick one more row to open the comparison' : `${selected.length} columns, aligned row by row`}
-            </span>
-            <div className="ml-auto flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setCompareIds([])}
-                className="font-mono text-[10px] uppercase tracking-wider text-zinc-500 transition-colors hover:text-zinc-200"
-              >
-                clear
-              </button>
-              <Button
-                size="sm"
-                className="h-7 gap-1.5 text-[10px]"
-                disabled={selected.length < 2}
-                onClick={() => {
-                  setComparing(true);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-              >
-                <Layers className="h-3 w-3" aria-hidden="true" />
-                COMPARE {selected.length} SIGNALS
+              <Button size="sm" variant="outline" onClick={runFavorites} disabled={running || favorites.length === 0} className="border-zinc-700 text-[10px]">
+                Analyze watchlist
               </Button>
             </div>
+            <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
+              Persistent across sessions. Quotes refresh automatically when you log in; full evidence analysis runs only when you request it.
+            </p>
           </div>
-        </div>
-      )}
+
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+            {watchlistSymbols.length === 0 ? (
+              <div className="rounded-md border border-dashed border-zinc-800 p-4 text-[11px] text-zinc-500">
+                Star tickers in the center column to build your watchlist.
+              </div>
+            ) : (
+              watchlistSymbols.map((symbol) => {
+                const signal = signalFor(symbol);
+                const active = activeBySymbol[symbol] ?? null;
+                return (
+                  <RouteCard
+                    key={symbol}
+                    symbol={symbol}
+                    quote={quotes[symbol]}
+                    ticker={tickers[symbol]}
+                    signal={signal}
+                    active={active}
+                    favorite
+                    selected={analysisSelection.includes(symbol)}
+                    selectable
+                    onSelect={() => toggleAnalysisSelection(symbol)}
+                    onOpen={signal ? () => onOpenThesis(signal.id) : undefined}
+                    onFavorite={() => void onToggleFavorite(symbol)}
+                  />
+                );
+              })
+            )}
+          </div>
+        </section>
+
+        <section className={columnClass}>
+          <div className="border-b border-zinc-800 p-3">
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-sky-300">Other setups to check out</div>
+            <h2 className="mt-1 text-base font-semibold text-zinc-100">Guided curiosity</h2>
+            <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
+              Lightweight stored market snapshots, not trade suggestions. Select what interests you and URSORA will run the full evidence pipeline only on those names.
+            </p>
+          </div>
+
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+            {otherSetups.length === 0 ? (
+              <div className="rounded-md border border-dashed border-zinc-800 p-4 text-[11px] text-zinc-500">
+                No recent un-favorited market snapshots match this search.
+              </div>
+            ) : (
+              otherSetups.map((quote) => {
+                const signal = signalFor(quote.symbol);
+                return (
+                  <RouteCard
+                    key={quote.symbol}
+                    symbol={quote.symbol}
+                    quote={quote}
+                    ticker={tickers[quote.symbol]}
+                    signal={signal}
+                    favorite={favoriteSet.has(quote.symbol)}
+                    selected={analysisSelection.includes(quote.symbol)}
+                    selectable
+                    onSelect={() => toggleAnalysisSelection(quote.symbol)}
+                    onOpen={signal ? () => onOpenThesis(signal.id) : undefined}
+                    onFavorite={() => void onToggleFavorite(quote.symbol)}
+                  />
+                );
+              })
+            )}
+          </div>
+        </section>
+
+        <section className={columnClass}>
+          <div className="border-b border-zinc-800 p-3">
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-emerald-300">Suggested trades</div>
+            <h2 className="mt-1 text-base font-semibold text-zinc-100">Supported theses</h2>
+            <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
+              Only setups that cleared the full evidence gate appear here. They remain stored through their swing-analysis validity window instead of disappearing on unrelated runs.
+            </p>
+          </div>
+
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+            {suggested.length === 0 ? (
+              <div className="rounded-md border border-dashed border-zinc-800 p-4 text-[11px] text-zinc-500">
+                No currently active supported thesis matches this search.
+              </div>
+            ) : (
+              suggested.map((item) => {
+                const signal = activeSignals[item.symbol] ?? latestSignalBySymbol[item.symbol] ?? null;
+                return (
+                  <RouteCard
+                    key={item.symbol}
+                    symbol={item.symbol}
+                    quote={quotes[item.symbol]}
+                    ticker={tickers[item.symbol]}
+                    signal={signal}
+                    active={item}
+                    favorite={favoriteSet.has(item.symbol)}
+                    onOpen={() => onOpenThesis(item.signal_id)}
+                    onFavorite={() => void onToggleFavorite(item.symbol)}
+                  />
+                );
+              })
+            )}
+          </div>
+        </section>
+      </div>
     </div>
   );
 };
