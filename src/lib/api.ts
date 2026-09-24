@@ -32,6 +32,7 @@ export const EDGE_FUNCTIONS = {
   alphaNewsSync: 'sync-alpha-news',
   alphaEarningsSync: 'sync-alpha-earnings',
   marketContextSync: 'sync-market-context',
+  historicalPlayback: 'historical-session-playback',
 } as const;
 
 export type EdgeFunctionSlug = (typeof EDGE_FUNCTIONS)[keyof typeof EDGE_FUNCTIONS];
@@ -168,6 +169,38 @@ export async function refreshMarketSymbols(
   if (refreshContext) {
     await callEdge(EDGE_FUNCTIONS.marketContextSync, { force: true });
   }
+}
+
+export interface HistoricalPlaybackMarker {
+  kind: 'entry' | 'weakening' | 'invalidation' | 'exit';
+  label: string;
+  at: string;
+  price: number | null;
+  detail: string;
+}
+
+export interface HistoricalPlaybackResponse {
+  success: boolean;
+  trade_id: number;
+  symbol: string;
+  session_date: string;
+  bars: Bar[];
+  markers: HistoricalPlaybackMarker[];
+  episode: {
+    entry_at: string;
+    exit_at: string | null;
+    invalidation_at: string | null;
+    weakening_at: string | null;
+    post_invalidation_minutes: number | null;
+    realized_pl: number | null;
+    return_pct: number | null;
+    thesis_review_status: string | null;
+  };
+  source: string;
+}
+
+export async function fetchHistoricalPlayback(tradeId: number): Promise<HistoricalPlaybackResponse> {
+  return callEdge<HistoricalPlaybackResponse>(EDGE_FUNCTIONS.historicalPlayback, { trade_id: tradeId });
 }
 
 export interface FreshAnalysisResult {
