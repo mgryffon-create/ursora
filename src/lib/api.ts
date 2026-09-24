@@ -26,6 +26,7 @@ export const EDGE_FUNCTIONS = {
   analyst: 'ai-analyst',
   paperDashboard: 'webull-paper-dashboard',
   marketSync: 'sync-massive-market',
+  optionsSync: 'sync-massive-options',
   tradeStructure: 'build-trade-structure',
   tradeLifecycle: 'sync-tradecycle-lifecycle',
   alphaNewsSync: 'sync-alpha-news',
@@ -137,6 +138,9 @@ function friendlyPipelineWarning(label: string, error: unknown): string {
   if (/401|signature|authentication/i.test(raw)) {
     return `${label}: provider authentication failed.`;
   }
+  if (/403|entitle|subscription|plan|not.?authorized/i.test(raw)) {
+    return `${label}: this dataset is not included in the current provider entitlement.`;
+  }
 
   return `${label}: refresh did not complete.`;
 }
@@ -171,7 +175,8 @@ export async function runFreshAnalysis(
   const symbols = Array.isArray(body.symbols) ? { symbols: body.symbols } : {};
 
   const stages: Array<{ label: string; slug: EdgeFunctionSlug; payload: Record<string, unknown> }> = [
-    { label: 'Massive test market and historical data', slug: EDGE_FUNCTIONS.marketSync, payload: symbols },
+    { label: 'Massive market quotes and historical data', slug: EDGE_FUNCTIONS.marketSync, payload: symbols },
+    { label: 'Massive options chain', slug: EDGE_FUNCTIONS.optionsSync, payload: symbols },
     { label: 'market context', slug: EDGE_FUNCTIONS.marketContextSync, payload: {} },
     { label: 'verified news and sentiment', slug: EDGE_FUNCTIONS.alphaNewsSync, payload: symbols },
     { label: 'earnings calendar', slug: EDGE_FUNCTIONS.alphaEarningsSync, payload: symbols },
