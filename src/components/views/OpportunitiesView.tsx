@@ -493,8 +493,8 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
 
         <section className={columnClass}>
           <div className="border-b border-zinc-800 p-3">
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-sky-300">Other setups to check out</div>
-            <h2 className="mt-1 text-base font-semibold text-zinc-100">Guided curiosity</h2>
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-sky-300">Market setups</div>
+            <h2 className="mt-1 text-base font-semibold text-zinc-100">Daily market scan</h2>
             <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
               Lightweight stored market snapshots, not trade suggestions. Select what interests you and URSORA will run the full evidence pipeline only on those names.
             </p>
