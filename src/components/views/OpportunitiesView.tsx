@@ -3,8 +3,8 @@ import {
   AlertOctagon, Ban, Clock, Layers, Filter, Loader2, RefreshCw, Search, Star, TrendingUp, X,
 } from 'lucide-react';
 import db from '@/lib/db';
-import { fetchLatestQuotes, fetchRuns, fetchTickers, fetchTodaySignals, runFreshAnalysis, track } from '@/lib/api';
-import type { AnalysisRun, ContractCandidate, Quote, Signal, Ticker } from '@/lib/types';
+import { fetchActiveAnalyses, fetchLatestQuotes, fetchRuns, fetchTickers, fetchTodaySignals, runFreshAnalysis, track } from '@/lib/api';
+import type { ActiveAnalysis, AnalysisRun, ContractCandidate, Quote, Signal, Ticker } from '@/lib/types';
 import { changeColor, compact, dte, ivPct, money, num, pct, scoreColor, stampET } from '@/lib/format';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 const DIRECTIONS = ['any', 'bullish', 'bearish', 'neutral'] as const;
 const RISKS = ['any', 'Low', 'Moderate', 'High', 'Extreme'] as const;
 const MAX_COMPARE = 3;
+const MAX_ANALYSIS = 6;
 
 const signalIncludesInferred = (signal: Signal) =>
   (signal.score_breakdown?.factors ?? []).some((factor) => factor.provenance === 'imputed');
@@ -67,6 +68,8 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
   const [tickers, setTickers] = useState<Record<string, Ticker>>({});
   const [runs, setRuns] = useState<AnalysisRun[]>([]);
+  const [activeAnalyses, setActiveAnalyses] = useState<ActiveAnalysis[]>([]);
+  const [analysisSelection, setAnalysisSelection] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,13 +88,14 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [sig, q, tk, rn] = await Promise.all([
-        fetchTodaySignals(), fetchLatestQuotes(), fetchTickers(), fetchRuns(6),
+      const [sig, q, tk, rn, active] = await Promise.all([
+        fetchTodaySignals(), fetchLatestQuotes(), fetchTickers(), fetchRuns(6), fetchActiveAnalyses(),
       ]);
       setSignals(sig);
       setQuotes(q);
       setTickers(Object.fromEntries(tk.map((t) => [t.symbol, t])));
       setRuns(rn);
+      setActiveAnalyses(active);
       if (sig.length) {
         const { data } = await db
           .from('contract_candidates')
@@ -117,25 +121,70 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
     void load();
   }, [load]);
 
-  const runAnalysis = useCallback(async () => {
+  const runAnalysisFor = useCallback(async (requestedSymbols: string[], offerFavorites = true) => {
+    let selectedSymbols = [...new Set(requestedSymbols.map((symbol) => symbol.toUpperCase()))];
+
+    if (!selectedSymbols.length) {
+      setError('Select at least one ticker to analyze.');
+      return;
+    }
+    if (selectedSymbols.length > MAX_ANALYSIS) {
+      setError(`Select up to ${MAX_ANALYSIS} tickers per analysis run so URSORA can refresh each evidence set completely.`);
+      return;
+    }
+
+    const omittedFavorites = favorites.filter((symbol) => !selectedSymbols.includes(symbol));
+    if (offerFavorites && omittedFavorites.length) {
+      const room = MAX_ANALYSIS - selectedSymbols.length;
+      const canAddAll = omittedFavorites.length <= room;
+      const message = canAddAll
+        ? `Your favorites ${omittedFavorites.join(', ')} are not included. Add them to this run?\n\nOK = add favorites · Cancel = run selected only`
+        : `You have ${omittedFavorites.length} favorites outside this run, but only ${room} analysis slot${room === 1 ? '' : 's'} remain.\n\nOK = keep this selected run · Cancel = return and adjust your selection.`;
+      const confirmed = window.confirm(message);
+      if (canAddAll && confirmed) selectedSymbols = [...selectedSymbols, ...omittedFavorites];
+      if (!canAddAll && !confirmed) return;
+    }
+
     setRunning(true);
     setError(null);
     setPipelineWarnings([]);
     try {
-      const res = await runFreshAnalysis({ kind: 'manual' });
-      track('analysis_run', { signals: res.signals ?? 0, updates: res.updates ?? 0 });
+      const res = await runFreshAnalysis({ kind: 'manual', symbols: selectedSymbols });
+      track('analysis_run', { signals: res.signals ?? 0, updates: res.updates ?? 0, symbols: selectedSymbols });
       setPipelineWarnings(res.warnings);
       if (res.warnings.length) {
         console.warn('URSORA completed analysis with data-refresh warnings:', res.warnings);
       }
       setCompareIds([]);
+      setAnalysisSelection([]);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setRunning(false);
     }
-  }, [load]);
+  }, [favorites, load]);
+
+  const toggleAnalysisSelection = useCallback((symbol: string) => {
+    const sym = symbol.toUpperCase();
+    setAnalysisSelection((prev) => {
+      if (prev.includes(sym)) return prev.filter((item) => item !== sym);
+      if (prev.length >= MAX_ANALYSIS) return prev;
+      return [...prev, sym];
+    });
+  }, []);
+
+  const runFavorites = useCallback(() => {
+    if (!favorites.length) {
+      setError('Favorite at least one ticker before running a favorites-only analysis.');
+      return;
+    }
+    if (favorites.length > MAX_ANALYSIS) {
+      setError(`You have ${favorites.length} favorites. Select up to ${MAX_ANALYSIS} of them for one analysis run.`);
+      return;
+    }
+    void runAnalysisFor(favorites, false);
+  }, [favorites, runAnalysisFor]);
 
   const toggleCompare = useCallback((id: number) => {
     setCompareIds((prev) => {
@@ -208,6 +257,39 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
     [noTrade, normalizedSymbolQuery],
   );
 
+  const curiosityReason = useCallback((quote: Quote) => {
+    const move = Math.abs(quote.change_pct ?? 0);
+    const relVolume = quote.rel_volume ?? 0;
+    const trend = String(quote.trend ?? '').toLowerCase();
+    if (move >= 2) return `${move.toFixed(1)}% recent move — worth a closer look`;
+    if (relVolume >= 1.5) return `${relVolume.toFixed(1)}x relative volume — participation stands out`;
+    if (trend.includes('up')) return 'Uptrend structure in the stored market snapshot';
+    if (trend.includes('down')) return 'Downtrend structure in the stored market snapshot';
+    return 'Recent market activity available for a deeper analysis';
+  }, []);
+
+  const discoveryQuotes = useMemo(
+    () =>
+      Object.values(quotes)
+        .filter((quote) => Boolean(tickers[quote.symbol]))
+        .sort((a, b) => {
+          const score = (quote: Quote) =>
+            Math.abs(quote.change_pct ?? 0) + Math.max(0, (quote.rel_volume ?? 1) - 1) * 2;
+          return score(b) - score(a);
+        }),
+    [quotes, tickers],
+  );
+
+  const favoriteDiscovery = useMemo(
+    () => favorites.map((symbol) => quotes[symbol]).filter((quote): quote is Quote => Boolean(quote)),
+    [favorites, quotes],
+  );
+
+  const otherDiscovery = useMemo(
+    () => discoveryQuotes.filter((quote) => !favoriteSet.has(quote.symbol)),
+    [discoveryQuotes, favoriteSet],
+  );
+
   const selected = useMemo(
     () => compareIds.map((id) => signals.find((s) => s.id === id)).filter((s): s is Signal => Boolean(s)),
     [compareIds, signals],
@@ -233,8 +315,8 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
     <div className="space-y-4">
       <SectionHeading
         eyebrow="Today"
-        title="Today's Opportunities"
-        description="A ranked list of opportunities identified by URSORA. Open an analysis to review the supporting evidence, available contract information, and risk considerations."
+        title="Market Discovery & Analysis"
+        description="Start with lightweight market snapshots, choose what interests you, then run a complete evidence analysis only on the tickers you want to investigate."
         right={
           <div className="flex flex-wrap items-center gap-2">
             {lastRun && (
@@ -242,12 +324,150 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
                 Last run {stampET(lastRun.finished_at ?? lastRun.started_at)} · {lastRun.signals_generated} signals
               </span>
             )}
-            <Button size="sm" variant="outline" onClick={runAnalysis} disabled={running} className="gap-1.5 border-zinc-700">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void runAnalysisFor(analysisSelection)}
+              disabled={running || analysisSelection.length === 0}
+              className="gap-1.5 border-zinc-700"
+            >
               {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />}
-              {running ? 'Running…' : 'Run analysis'}
+              {running ? 'Running…' : `Analyze selected (${analysisSelection.length}/${MAX_ANALYSIS})`}
             </Button>
           </div>
         }
+      />
+
+      <Panel>
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-800 pb-3">
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-300">Favorites</div>
+            <div className="mt-1 text-sm font-semibold text-zinc-100">Your static watchlist</div>
+            <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-zinc-500">
+              Favorites stay here across sessions. Select any ticker for a full analysis, or run the entire favorites list when it fits within the {MAX_ANALYSIS}-ticker analysis cap.
+            </p>
+          </div>
+          <Button size="sm" variant="outline" onClick={runFavorites} disabled={running || favorites.length === 0} className="border-zinc-700">
+            Analyze favorites
+          </Button>
+        </div>
+
+        {favorites.length === 0 ? (
+          <div className="py-4 text-[11px] text-zinc-500">Star a ticker anywhere in URSORA to build your persistent favorites watchlist.</div>
+        ) : (
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {favorites.map((symbol) => {
+              const quote = quotes[symbol];
+              const selectedForAnalysis = analysisSelection.includes(symbol);
+              return (
+                <button
+                  key={symbol}
+                  type="button"
+                  onClick={() => toggleAnalysisSelection(symbol)}
+                  className={cn(
+                    'rounded-md border p-3 text-left transition-colors',
+                    selectedForAnalysis
+                      ? 'border-sky-500/60 bg-sky-500/[0.08]'
+                      : 'border-zinc-800 bg-black/20 hover:border-zinc-700',
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Star className="h-3.5 w-3.5 fill-current text-amber-300" aria-hidden="true" />
+                      <span className="font-mono text-sm font-semibold text-zinc-100">{symbol}</span>
+                    </div>
+                    <span className="font-mono text-[10px] text-sky-300">{selectedForAnalysis ? 'SELECTED' : 'SELECT'}</span>
+                  </div>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <span className="font-mono text-sm text-zinc-200">{money(quote?.price) ?? '—'}</span>
+                    <span className={cn('font-mono text-[10px]', changeColor(quote?.change_pct ?? null))}>{pct(quote?.change_pct ?? null) ?? '—'}</span>
+                  </div>
+                  <div className="mt-1 text-[10px] text-zinc-500">{quote ? curiosityReason(quote) : 'Snapshot not yet available — select to refresh it.'}</div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </Panel>
+
+      <Panel>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-sky-300">Other setups to check out</div>
+            <div className="mt-1 text-sm font-semibold text-zinc-100">Guided curiosity, not recommendations</div>
+            <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-zinc-500">
+              These are lightweight cached market snapshots from the latest stored session data. They are here to help you decide what deserves a complete URSORA analysis; they have not been suggestion-gated.
+            </p>
+          </div>
+          <div className="font-mono text-[10px] text-zinc-500">{analysisSelection.length} / {MAX_ANALYSIS} selected</div>
+        </div>
+
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {otherDiscovery.slice(0, 16).map((quote) => {
+            const selectedForAnalysis = analysisSelection.includes(quote.symbol);
+            return (
+              <button
+                key={quote.symbol}
+                type="button"
+                onClick={() => toggleAnalysisSelection(quote.symbol)}
+                className={cn(
+                  'rounded-md border p-3 text-left transition-colors',
+                  selectedForAnalysis
+                    ? 'border-sky-500/60 bg-sky-500/[0.08]'
+                    : 'border-zinc-800 bg-black/20 hover:border-zinc-700',
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-sm font-semibold text-zinc-100">{quote.symbol}</span>
+                  <span className="font-mono text-[10px] text-sky-300">{selectedForAnalysis ? 'SELECTED' : 'SELECT'}</span>
+                </div>
+                <div className="mt-1 text-[10px] text-zinc-500">{tickers[quote.symbol]?.company ?? '—'}</div>
+                <div className="mt-2 flex items-baseline gap-2">
+                  <span className="font-mono text-sm text-zinc-200">{money(quote.price) ?? '—'}</span>
+                  <span className={cn('font-mono text-[10px]', changeColor(quote.change_pct))}>{pct(quote.change_pct) ?? '—'}</span>
+                </div>
+                <div className="mt-1 text-[10px] leading-relaxed text-zinc-500">{curiosityReason(quote)}</div>
+              </button>
+            );
+          })}
+        </div>
+      </Panel>
+
+      {activeAnalyses.length > 0 && (
+        <Panel>
+          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-emerald-300">Active analyses</div>
+          <div className="mt-1 text-sm font-semibold text-zinc-100">Supported setups retained through their intended swing horizon</div>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            These do not disappear just because you analyze different tickers later. They remain active until their stored validity window expires or a future workflow explicitly supersedes them.
+          </p>
+          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {activeAnalyses.map((item) => (
+              <button
+                key={item.symbol}
+                type="button"
+                onClick={() => onOpenThesis(item.signal_id)}
+                className="rounded-md border border-emerald-500/20 bg-emerald-500/[0.04] p-3 text-left hover:border-emerald-500/40"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-sm font-semibold text-zinc-100">{item.symbol}</span>
+                  <DirectionTag direction={item.direction} />
+                </div>
+                <div className="mt-2 font-mono text-[10px] text-zinc-400">
+                  score {item.opportunity_score ?? '—'} · confidence {item.confidence_score ?? '—'}
+                </div>
+                <div className="mt-1 text-[10px] text-zinc-500">
+                  {item.holding_period ?? 'swing'}{item.valid_until ? ` · valid window through ${stampET(item.valid_until)}` : ''}
+                </div>
+              </button>
+            ))}
+          </div>
+        </Panel>
+      )}
+
+      <SectionHeading
+        eyebrow="Analyzed"
+        title="Latest analysis results"
+        description="Only tickers explicitly analyzed in the most recent run appear below. A No Trade result means the selected ticker was evaluated and did not clear the evidence gate."
       />
 
       {error && (
