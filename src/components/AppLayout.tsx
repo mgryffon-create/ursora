@@ -65,7 +65,7 @@ const NAV_GROUPS: {
       { key: 'profile', label: 'MyURSORA', hint: 'Goals, habits and trading baseline', Icon: UserRound },
       { key: 'history', label: 'Activity', hint: 'TradeCycle calendar and timeline', Icon: ScrollText },
       { key: 'trader', label: 'Patterns', hint: 'Recurring process and behavior', Icon: Brain },
-      { key: 'backtest', label: 'Historical Evidence', hint: 'How setups behaved historically', Icon: FlaskConical },
+      { key: 'backtest', label: 'Historical Evidence', hint: 'Replay actual trades against the market', Icon: FlaskConical },
     ],
   },
 ];
