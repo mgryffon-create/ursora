@@ -94,7 +94,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await db.from('user_prefs').insert({ user_id: uid, ...DEFAULT_PREFS });
       setPrefs(DEFAULT_PREFS);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     let active = true;
@@ -174,6 +174,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = useCallback(async () => {
     if (typeof window !== 'undefined') {
       window.sessionStorage.removeItem('ursora_session_active');
+      if (user?.id) window.sessionStorage.removeItem(`ursora_login_market_refresh_${user.id}`);
     }
     await db.auth.signOut();
     setWatchlist(DEFAULT_UNIVERSE);
