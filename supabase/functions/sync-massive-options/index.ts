@@ -47,6 +47,12 @@ function massiveKey() {
 
 type AnyRow = Record<string, any>;
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  try { return JSON.stringify(error); } catch { return String(error); }
+}
+
 function n(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
@@ -64,7 +70,7 @@ async function massiveGet(path: string, params: Record<string, string | number |
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
 
   let lastError: unknown = null;
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await fetch(url, {
         headers: {
@@ -82,9 +88,9 @@ async function massiveGet(path: string, params: Record<string, string | number |
       return body;
     } catch (error) {
       lastError = error;
-      const message = error instanceof Error ? error.message : String(error);
-      if (!/429|rate|limit|5\d\d|temporar/i.test(message) || attempt === 3) throw error;
-      await sleep(15000);
+      const message = errorMessage(error);
+      if (!/429|rate|limit|5\d\d|temporar/i.test(message) || attempt === 1) throw error;
+      await sleep(1500);
     }
   }
   throw lastError;
@@ -109,13 +115,34 @@ Deno.serve(async (req) => {
         .select('symbol')
         .eq('is_default', true)
         .order('priority')
-        .limit(5);
+        .limit(20);
       if (error) throw error;
       symbols = (data ?? []).map((row: any) => String(row.symbol).toUpperCase()).filter(Boolean);
     }
 
-    symbols = [...new Set(symbols)].slice(0, 5);
-    if (!symbols.length) return json({ error: 'No symbols configured.' }, 400);
+    const universe = [...new Set(symbols)].slice(0, 20);
+    if (!universe.length) return json({ error: 'No symbols configured.' }, 400);
+
+    // Rotate a small batch each run instead of holding one Edge Function open
+    // across the whole universe. Recent option snapshots remain usable for 36h
+    // in TradeCycle, so several runs progressively seed the full universe.
+    const providerKey = 'massive_options';
+    const capability = 'option_chain';
+    const { data: syncStates } = await db
+      .from('provider_symbol_syncs')
+      .select('symbol,last_attempt')
+      .eq('provider_key', providerKey)
+      .eq('capability', capability)
+      .in('symbol', universe);
+
+    const stateBySymbol = new Map((syncStates ?? []).map((row: any) => [
+      String(row.symbol).toUpperCase(),
+      row.last_attempt ? new Date(row.last_attempt).getTime() : 0,
+    ]));
+
+    symbols = [...universe]
+      .sort((a, b) => (stateBySymbol.get(a) ?? 0) - (stateBySymbol.get(b) ?? 0))
+      .slice(0, 5);
 
     const now = new Date().toISOString();
     const expirationMin = dateOnly(new Date(Date.now() + 5 * 86400000));
@@ -155,11 +182,11 @@ Deno.serve(async (req) => {
             'strike_price.lte': (underlyingPrice * 1.20).toFixed(2),
             order: 'asc',
             sort: 'expiration_date',
-            limit: 250,
+            limit: 80,
           },
         );
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         const entitlement = /401|403|subscription|entitle|plan|not.?authorized/i.test(message);
         if (entitlement) entitlementErrors += 1;
         results.push({
@@ -168,7 +195,14 @@ Deno.serve(async (req) => {
           status: entitlement ? 'not_entitled' : 'provider_error',
           error: message,
         });
-        if (index < symbols.length - 1) await sleep(12500);
+        await db.from('provider_symbol_syncs').upsert({
+          provider_key: providerKey,
+          capability,
+          symbol: underlying,
+          last_attempt: now,
+          last_error: message,
+          updated_at: now,
+        }, { onConflict: 'provider_key,capability,symbol' });
         continue;
       }
 
@@ -270,7 +304,16 @@ Deno.serve(async (req) => {
         unusual_options_volume: unusual,
       });
 
-      if (index < symbols.length - 1) await sleep(12500);
+      await db.from('provider_symbol_syncs').upsert({
+        provider_key: providerKey,
+        capability,
+        symbol: underlying,
+        last_attempt: now,
+        last_success: now,
+        last_error: null,
+        item_count: rows.length,
+        updated_at: now,
+      }, { onConflict: 'provider_key,capability,symbol' });
     }
 
     const allEntitlementBlocked = entitlementErrors === symbols.length;
@@ -304,7 +347,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     if (error instanceof AuthError) return json({ error: error.message }, error.status);
     return json({
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
       stage,
     }, 500);
   }
