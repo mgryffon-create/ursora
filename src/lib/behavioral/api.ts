@@ -29,6 +29,233 @@ export const DEFAULT_BEHAVIORAL_PREFS: BehavioralPrefs = {
   entitlement: 'trader_intelligence_beta',
 };
 
+type SnapActivityRow = {
+  id: string;
+  user_id: string;
+  account_id: string;
+  symbol: string | null;
+  option_symbol: string | null;
+  option_type: string | null;
+  strike: number | null;
+  expiration: string | null;
+  activity_type: string | null;
+  option_action: string | null;
+  units: number | null;
+  price: number | null;
+  fee: number | null;
+  trade_date: string | null;
+  description: string | null;
+};
+
+function snapActivitySide(row: SnapActivityRow): 1 | -1 | 0 {
+  const units = Number(row.units);
+  const text = [row.option_action, row.activity_type, row.description]
+    .filter(Boolean)
+    .join(' ')
+    .toUpperCase();
+
+  if (/BUY|BOT|BTO|BUY_TO_OPEN|BUY TO OPEN|BUY_TO_CLOSE|BUY TO CLOSE/.test(text)) return 1;
+  if (/SELL|SOLD|STC|SELL_TO_CLOSE|SELL TO CLOSE|SELL_TO_OPEN|SELL TO OPEN/.test(text)) return -1;
+
+  // SnapTrade documents BUY units as positive and SELL units as negative. Use that
+  // signed quantity as a provider-grounded fallback when brokerage labels vary.
+  if (Number.isFinite(units) && units > 0) return 1;
+  if (Number.isFinite(units) && units < 0) return -1;
+  return 0;
+}
+
+function sessionDateET(iso: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(iso));
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+function brokerageActivitiesToTrades(rows: SnapActivityRow[], userId: string): TradeRecord[] {
+  const groups = new Map<string, SnapActivityRow[]>();
+  for (const row of rows) {
+    if (!row.trade_date || !(row.symbol || row.option_symbol)) continue;
+    const side = snapActivitySide(row);
+    const qty = Math.abs(Number(row.units));
+    if (!side || !Number.isFinite(qty) || qty <= 0) continue;
+    const instrument = String(row.option_symbol ?? row.symbol ?? '').toUpperCase();
+    const key = `${row.account_id}|${instrument}`;
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+
+  const out: TradeRecord[] = [];
+  let syntheticId = -1000000;
+
+  for (const activityRows of groups.values()) {
+    activityRows.sort((a, b) => +new Date(a.trade_date ?? 0) - +new Date(b.trade_date ?? 0));
+
+    let net = 0;
+    let exposureSide: 1 | -1 | 0 = 0;
+    let openedAt: string | null = null;
+    let entryQty = 0;
+    let entryNotional = 0;
+    let exitQty = 0;
+    let exitNotional = 0;
+    let fees = 0;
+    let first: SnapActivityRow | null = null;
+
+    const flush = (closedAt: string | null) => {
+      if (!first || !openedAt || entryQty <= 0 || exposureSide === 0) return;
+      const entryPrice = entryNotional / entryQty;
+      const exitPrice = exitQty > 0 ? exitNotional / exitQty : null;
+      const option = Boolean(first.option_symbol);
+      const multiplier = option ? 100 : 1;
+      const closed = closedAt !== null && Math.abs(net) < 1e-9;
+      const realizedPl = closed && exitPrice !== null
+        ? ((exitPrice - entryPrice) * entryQty * multiplier * exposureSide) - fees
+        : null;
+      const returnPct = closed && exitPrice !== null && entryPrice > 0
+        ? ((exitPrice - entryPrice) / entryPrice) * 100 * exposureSide
+        : null;
+      const optionType = first.option_type?.toLowerCase() ?? null;
+      const direction =
+        optionType === 'call' ? (exposureSide > 0 ? 'bullish' : 'bearish')
+          : optionType === 'put' ? (exposureSide > 0 ? 'bearish' : 'bullish')
+            : exposureSide > 0 ? 'bullish' : 'bearish';
+
+      out.push({
+        id: syntheticId--,
+        user_id: userId,
+        signal_id: null,
+        symbol: String(first.symbol ?? '').toUpperCase(),
+        direction,
+        strategy: option ? `Brokerage ${optionType ?? 'option'}` : 'Brokerage equity',
+        setup: null,
+        option_type: optionType,
+        strike: first.strike === null ? null : Number(first.strike),
+        expiration: first.expiration,
+        option_symbol: first.option_symbol,
+        asset_type: option ? 'option' : 'equity',
+        broker: 'SnapTrade',
+        account_label: first.account_id,
+        contracts: option ? entryQty : null,
+        position_size: entryPrice * entryQty * multiplier,
+        entry_at: openedAt,
+        entry_price: entryPrice,
+        exit_at: closedAt,
+        exit_price: exitPrice,
+        fees,
+        realized_pl: realizedPl,
+        unrealized_pl: null,
+        origin: 'OTHER',
+        regime: null,
+        opportunity_score: null,
+        confidence_score: null,
+        risk_level: null,
+        thesis_id: null,
+        trade_plan_id: null,
+        intended_invalidation: null,
+        intended_target: null,
+        max_favorable_excursion: null,
+        max_adverse_excursion: null,
+        return_pct: returnPct,
+        result: closed
+          ? (realizedPl ?? 0) > 0 ? 'win' : (realizedPl ?? 0) < 0 ? 'loss' : 'scratch'
+          : 'open',
+        closed_at: closedAt,
+        session_date: sessionDateET(openedAt),
+        was_planned: null,
+        process_adherence: null,
+        is_synthetic: false,
+        synthetic_profile: null,
+        is_demo: false,
+        notes: 'SnapTrade activity-derived brokerage episode',
+        thesis_mode: closed ? 'review' : 'monitoring',
+        inferred_thesis_direction: direction,
+        thesis_inference_basis: 'Brokerage position structure',
+        thesis_status: null,
+        thesis_support: null,
+        thesis_agreement: null,
+        thesis_last_checked_at: null,
+        thesis_review_status: null,
+        thesis_review_summary: null,
+        created_at: openedAt,
+      });
+    };
+
+    for (const row of activityRows) {
+      const side = snapActivitySide(row);
+      const qty = Math.abs(Number(row.units));
+      const price = Number(row.price ?? 0);
+      if (!side || !Number.isFinite(qty) || qty <= 0) continue;
+
+      if (!first || exposureSide === 0) {
+        first = row;
+        exposureSide = side;
+        net = side * qty;
+        openedAt = row.trade_date;
+        entryQty = qty;
+        entryNotional = price * qty;
+        exitQty = 0;
+        exitNotional = 0;
+        fees = Math.abs(Number(row.fee ?? 0));
+        continue;
+      }
+
+      const sign = net >= 0 ? 1 : -1;
+      if (side === sign) {
+        net += side * qty;
+        entryQty += qty;
+        entryNotional += price * qty;
+        fees += Math.abs(Number(row.fee ?? 0));
+        continue;
+      }
+
+      const closeQty = Math.min(Math.abs(net), qty);
+      exitQty += closeQty;
+      exitNotional += price * closeQty;
+      fees += Math.abs(Number(row.fee ?? 0));
+      const nextNet = net + side * qty;
+
+      if (Math.abs(nextNet) < 1e-9) {
+        net = 0;
+        flush(row.trade_date);
+        first = null;
+        exposureSide = 0;
+        openedAt = null;
+        entryQty = 0;
+        entryNotional = 0;
+        exitQty = 0;
+        exitNotional = 0;
+        fees = 0;
+        continue;
+      }
+
+      if (Math.sign(nextNet) === Math.sign(net)) {
+        net = nextNet;
+        continue;
+      }
+
+      net = 0;
+      flush(row.trade_date);
+
+      const residual = Math.abs(nextNet);
+      first = row;
+      exposureSide = side;
+      net = side * residual;
+      openedAt = row.trade_date;
+      entryQty = residual;
+      entryNotional = price * residual;
+      exitQty = 0;
+      exitNotional = 0;
+      fees = 0;
+    }
+
+    if (first && openedAt && Math.abs(net) > 1e-9) flush(null);
+  }
+
+  return out;
+}
+
 export async function fetchTradeRecords(userId: string | null): Promise<TradeRecord[]> {
   let paperQuery = db.from('paper_trades').select('*').order('created_at', { ascending: false }).limit(1000);
   if (userId) paperQuery = paperQuery.eq('user_id', userId);
@@ -48,7 +275,7 @@ export async function fetchTradeRecords(userId: string | null): Promise<TradeRec
   if (paperResult.error) throw new Error(errorMessage(paperResult.error, 'Trade history could not be read.'));
 
   const paper = list<TradeRecord>(paperResult.data);
-  const brokerage = brokerageResult.error
+  let brokerage = brokerageResult.error
     ? []
     : list<Record<string, any>>(brokerageResult.data).map<TradeRecord>((row) => {
         const quantity = Number(row.quantity);
@@ -119,6 +346,22 @@ export async function fetchTradeRecords(userId: string | null): Promise<TradeRec
           created_at: row.opened_at ?? new Date().toISOString(),
         };
       });
+
+  // If the server-side episode normalizer has not produced rows yet, do not hide
+  // brokerage history. Reconstruct episodes deterministically from the user's raw,
+  // RLS-protected SnapTrade activities so Activity/Patterns can still use real trades.
+  if (userId && brokerage.length === 0) {
+    const { data: rawActivities, error: rawActivityError } = await db
+      .from('snaptrade_activities')
+      .select('id,user_id,account_id,symbol,option_symbol,option_type,strike,expiration,activity_type,option_action,units,price,fee,trade_date,description')
+      .eq('user_id', userId)
+      .order('trade_date', { ascending: true })
+      .limit(10000);
+
+    if (!rawActivityError) {
+      brokerage = brokerageActivitiesToTrades(list<SnapActivityRow>(rawActivities), userId);
+    }
+  }
 
   return [...brokerage, ...paper].sort(
     (a, b) => +new Date(b.entry_at ?? b.created_at) - +new Date(a.entry_at ?? a.created_at),
