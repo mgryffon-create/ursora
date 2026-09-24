@@ -162,7 +162,7 @@ Deno.serve(async (req) => {
 
     const { data: quoteRows, error: quoteError } = await db
       .from('quotes')
-      .select('symbol,price,change_pct,trend,as_of,retrieved_at')
+      .select('symbol,price,change_pct,trend,as_of,retrieved_at,is_demo')
       .in('symbol', ['SPY', 'QQQ', 'IWM'])
       .order('retrieved_at', { ascending: false })
       .order('as_of', { ascending: false });
@@ -199,7 +199,7 @@ Deno.serve(async (req) => {
 
     const { data: latestTrackedQuotes } = await db
       .from('quotes')
-      .select('symbol,change_pct,as_of,retrieved_at')
+      .select('symbol,change_pct,as_of,retrieved_at,is_demo')
       .order('retrieved_at', { ascending: false })
       .order('as_of', { ascending: false })
       .limit(200);
@@ -259,7 +259,7 @@ Deno.serve(async (req) => {
         : 'Core index and breadth context are available; volatility, rates, dollar and commodity feeds are not connected yet.',
       market_status: 'tracked universe',
       retrieved_at: now,
-      is_demo: true,
+      is_demo: Boolean(spy?.is_demo || qqq?.is_demo || iwm?.is_demo),
     };
 
     const { data: inserted, error: insertError } = await db
