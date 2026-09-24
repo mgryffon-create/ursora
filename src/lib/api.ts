@@ -156,6 +156,14 @@ function describeUnknownError(error: unknown): string {
   }
 }
 
+export async function refreshMarketSymbols(symbols: string[]): Promise<void> {
+  const normalized = [...new Set(
+    symbols.map((symbol) => String(symbol).trim().toUpperCase()).filter(Boolean),
+  )];
+  if (!normalized.length) return;
+  await callEdge(EDGE_FUNCTIONS.marketSync, { symbols: normalized });
+}
+
 export interface FreshAnalysisResult {
   signals: number;
   updates: number;
