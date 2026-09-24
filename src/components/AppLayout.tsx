@@ -180,6 +180,7 @@ export const AppLayout: React.FC = () => {
 
         const nextSnapshot = await fetchSnapshot();
         setSnapshot(nextSnapshot);
+        window.dispatchEvent(new CustomEvent('ursora-market-refreshed'));
       } catch (error) {
         console.warn('URSORA automatic market refresh did not complete:', error);
       }
@@ -195,7 +196,10 @@ export const AppLayout: React.FC = () => {
             window.localStorage.setItem(dailyKey, currentDay);
             return fetchSnapshot();
           })
-          .then((nextSnapshot) => setSnapshot(nextSnapshot))
+          .then((nextSnapshot) => {
+            setSnapshot(nextSnapshot);
+            window.dispatchEvent(new CustomEvent('ursora-market-refreshed'));
+          })
           .catch((error) => console.warn('URSORA daily index refresh did not complete:', error));
       }
     }, 15 * 60 * 1000);
