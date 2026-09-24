@@ -178,7 +178,7 @@ export async function runFreshAnalysis(
   const stages: Array<{ label: string; slug: EdgeFunctionSlug; payload: Record<string, unknown> }> = [
     { label: 'Massive market quotes and historical data', slug: EDGE_FUNCTIONS.marketSync, payload: symbols },
     { label: 'Massive options chain', slug: EDGE_FUNCTIONS.optionsSync, payload: symbols },
-    { label: 'market context', slug: EDGE_FUNCTIONS.marketContextSync, payload: {} },
+    { label: 'market context', slug: EDGE_FUNCTIONS.marketContextSync, payload: { force: true } },
     { label: 'verified news and sentiment', slug: EDGE_FUNCTIONS.alphaNewsSync, payload: symbols },
     { label: 'earnings calendar', slug: EDGE_FUNCTIONS.alphaEarningsSync, payload: symbols },
   ];
