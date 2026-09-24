@@ -750,15 +750,20 @@ Deno.serve(async (req) => {
       }
 
       const indexOrientations: number[] = [];
-      for (const indexQuote of [spy, qqq]) {
-        if (!indexQuote) continue;
+      const snapshotIndexes = [
+        { change_pct: snapshot?.spy_change_pct, trend: snapshot?.spy_trend },
+        { change_pct: snapshot?.qqq_change_pct, trend: snapshot?.qqq_trend },
+      ];
+      for (const indexQuote of snapshotIndexes) {
         let net = 0;
         const ch = n(indexQuote.change_pct);
         if (ch !== null && Math.abs(ch) >= 0.15) net += Math.sign(ch);
         const tr = String(indexQuote.trend ?? '').toLowerCase();
         if (tr.includes('up')) net += 1.5;
         if (tr.includes('down')) net -= 1.5;
-        indexOrientations.push(orientationFromNet(net, { weakAt: 0.75, moderateAt: 2, strongAt: 3 }));
+        if (ch !== null || tr) {
+          indexOrientations.push(orientationFromNet(net, { weakAt: 0.75, moderateAt: 2, strongAt: 3 }));
+        }
       }
 
       let sectorOrientation: number | null = null;
