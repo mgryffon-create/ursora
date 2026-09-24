@@ -42,7 +42,6 @@ export const Landing: React.FC<{ onStart: () => void; onSignIn: () => void }> = 
             <CompactMark className="h-7 w-7" title="URSORA" />
             URSORA
           </span>
-          <DemoBadge />
         </div>
         <div className="mt-5">
           <FullLockup className="h-20" />
@@ -254,8 +253,9 @@ export const Landing: React.FC<{ onStart: () => void; onSignIn: () => void }> = 
                 Current data status
               </h3>
               <p className="mt-2 text-[12px] leading-relaxed text-zinc-400">
-                Live market and options data are not yet connected. Simulated values are clearly identified with the
-                <span className="font-mono text-amber-300"> SIMULATED DATA</span> wherever it appears. When information is not available, URSORA displays <span className="font-mono text-zinc-300">DATA UNAVAILABLE</span> rather than inventing a value.
+                Connected provider data are used where available, including Massive market and delayed options data.
+                URSORA labels observed, delayed, derived, inferred, and simulated information separately. When a field
+                is not available, URSORA displays <span className="font-mono text-zinc-300">DATA UNAVAILABLE</span> rather than inventing a value.
               </p>
             </div>
           </div>
@@ -269,7 +269,7 @@ export const Landing: React.FC<{ onStart: () => void; onSignIn: () => void }> = 
             Open URSORA and follow the evidence
           </h2>
           <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-zinc-400">
-            Create an account to save your watchlist, alert preferences, paper-trading history, and analyst conversations. The current demonstration environment includes sample market data for evaluation.
+            Create an account to save your watchlist, alert preferences, paper-trading history, and analyst conversations. Connected provider data are used where available; any simulated or inferred data are labelled separately.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             <Button size="lg" onClick={onStart} className="gap-2">
