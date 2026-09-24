@@ -19,7 +19,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  DemoBadge, DirectionTag, Disclaimer, EmptyState, FlagTag, Metric, Panel, Provenance, RiskTag, ScoreBar,
+  DataBadge, DemoBadge, DirectionTag, Disclaimer, EmptyState, FlagTag, Metric, Panel, Provenance, RiskTag, ScoreBar,
   SourceBadge, Spinner, Unavailable, Val,
 } from '@/components/common/Primitives';
 import PriceChart from '@/components/charts/PriceChart';
@@ -150,6 +150,18 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   }
 
   const isNoTrade = signal.strategy === 'No Trade';
+  const analysisHasInferred = factors.some((factor) => factor.provenance === 'imputed');
+  const optionsObserved = [
+    quote?.call_volume,
+    quote?.put_volume,
+    quote?.put_call_ratio,
+    quote?.total_oi,
+    quote?.iv,
+  ].some((value) => value !== null && value !== undefined);
+  const quoteIsDelayed = Boolean(
+    quote?.source_name?.includes('Frozen Session Close') ||
+    quote?.source_name?.includes('Daily Aggregates'),
+  );
 
   return (
     <div className="space-y-4">
@@ -168,7 +180,11 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             <div className="mt-2 flex flex-wrap items-center gap-2.5">
               <h1 className="font-mono text-2xl font-semibold tracking-tight text-zinc-50">{signal.symbol}</h1>
               <span className="text-sm text-zinc-400">{ticker?.company ?? <Unavailable />}</span>
-              <DemoBadge />
+              {signal.is_demo
+                ? <DemoBadge />
+                : analysisHasInferred
+                  ? <DataBadge kind="inferred" label="ANALYSIS INCLUDES INFERRED DATA" />
+                  : <DataBadge kind="derived" />}
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <DirectionTag direction={signal.direction} />
@@ -274,7 +290,11 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           <Panel
             title="Opportunity score rationale"
             subtitle="An interpretation of the evidence included in this run, its relative importance, and whether it affects thesis direction or trade quality. The score summarizes available evidence; it is not a probability of profit."
-            right={<DemoBadge />}
+            right={signal.is_demo
+              ? <DemoBadge />
+              : analysisHasInferred
+                ? <DataBadge kind="inferred" label="INCLUDES INFERRED EVIDENCE" />
+                : <DataBadge kind="derived" />}
           >
             <div className="space-y-3">
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -616,7 +636,11 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
 
         {/* MARKET CONTEXT */}
         <TabsContent value="market" className="mt-3 space-y-3">
-          <Panel title="Market conditions" subtitle="Broader market conditions that may affect this analysis." right={<DemoBadge />}>
+          <Panel
+            title="Market conditions"
+            subtitle="Broader market conditions that may affect this analysis."
+            right={snapshot?.is_demo ? <DemoBadge /> : <DataBadge kind="derived" label="DERIVED MARKET CONTEXT" />}
+          >
             <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
               <Metric label="Market environment" value={snapshot?.regime} mono={false} />
               <Metric label="SPY" value={num(snapshot?.spy_price)} hint={pct(snapshot?.spy_change_pct) ?? undefined} valueClass={changeColor(snapshot?.spy_change_pct)} />
@@ -664,7 +688,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             </div>
             {snapshot && (
               <Provenance
-                sourceName="simulation adapter (Market Data)"
+                sourceName={snapshot.is_demo ? 'simulation adapter (Market Data)' : 'URSORA derived market context from stored provider data'}
                 sourceType="Market Data"
                 publishedAt={snapshot.as_of}
                 retrievedAt={snapshot.retrieved_at}
@@ -676,7 +700,12 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
 
         {/* PRICE ACTION */}
         <TabsContent value="price" className="mt-3 space-y-3">
-          <Panel title="Price movement with key levels drawn" right={<DemoBadge />}>
+          <Panel
+            title="Price movement with key levels drawn"
+            right={quote?.is_demo
+              ? <DemoBadge />
+              : <DataBadge kind={quoteIsDelayed ? 'delayed' : 'observed'} label={quoteIsDelayed ? 'MASSIVE MARKET DATA · SESSION CLOSE' : 'MASSIVE MARKET DATA'} />}
+          >
             <PriceChart
               bars={bars}
               levels={[
@@ -688,7 +717,12 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               ]}
             />
           </Panel>
-          <Panel title="Current trading-session movement" right={<DemoBadge />}>
+          <Panel
+            title="Current trading-session movement"
+            right={quote?.is_demo
+              ? <DemoBadge />
+              : <DataBadge kind={quoteIsDelayed ? 'delayed' : 'observed'} label={quoteIsDelayed ? 'MASSIVE MARKET DATA · SESSION CLOSE' : 'MASSIVE MARKET DATA'} />}
+          >
             <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
               <Metric label="Trend" value={quote?.trend} mono={false} />
               <Metric label="Last" value={num(quote?.price)} />
@@ -733,7 +767,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             </div>
             {quote && (
               <Provenance
-                sourceName={quote.source_name ?? 'simulation adapter'}
+                sourceName={quote.source_name ?? (quote.is_demo ? 'simulation adapter' : 'market-data provider')}
                 sourceType={quote.source_type ?? 'Market Data'}
                 publishedAt={quote.published_at}
                 retrievedAt={quote.retrieved_at}
@@ -745,7 +779,12 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
 
         {/* OPTIONS MARKET */}
         <TabsContent value="options" className="mt-3 space-y-3">
-          <Panel title="Options data" right={<DemoBadge />}>
+          <Panel
+            title="Options data"
+            right={optionsObserved
+              ? <DataBadge kind="delayed" label="MASSIVE OPTIONS · 15M DELAYED" />
+              : undefined}
+          >
             <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
               <Metric label="Call volume" value={compact(quote?.call_volume)} />
               <Metric label="Put volume" value={compact(quote?.put_volume)} />
@@ -764,7 +803,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               </summary>
               <ul className="mt-2 grid gap-2 text-[11px] leading-relaxed text-zinc-400 lg:grid-cols-2">
                 <li>
-                  Print side: the simulation adapter does not publish per-trade bid/ask side, so whether these prints hit the
+                  Print side: the current Massive Options Starter feed does not provide the trade-side context needed here, so whether these prints hit the
                   ask or the bid is <span className="font-mono text-zinc-300">DATA UNAVAILABLE</span>. Without it, call
                   volume cannot be called bullish.
                 </li>
@@ -797,11 +836,11 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             </div>
             {quote && (
               <Provenance
-                sourceName="simulation adapter (Options Data, Black-Scholes modelled)"
+                sourceName={optionsObserved ? 'Massive Options Starter · 15m delayed' : 'Options data unavailable'}
                 sourceType="Market Data"
                 publishedAt={quote.as_of}
                 retrievedAt={quote.retrieved_at}
-                confidence={0.55}
+                confidence={optionsObserved ? 0.86 : null}
               />
             )}
           </Panel>
@@ -812,7 +851,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           <Panel
             title="News & market events"
             subtitle="Newer items carry more weight. The recency weight shown is the multiplier the engine applied to each item this run."
-            right={<DemoBadge />}
+            right={news.length
+              ? (news.some((item) => item.is_demo) ? <DemoBadge /> : <DataBadge kind="observed" label="VERIFIED NEWS" />)
+              : undefined}
           >
             <ul className="grid gap-2 xl:grid-cols-2">
               {(showAllNews ? news : news.slice(0, 4)).map((n) => (
@@ -1094,7 +1135,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           <Panel
             title="Option contract candidates"
             subtitle="Ranked on liquidity, spread, open interest, Greeks, expiry fit, premium, break-even and reach to structure. Illiquid contracts are filtered out before ranking."
-            right={<DemoBadge />}
+            right={candidates.length
+              ? <DataBadge kind="derived" label="DERIVED FROM OPTIONS DATA" />
+              : undefined}
           >
             {candidates.length === 0 ? (
               <EmptyState
