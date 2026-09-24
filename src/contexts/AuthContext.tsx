@@ -26,12 +26,16 @@ interface AuthContextValue {
   session: Session | null;
   loading: boolean;
   watchlist: string[];
+  favorites: string[];
   prefs: UserPrefs;
   signIn: (email: string, password: string, remember?: boolean) => Promise<void>;
   signUp: (email: string, password: string) => Promise<{ needsConfirmation: boolean }>;
   signOut: () => Promise<void>;
   addToWatchlist: (symbol: string) => Promise<void>;
   removeFromWatchlist: (symbol: string) => Promise<void>;
+  addFavorite: (symbol: string) => Promise<void>;
+  removeFavorite: (symbol: string) => Promise<void>;
+  toggleFavorite: (symbol: string) => Promise<void>;
   savePrefs: (patch: Partial<UserPrefs>) => Promise<void>;
 }
 
@@ -53,16 +57,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [watchlist, setWatchlist] = useState<string[]>(DEFAULT_UNIVERSE);
+  const [favorites, setFavorites] = useState<string[]>([]);
   const [prefs, setPrefs] = useState<UserPrefs>(DEFAULT_PREFS);
 
   const loadUserData = useCallback(async (uid: string | null) => {
     if (!uid) {
       setWatchlist(DEFAULT_UNIVERSE);
+      setFavorites([]);
       setPrefs(DEFAULT_PREFS);
       return;
     }
-    const [wl, pf] = await Promise.all([
+    const [wl, fav, pf] = await Promise.all([
       db.from('watchlists').select('symbol').order('added_at', { ascending: true }),
+      db.from('user_favorites').select('symbol').eq('user_id', uid).order('added_at', { ascending: true }),
       db.from('user_prefs').select('*').eq('user_id', uid).limit(1),
     ]);
     const symbols = ((wl.data as { symbol: string }[] | null) ?? []).map((r) => r.symbol);
@@ -74,6 +81,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else {
       setWatchlist(symbols);
     }
+    setFavorites(
+      ((fav.data as { symbol: string }[] | null) ?? [])
+        .map((row) => String(row.symbol).toUpperCase())
+        .filter(Boolean),
+    );
+
     const existing = (pf.data as UserPrefs[] | null)?.[0];
     if (existing) {
       setPrefs({ ...DEFAULT_PREFS, ...existing });
@@ -164,6 +177,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     await db.auth.signOut();
     setWatchlist(DEFAULT_UNIVERSE);
+    setFavorites([]);
     setPrefs(DEFAULT_PREFS);
   }, []);
 
@@ -188,6 +202,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [user],
   );
 
+  const addFavorite = useCallback(
+    async (symbol: string) => {
+      const sym = symbol.trim().toUpperCase();
+      if (!sym || !user) return;
+      const { error } = await db.from('user_favorites').upsert(
+        { user_id: user.id, symbol: sym },
+        { onConflict: 'user_id,symbol', ignoreDuplicates: true },
+      );
+      if (error) throw new Error(error.message);
+      setFavorites((prev) => (prev.includes(sym) ? prev : [...prev, sym]));
+    },
+    [user],
+  );
+
+  const removeFavorite = useCallback(
+    async (symbol: string) => {
+      const sym = symbol.trim().toUpperCase();
+      if (!sym || !user) return;
+      const { error } = await db
+        .from('user_favorites')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('symbol', sym);
+      if (error) throw new Error(error.message);
+      setFavorites((prev) => prev.filter((item) => item !== sym));
+    },
+    [user],
+  );
+
+  const toggleFavorite = useCallback(
+    async (symbol: string) => {
+      const sym = symbol.trim().toUpperCase();
+      if (!sym || !user) return;
+      if (favorites.includes(sym)) await removeFavorite(sym);
+      else await addFavorite(sym);
+    },
+    [user, favorites, addFavorite, removeFavorite],
+  );
+
   const savePrefs = useCallback(
     async (patch: Partial<UserPrefs>) => {
       const next = { ...prefs, ...patch };
@@ -204,10 +257,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      user, session, loading, watchlist, prefs,
-      signIn, signUp, signOut, addToWatchlist, removeFromWatchlist, savePrefs,
+      user, session, loading, watchlist, favorites, prefs,
+      signIn, signUp, signOut, addToWatchlist, removeFromWatchlist, addFavorite, removeFavorite, toggleFavorite, savePrefs,
     }),
-    [user, session, loading, watchlist, prefs, signIn, signUp, signOut, addToWatchlist, removeFromWatchlist, savePrefs],
+    [user, session, loading, watchlist, favorites, prefs, signIn, signUp, signOut, addToWatchlist, removeFromWatchlist, addFavorite, removeFavorite, toggleFavorite, savePrefs],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
