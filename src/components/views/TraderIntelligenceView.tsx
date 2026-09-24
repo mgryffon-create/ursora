@@ -375,38 +375,44 @@ export const TraderIntelligenceView: React.FC<{
         ))}
       </div>
 
-      {/* DEV-ONLY SYNTHETIC PROFILE SWITCH */}
-      <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/25 bg-amber-500/[0.05] px-3 py-2">
-        <FlaskConical className="h-3.5 w-3.5 shrink-0 text-amber-400" aria-hidden="true" />
-        <span className="font-mono text-[10px] uppercase tracking-wider text-amber-300">Synthetic profile</span>
-        <span className="text-[10px] text-zinc-500">Dev harness only. Never written to your history.</span>
-        <div className="ml-auto flex flex-wrap gap-1">
-          <button
-            type="button"
-            onClick={() => setDemoProfile(null)}
-            className={cn('rounded-sm border px-1.5 py-[2px] font-mono text-[9px] uppercase transition-colors',
-              demoProfile === null ? 'border-sky-500/50 bg-sky-500/10 text-sky-300' : 'border-zinc-700 text-zinc-500 hover:text-zinc-300')}
-          >
-            my data
-          </button>
-          {PROFILES.map((p) => (
+      {import.meta.env.DEV && (
+        <>
+        {/* DEV-ONLY SYNTHETIC PROFILE SWITCH */}
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/25 bg-amber-500/[0.05] px-3 py-2">
+          <FlaskConical className="h-3.5 w-3.5 shrink-0 text-amber-400" aria-hidden="true" />
+          <span className="font-mono text-[10px] uppercase tracking-wider text-amber-300">Synthetic profile</span>
+          <span className="text-[10px] text-zinc-500">Dev harness only. Never written to your history.</span>
+          <div className="ml-auto flex flex-wrap gap-1">
             <button
-              key={p.key}
               type="button"
-              title={p.expectation}
-              onClick={() => { setDemoProfile(p.key); track('synthetic_profile_loaded', { profile: p.key }); }}
+              onClick={() => setDemoProfile(null)}
               className={cn('rounded-sm border px-1.5 py-[2px] font-mono text-[9px] uppercase transition-colors',
-                demoProfile === p.key ? 'border-amber-500/50 bg-amber-500/15 text-amber-300' : 'border-zinc-700 text-zinc-500 hover:text-zinc-300')}
+                demoProfile === null ? 'border-sky-500/50 bg-sky-500/10 text-sky-300' : 'border-zinc-700 text-zinc-500 hover:text-zinc-300')}
             >
-              {p.key === 'NEW' ? 'new user' : `profile ${p.key}`}
+              my data
             </button>
-          ))}
+            {PROFILES.map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                title={p.expectation}
+                onClick={() => { setDemoProfile(p.key); track('synthetic_profile_loaded', { profile: p.key }); }}
+                className={cn('rounded-sm border px-1.5 py-[2px] font-mono text-[9px] uppercase transition-colors',
+                  demoProfile === p.key ? 'border-amber-500/50 bg-amber-500/15 text-amber-300' : 'border-zinc-700 text-zinc-500 hover:text-zinc-300')}
+              >
+                {p.key === 'NEW' ? 'new user' : `profile ${p.key}`}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
-      {demoProfile && (
-        <p className="rounded-sm border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-amber-300">
-          synthetic data — {PROFILES.find((p) => p.key === demoProfile)?.name}. Expected: {PROFILES.find((p) => p.key === demoProfile)?.expectation}
-        </p>
+        {demoProfile && (
+          <p className="rounded-sm border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-amber-300">
+            synthetic data — {PROFILES.find((p) => p.key === demoProfile)?.name}. Expected: {PROFILES.find((p) => p.key === demoProfile)?.expectation}
+          </p>
+        )}
+
+
+        </>
       )}
 
       {/* ---------------------------------- TODAY --------------------------------- */}
