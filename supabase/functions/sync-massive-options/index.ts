@@ -158,6 +158,7 @@ Deno.serve(async (req) => {
         .from('quotes')
         .select('id,price')
         .eq('symbol', underlying)
+        .order('retrieved_at', { ascending: false })
         .order('as_of', { ascending: false })
         .limit(1)
         .maybeSingle();
