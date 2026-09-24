@@ -335,11 +335,31 @@ Deno.serve(async (req) => {
       last_error: allEntitlementBlocked ? 'Massive option-chain snapshot entitlement is unavailable for this API key/plan.' : null,
     }, { onConflict: 'provider_key' });
 
+    if (allEntitlementBlocked) {
+      return json({
+        error: 'Massive option-chain snapshots are not included in the current API entitlement.',
+        provider: 'Massive',
+        entitlement_status: 'not_entitled',
+        contracts_written: totalRows,
+        results,
+      }, 403);
+    }
+
+    if (totalRows === 0) {
+      return json({
+        error: 'Massive option sync completed but returned zero usable contracts for this batch.',
+        provider: 'Massive',
+        entitlement_status: 'available_or_partial',
+        contracts_written: 0,
+        results,
+      }, 502);
+    }
+
     return json({
       success: true,
       provider: 'Massive',
       mode: 'test',
-      entitlement_status: allEntitlementBlocked ? 'not_entitled' : 'available_or_partial',
+      entitlement_status: 'available_or_partial',
       contracts_written: totalRows,
       results,
       is_demo: true,
