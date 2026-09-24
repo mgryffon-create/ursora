@@ -574,9 +574,13 @@ Deno.serve(async (req) => {
     const broadMarketOrientation = avg(indexOrientationParts);
 
     const optionByUnderlying = new Map<string, AnyRow[]>();
+    const latestOptionBatchByUnderlying = new Map<string, string>();
     for (const row of optionRows) {
       const s = String(row.underlying_symbol ?? '').toUpperCase();
       if (!s) continue;
+      const retrieved = String(row.retrieved_at ?? '');
+      if (!latestOptionBatchByUnderlying.has(s)) latestOptionBatchByUnderlying.set(s, retrieved);
+      if (retrieved !== latestOptionBatchByUnderlying.get(s)) continue;
       const list = optionByUnderlying.get(s) ?? [];
       list.push(row);
       optionByUnderlying.set(s, list);
@@ -1678,7 +1682,7 @@ Deno.serve(async (req) => {
         },
         regime: snapshot?.regime ?? 'Mixed',
         regime_explanation: snapshot?.regime_note ?? 'Broader market conditions derived from the latest stored market data.',
-        engine_version: 'tradecycle-5.2.1',
+        engine_version: 'tradecycle-5.2.2',
         is_demo: Boolean(q.is_demo ?? true),
         generated_at: started,
       });
@@ -1700,7 +1704,7 @@ Deno.serve(async (req) => {
       feed_events: 0,
       regime: snapshot?.regime ?? null,
       notes: signalCount
-        ? `TradeCycle v5.2.1 swing analysis completed for authenticated user ${user.id}; outside regular hours, price evidence is anchored to the most recent frozen session close.`
+        ? `TradeCycle v5.2.2 swing analysis completed for authenticated user ${user.id}; outside regular hours, price evidence is anchored to the most recent frozen session close.`
         : 'No stored quote data were available; no signals were generated.',
       started_at: started,
       finished_at: new Date().toISOString(),
@@ -1712,7 +1716,7 @@ Deno.serve(async (req) => {
       signals: signalCount,
       updates: 0,
       run_id: runId,
-      engine_version: 'tradecycle-5.2.1',
+      engine_version: 'tradecycle-5.2.2',
       note: signalCount ? 'Signals generated using all currently available evidence categories.' : 'No stored quote data available.',
     });
   } catch (e) {
