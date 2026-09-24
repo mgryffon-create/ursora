@@ -1,5 +1,5 @@
 import type { TraderProfile } from '@/lib/types';
-import type { Baseline, TradeRecord } from '@/lib/behavioral/types';
+import type { Baseline, TradeCycleThesisEvent, TradeRecord } from '@/lib/behavioral/types';
 import { holdingMinutes, isClosed, tradePl } from '@/lib/behavioral/engine';
 
 export type ProfileContextCategory = 'baseline' | 'process' | 'patterns';
@@ -14,6 +14,7 @@ export interface ProfileContextInsight {
   detail: string;
   sample: number;
   evidenceTradeIds: number[];
+  contextItems?: Array<{ label: string; value: string }>;
 }
 
 const STYLE_LABELS: Record<string, string> = {
@@ -108,10 +109,41 @@ export function deriveProfileContext(
   profile: TraderProfile | null,
   trades: TradeRecord[],
   baseline: Baseline,
+  thesisEvents: TradeCycleThesisEvent[] = [],
 ): ProfileContextInsight[] {
   if (!profile) return [];
   const insights: ProfileContextInsight[] = [];
   const closed = trades.filter(isClosed);
+
+  const eventsByTrade = new Map<number, TradeCycleThesisEvent[]>();
+  for (const event of thesisEvents) {
+    const list = eventsByTrade.get(event.trade_id) ?? [];
+    list.push(event);
+    eventsByTrade.set(event.trade_id, list);
+  }
+
+  const invalidationEpisodes = trades.filter((trade) => {
+    const exitAt = trade.exit_at ?? trade.closed_at;
+    if (!exitAt) return false;
+    const exitMs = new Date(exitAt).getTime();
+    return (eventsByTrade.get(trade.id) ?? []).some((event) => {
+      const state = String(event.thesis_state ?? '').toLowerCase();
+      const invalidated = state === 'rejected' || state === 'unsupported' || state.includes('invalidat');
+      const eventMs = new Date(event.created_at).getTime();
+      return invalidated && Number.isFinite(eventMs) && eventMs < exitMs;
+    });
+  });
+
+  const supportedExitEpisodes = closed.filter((trade) => {
+    const exitAt = trade.exit_at ?? trade.closed_at;
+    if (!exitAt) return false;
+    const exitMs = new Date(exitAt).getTime();
+    const prior = (eventsByTrade.get(trade.id) ?? [])
+      .filter((event) => new Date(event.created_at).getTime() <= exitMs)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+    const state = String(prior?.thesis_state ?? '').toLowerCase();
+    return state === 'supported' || state === 'strongly supported';
+  });
 
   // BASELINE: intended trading horizons vs observed holding behavior.
   if (profile.trading_styles.length) {
@@ -292,20 +324,36 @@ export function deriveProfileContext(
     let detail = 'MyURSORA records this as a hypothesis about your own behavior until enough observable trade data exists.';
     let sample = trades.length;
     let ids = trades.map((trade) => trade.id).slice(0, 200);
+    const contextItems: Array<{ label: string; value: string }> = [];
 
-    if (habit === 'hold_losers' && baseline.medianHoldingLosersMin !== null && baseline.medianHoldingWinnersMin !== null) {
-      const ratio = baseline.medianHoldingWinnersMin > 0
-        ? baseline.medianHoldingLosersMin / baseline.medianHoldingWinnersMin
-        : null;
-      observed = `Median loser hold ${Math.round(baseline.medianHoldingLosersMin)}m vs winner ${Math.round(baseline.medianHoldingWinnersMin)}m`;
-      status = ratio !== null && ratio >= 1.25 ? 'ALIGNED' : ratio !== null && ratio <= 0.9 ? 'DIVERGENT' : 'MIXED';
-      detail = status === 'ALIGNED'
-        ? 'Your recorded history currently supports the habit you identified.'
-        : status === 'DIVERGENT'
-          ? 'Your recorded history currently does not support the habit you identified.'
-          : 'The difference is not large enough for a clear confirmation or contradiction.';
-      sample = baseline.closedSample;
-      ids = closed.map((trade) => trade.id).slice(0, 200);
+    if (habit === 'hold_losers') {
+      if (invalidationEpisodes.length > 0) {
+        observed = `${invalidationEpisodes.length} episode${invalidationEpisodes.length === 1 ? '' : 's'} following thesis invalidation`;
+        status = invalidationEpisodes.length >= 3 ? 'ALIGNED' : 'MIXED';
+        detail = 'These are positions that remained open after URSORA recorded the directional thesis as unsupported or rejected. Outcome is not used to define the behavior.';
+        sample = invalidationEpisodes.length;
+        ids = invalidationEpisodes.map((trade) => trade.id).slice(0, 200);
+        contextItems.push({ label: 'After invalidation', value: `${invalidationEpisodes.length} episodes` });
+      } else if (baseline.medianHoldingLosersMin !== null && baseline.medianHoldingWinnersMin !== null) {
+        const ratio = baseline.medianHoldingWinnersMin > 0
+          ? baseline.medianHoldingLosersMin / baseline.medianHoldingWinnersMin
+          : null;
+        observed = `Median loser hold ${Math.round(baseline.medianHoldingLosersMin)}m vs winner ${Math.round(baseline.medianHoldingWinnersMin)}m`;
+        status = ratio !== null && ratio >= 1.25 ? 'ALIGNED' : ratio !== null && ratio <= 0.9 ? 'DIVERGENT' : 'MIXED';
+        detail = status === 'ALIGNED'
+          ? 'Your recorded holding-time history currently supports the habit you identified.'
+          : status === 'DIVERGENT'
+            ? 'Your recorded holding-time history currently does not support the habit you identified.'
+            : 'The holding-time difference is not large enough for a clear confirmation or contradiction.';
+        sample = baseline.closedSample;
+        ids = closed.map((trade) => trade.id).slice(0, 200);
+      }
+      if (baseline.medianHoldingLosersMin !== null) {
+        contextItems.push({ label: 'Median loser hold', value: `${Math.round(baseline.medianHoldingLosersMin)}m` });
+      }
+      if (baseline.medianHoldingWinnersMin !== null) {
+        contextItems.push({ label: 'Median winner hold', value: `${Math.round(baseline.medianHoldingWinnersMin)}m` });
+      }
     }
 
     if (habit === 'reenter_quickly' && baseline.afterLoss.sample >= 3 && baseline.afterLoss.medianMinutesToNext !== null) {
@@ -326,6 +374,50 @@ export function deriveProfileContext(
       sample = baseline.afterLoss.sample;
     }
 
+    if (habit === 'exit_winners_early') {
+      const winningSupportedExits = supportedExitEpisodes.filter((trade) => (tradePl(trade) ?? 0) > 0);
+      if (winningSupportedExits.length) {
+        observed = `${winningSupportedExits.length} profitable exit${winningSupportedExits.length === 1 ? '' : 's'} while thesis evidence was still supportive`;
+        status = winningSupportedExits.length >= 3 ? 'ALIGNED' : 'MIXED';
+        detail = 'This does not mean the exit was wrong. It identifies episodes where the position was closed while the latest recorded directional evidence still supported the thesis.';
+        sample = winningSupportedExits.length;
+        ids = winningSupportedExits.map((trade) => trade.id).slice(0, 200);
+      }
+      contextItems.push({ label: 'Supported-thesis exits', value: `${winningSupportedExits.length} episodes` });
+    }
+
+    if (habit === 'overtrade') {
+      contextItems.push({ label: 'Typical trades / session', value: baseline.tradesPerSessionMedian === null ? 'Not established' : String(baseline.tradesPerSessionMedian) });
+      contextItems.push({ label: 'Mean trades / session', value: baseline.tradesPerSessionMean === null ? 'Not established' : String(baseline.tradesPerSessionMean) });
+    }
+
+    if (habit === 'reenter_quickly' || habit === 'revenge_trade') {
+      if (baseline.afterLoss.medianMinutesToNext !== null) {
+        contextItems.push({ label: 'After-loss re-entry', value: `${Math.round(baseline.afterLoss.medianMinutesToNext)}m median` });
+      }
+      contextItems.push({ label: 'Measured sequences', value: String(baseline.afterLoss.sample) });
+    }
+
+    if (habit === 'size_up_emotionally') {
+      if (baseline.afterLoss.medianNextSize !== null) {
+        contextItems.push({ label: 'Post-loss median size', value: `${Math.round(baseline.afterLoss.medianNextSize)}` });
+      }
+      if (baseline.medianPositionSize !== null) {
+        contextItems.push({ label: 'Typical median size', value: `${Math.round(baseline.medianPositionSize)}` });
+      }
+    }
+
+    if (habit === 'ignore_invalidation') {
+      observed = invalidationEpisodes.length
+        ? `${invalidationEpisodes.length} episode${invalidationEpisodes.length === 1 ? '' : 's'} remained open following thesis invalidation`
+        : 'No recorded post-invalidation hold episode yet';
+      status = invalidationEpisodes.length >= 3 ? 'ALIGNED' : invalidationEpisodes.length > 0 ? 'MIXED' : 'INSUFFICIENT DATA';
+      detail = 'The pipeline counts only episodes with a timestamped thesis invalidation before the recorded exit.';
+      sample = invalidationEpisodes.length;
+      ids = invalidationEpisodes.map((trade) => trade.id).slice(0, 200);
+      contextItems.push({ label: 'After invalidation', value: `${invalidationEpisodes.length} episodes` });
+    }
+
     insights.push({
       key: `habit_${habit}`,
       category: 'patterns',
@@ -335,6 +427,7 @@ export function deriveProfileContext(
       detail,
       sample,
       evidenceTradeIds: ids,
+      contextItems,
     });
   }
 
