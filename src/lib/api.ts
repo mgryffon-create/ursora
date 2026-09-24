@@ -278,16 +278,25 @@ export async function fetchMovers(): Promise<MarketMover[]> {
 }
 
 export async function fetchTodaySignals(): Promise<Signal[]> {
+  const { data: latestRun, error: runError } = await db
+    .from('analysis_runs')
+    .select('run_id')
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (runError) throw runError;
+
+  const runId = latestRun?.run_id ? String(latestRun.run_id) : null;
+  if (!runId) return [];
+
   const { data, error } = await db
     .from('signals')
     .select('*')
-    .order('generated_at', { ascending: false })
+    .eq('run_id', runId)
+    .order('opportunity_score', { ascending: false })
     .limit(200);
   if (error) throw error;
-  const all = rows<Signal>(data as Signal[]);
-  const latestRun = all[0]?.run_id;
-  const set = latestRun ? all.filter((s) => s.run_id === latestRun) : all;
-  return [...set].sort((a, b) => b.opportunity_score - a.opportunity_score);
+  return rows<Signal>(data as Signal[]);
 }
 
 export async function fetchSignal(id: number): Promise<Signal | null> {
