@@ -173,13 +173,12 @@ Deno.serve(async (req) => {
       if (symbol && !bySymbol.has(symbol)) bySymbol.set(symbol, row);
     }
 
-    const contextSymbols = ['^VIX', 'DX-Y.NYB', 'CL=F', 'GC=F', ...Object.keys(sectorSymbols)];
-    const results = await Promise.allSettled(contextSymbols.map((symbol) => yahooChart(symbol)));
+    // Keep the core context refresh provider-independent and fast. SPY/QQQ/IWM
+    // and breadth are derived from URSORA's stored market rows. Volatility,
+    // dollar, commodities and sector context remain explicitly unavailable until
+    // their dedicated provider is connected rather than blocking analysis on
+    // best-effort Yahoo requests.
     const context = new Map<string, QuotePoint>();
-
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled') context.set(contextSymbols[index], result.value);
-    });
 
     const spy = bySymbol.get('SPY');
     const qqq = bySymbol.get('QQQ');
@@ -255,7 +254,7 @@ Deno.serve(async (req) => {
       sector_performance: sectorPerformance,
       macro_note: macroBits.length
         ? `Connected market context: ${macroBits.join(' · ')}.`
-        : 'Yahoo Finance market-context data were unavailable for this refresh.',
+        : 'Core index and breadth context are available; volatility, rates, dollar and commodity feeds are not connected yet.',
       market_status: 'tracked universe',
       retrieved_at: now,
       is_demo: true,
@@ -271,14 +270,14 @@ Deno.serve(async (req) => {
     await db.from('provider_configs').upsert({
       provider_key: 'market_context',
       interface_name: 'MarketContextProvider',
-      display_name: 'Yahoo Finance Market Context',
-      adapter: 'YahooFinanceMarketContextAdapter',
+      display_name: 'URSORA Core Market Context',
+      adapter: 'StoredMarketContextAdapter',
       mode: 'connected',
-      supplies: ['volatility', 'dollar index', 'commodities', 'sector ETFs', 'market regime context'],
-      candidate_providers: ['Yahoo Finance'],
+      supplies: ['SPY context', 'QQQ context', 'IWM context', 'tracked-universe breadth', 'market regime context'],
+      candidate_providers: ['Massive', 'dedicated macro provider'],
       secret_env_name: null,
-      docs_url: 'https://finance.yahoo.com/',
-      notes: 'Best-effort market context using Yahoo Finance chart endpoints. Treasury yields remain unfilled until a dedicated rates source is connected.',
+      docs_url: null,
+      notes: 'Core context is derived from stored market rows and no longer depends on Yahoo Finance. VIX, rates, dollar, commodities and sector breadth remain unavailable until dedicated feeds are connected.',
       last_sync: now,
       last_error: null,
     }, { onConflict: 'provider_key' });
@@ -289,6 +288,7 @@ Deno.serve(async (req) => {
       snapshot_id: inserted.id,
       sectors: sectorPerformance.length,
       context_symbols_returned: [...context.keys()],
+      core_context_only: true,
     });
   } catch (error) {
     if (error instanceof AuthError) return json({ error: error.message }, error.status);
