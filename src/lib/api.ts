@@ -239,6 +239,7 @@ export async function fetchLatestQuotes(): Promise<Record<string, Quote>> {
   const { data, error } = await db
     .from('quotes')
     .select('*')
+    .eq('is_demo', false)
     .order('retrieved_at', { ascending: false })
     .order('as_of', { ascending: false })
     .limit(400);
@@ -253,6 +254,7 @@ export async function fetchQuote(symbol: string): Promise<Quote | null> {
     .from('quotes')
     .select('*')
     .eq('symbol', symbol)
+    .eq('is_demo', false)
     .order('retrieved_at', { ascending: false })
     .order('as_of', { ascending: false })
     .limit(1);
