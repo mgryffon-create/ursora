@@ -130,7 +130,7 @@ const FieldTitle: React.FC<{ title: string; hint?: string }> = ({ title, hint })
   </div>
 );
 
-export const TraderProfileView: React.FC = () => {
+export const TraderProfileView: React.FC<{ onboarding?: boolean; onSaved?: () => void }> = ({ onboarding = false, onSaved }) => {
   const { user } = useAuth();
   const [profile, setProfile] = useState<TraderProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -172,10 +172,19 @@ export const TraderProfileView: React.FC = () => {
 
   if (loading) return <Spinner label="Loading trader profile" />;
 
-  if (!user || !profile) {
+  if (!user) {
     return (
       <Panel title="Trader profile">
         <p className="text-sm text-zinc-400">Sign in to create a persistent trader profile.</p>
+      </Panel>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <Panel title="Trader profile">
+        <p className="text-sm text-zinc-300">Your account is signed in, but the trader profile could not be loaded.</p>
+        {message && <p className="mt-2 text-[11px] text-amber-300">{message}</p>}
       </Panel>
     );
   }
@@ -192,6 +201,7 @@ export const TraderProfileView: React.FC = () => {
       const { user_id: _userId, created_at: _created, updated_at: _updated, ...payload } = profile;
       await saveTraderProfile({ user_id: user.id, ...payload });
       setMessage('Trader profile saved.');
+      onSaved?.();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -204,7 +214,9 @@ export const TraderProfileView: React.FC = () => {
       <SectionHeading
         eyebrow="Trader profile"
         title="Set your trading baseline"
-        description="Tell URSORA what you are trying to do. Trader Intelligence can later compare your stated plan with your observed behavior without changing the market thesis."
+        description={onboarding
+          ? "This is optional, but Trader Intelligence becomes much more personal when URSORA knows your goals, style, risk comfort, and the habits you want to watch."
+          : "Tell URSORA what you are trying to do. Trader Intelligence can later compare your stated plan with your observed behavior without changing the market thesis."}
         right={
           <div className="flex items-center gap-2">
             <span className="font-mono text-[10px] text-zinc-500">{completion}% complete</span>
