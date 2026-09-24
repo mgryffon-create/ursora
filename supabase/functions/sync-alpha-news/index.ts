@@ -235,7 +235,7 @@ Deno.serve(async (req) => {
         refreshed += 1;
         results.push({ symbol, ok: true, articles: rows.length });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         await db.from('provider_symbol_syncs').upsert({
           provider_key: providerKey,
           capability,
@@ -291,6 +291,6 @@ Deno.serve(async (req) => {
     });
   } catch (error) {
     if (error instanceof AuthError) return json({ error: error.message }, error.status);
-    return json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    return json({ error: errorMessage(error) }, 500);
   }
 });
