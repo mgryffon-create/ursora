@@ -163,29 +163,47 @@ export const TraderIntelligenceView: React.FC<{
     setLoading(true);
     setError(null);
     setErrorState(null);
-    try {
-      const [t, p, m, pr, l, tp, te] = await Promise.all([
-        fetchTradeRecords(user?.id ?? null),
-        fetchTradePlans(user?.id ?? null),
-        fetchModifications(user?.id ?? null),
-        fetchBehavioralPrefs(user?.id ?? null),
-        fetchLiterature(),
-        user ? fetchTraderProfile() : Promise.resolve(null),
-        user ? fetchTradeCycleThesisEvents(user.id) : Promise.resolve([]),
-      ]);
-      setTrades(t);
-      setPlans(p);
-      setMods(m);
-      setPrefs(pr);
-      setLit(l);
-      setTraderProfile(tp);
-      setThesisEvents(te);
-    } catch (e) {
-      setError(reportError('trader-intelligence', e, 'Trader Intelligence data could not be loaded.'));
-      setErrorState(classifyError(e));
-    } finally {
-      setLoading(false);
+
+    const [tradeResult, planResult, modResult, prefResult, litResult, profileResult, thesisResult] = await Promise.allSettled([
+      fetchTradeRecords(user?.id ?? null),
+      fetchTradePlans(user?.id ?? null),
+      fetchModifications(user?.id ?? null),
+      fetchBehavioralPrefs(user?.id ?? null),
+      fetchLiterature(),
+      user ? fetchTraderProfile() : Promise.resolve(null),
+      user ? fetchTradeCycleThesisEvents(user.id) : Promise.resolve([]),
+    ]);
+
+    if (tradeResult.status === 'fulfilled') {
+      setTrades(tradeResult.value);
+    } else {
+      setTrades([]);
+      const message = reportError('trader-intelligence-trades', tradeResult.reason, 'Brokerage and trade history could not be loaded.');
+      setError(message);
+      setErrorState(classifyError(tradeResult.reason));
     }
+
+    setPlans(planResult.status === 'fulfilled' ? planResult.value : []);
+    setMods(modResult.status === 'fulfilled' ? modResult.value : []);
+    setPrefs(prefResult.status === 'fulfilled' ? prefResult.value : DEFAULT_BEHAVIORAL_PREFS);
+    setLit(litResult.status === 'fulfilled' ? litResult.value : { constructs: [], studies: [], links: [] });
+    setTraderProfile(profileResult.status === 'fulfilled' ? profileResult.value : null);
+    setThesisEvents(thesisResult.status === 'fulfilled' ? thesisResult.value : []);
+
+    for (const [name, result] of [
+      ['plans', planResult],
+      ['modifications', modResult],
+      ['preferences', prefResult],
+      ['literature', litResult],
+      ['profile', profileResult],
+      ['thesis-events', thesisResult],
+    ] as const) {
+      if (result.status === 'rejected') {
+        console.warn('Trader Intelligence optional source unavailable:', name, result.reason);
+      }
+    }
+
+    setLoading(false);
   }, [user?.id]);
 
   useEffect(() => { void load(); }, [load]);
