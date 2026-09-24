@@ -142,7 +142,8 @@ function friendlyPipelineWarning(label: string, error: unknown): string {
     return `${label}: this dataset is not included in the current provider entitlement.`;
   }
 
-  return `${label}: refresh did not complete.`;
+  const detail = raw.replace(/\s+/g, ' ').trim().slice(0, 220);
+  return `${label}: refresh did not complete${detail ? ` — ${detail}` : '.'}`;
 }
 
 function describeUnknownError(error: unknown): string {
