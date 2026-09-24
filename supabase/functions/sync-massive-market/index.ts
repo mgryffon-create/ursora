@@ -236,11 +236,13 @@ Deno.serve(async (req) => {
     if (frozenRowsError) throw frozenRowsError;
 
     const frozenBySymbol = new Map<string, AnyRow>();
+    const latestFrozenBySymbol = new Map<string, AnyRow>();
     for (const row of frozenRows ?? []) {
       const symbol = String((row as any).symbol ?? '').toUpperCase();
       if (!symbol) continue;
+      latestFrozenBySymbol.set(symbol, row as AnyRow);
       const key = etSessionKey((row as any).as_of ?? (row as any).published_at);
-      if (key === session.sessionKey && !frozenBySymbol.has(symbol)) {
+      if (key === session.sessionKey) {
         frozenBySymbol.set(symbol, row as AnyRow);
       }
     }
@@ -357,13 +359,15 @@ Deno.serve(async (req) => {
       const snapshotTrade = n(snapshot?.lastTrade?.p);
       const snapshotMinute = n(snapshot?.min?.c);
       const snapshotDayClose = n(snapshot?.day?.c);
-      const frozenQuote = frozenBySymbol.get(symbol);
+      const frozenQuote = session.phase === 'after_hours'
+        ? frozenBySymbol.get(symbol)
+        : latestFrozenBySymbol.get(symbol);
 
-      // Regular-session analysis can use the freshest trade/minute snapshot.
-      // After 4 PM ET, lock the session to one canonical closing row. This keeps
-      // repeated analysis runs deterministic and prevents sandbox/provider
-      // snapshots from manufacturing a different "current market" after close.
-      const freezeForSession = session.phase === 'after_hours';
+      // The current URSORA engine is a 1–5 day swing/tactical engine. Only the
+      // regular session is allowed to move its stock-price evidence. Premarket,
+      // after-hours, overnight and weekends reuse the last completed session close.
+      // A future 0DTE/intraday engine will use its own live clock and data path.
+      const freezeForSession = !session.regularOpen;
       const currentPrice = freezeForSession
         ? (n(frozenQuote?.price) ?? snapshotDayClose ?? latestClose ?? snapshotMinute ?? snapshotTrade)
         : (snapshotTrade ?? snapshotMinute ?? snapshotDayClose ?? latestClose);
@@ -451,7 +455,10 @@ Deno.serve(async (req) => {
       if (!(freezeForSession && frozenQuote)) {
         const { error: quoteError } = await db.from('quotes').insert(quoteRow);
         if (quoteError) throw quoteError;
-        if (freezeForSession) frozenBySymbol.set(symbol, quoteRow);
+        if (freezeForSession) {
+          frozenBySymbol.set(symbol, quoteRow);
+          latestFrozenBySymbol.set(symbol, quoteRow);
+        }
       }
 
       results.push({
