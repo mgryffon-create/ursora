@@ -157,15 +157,15 @@ Deno.serve(async (req) => {
         .select('symbol')
         .eq('is_default', true)
         .order('priority')
-        .limit(5);
+        .limit(14);
       if (error) throw error;
       symbols = (data ?? []).map((row: any) => String(row.symbol).toUpperCase()).filter(Boolean);
     }
 
-    // Massive Basic currently documents a 5-request/minute limit. Test mode therefore
-    // deliberately caps one analysis refresh to five symbols so we do not tune the
-    // thesis engine around provider throttling.
-    symbols = [...new Set(symbols)].slice(0, 5);
+    // Keep the full default universe in one refresh. Current quotes come from one
+    // multi-ticker snapshot call; historical bars are reused from the database and
+    // only fetched from Massive when a symbol has insufficient local history.
+    symbols = [...new Set(symbols)].slice(0, 20);
     if (!symbols.length) return json({ error: 'No symbols configured.' }, 400);
 
     const to = new Date();
@@ -173,6 +173,34 @@ Deno.serve(async (req) => {
     const now = new Date().toISOString();
     const results: AnyRow[] = [];
     let barsWritten = 0;
+
+    stage = 'load cached daily history';
+    const { data: cachedBarRows, error: cachedBarsError } = await db
+      .from('ohlcv_bars')
+      .select('symbol,bar_time,open,high,low,close,volume')
+      .in('symbol', symbols)
+      .eq('timeframe', '1d')
+      .order('bar_time', { ascending: true })
+      .limit(12000);
+    if (cachedBarsError) throw cachedBarsError;
+
+    const cachedBarsBySymbol = new Map<string, AnyRow[]>();
+    for (const row of cachedBarRows ?? []) {
+      const symbol = String((row as any).symbol ?? '').toUpperCase();
+      if (!symbol) continue;
+      const list = cachedBarsBySymbol.get(symbol) ?? [];
+      list.push({
+        t: new Date((row as any).bar_time).getTime(),
+        o: n((row as any).open),
+        h: n((row as any).high),
+        l: n((row as any).low),
+        c: n((row as any).close),
+        v: n((row as any).volume),
+      });
+      cachedBarsBySymbol.set(symbol, list);
+    }
+
+    let historyRequestsUsed = 0;
 
     // One snapshot request can cover the whole test universe and gives URSORA the
     // most current price Massive exposes to this plan. If snapshot access is not
@@ -200,45 +228,54 @@ Deno.serve(async (req) => {
 
     for (let index = 0; index < symbols.length; index++) {
       const symbol = symbols[index];
-      stage = `request Massive daily aggregates for ${symbol}`;
+      let bars = cachedBarsBySymbol.get(symbol) ?? [];
+      let historySource = 'cached';
 
-      const payload = await massiveGet(
-        `/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/1/day/${isoDate(from)}/${isoDate(to)}`,
-        { adjusted: true, sort: 'asc', limit: 500 },
-      );
+      if (bars.length < 50 && historyRequestsUsed < 4) {
+        stage = `request Massive daily aggregates for ${symbol}`;
+        const payload = await massiveGet(
+          `/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/1/day/${isoDate(from)}/${isoDate(to)}`,
+          { adjusted: true, sort: 'asc', limit: 500 },
+        );
+        const fetchedBars = Array.isArray(payload?.results) ? payload.results : [];
+        if (fetchedBars.length) {
+          bars = fetchedBars;
+          historySource = 'massive';
+          historyRequestsUsed += 1;
 
-      const bars = Array.isArray(payload?.results) ? payload.results : [];
-      if (!bars.length) {
-        results.push({ symbol, ok: false, error: 'Massive returned no daily aggregate bars.' });
-        continue;
+          const rows = bars
+            .map((bar: any) => ({
+              symbol,
+              timeframe: '1d',
+              bar_time: new Date(Number(bar.t)).toISOString(),
+              open: n(bar.o),
+              high: n(bar.h),
+              low: n(bar.l),
+              close: n(bar.c),
+              volume: n(bar.v),
+            }))
+            .filter((bar: any) =>
+              bar.bar_time &&
+              bar.open !== null &&
+              bar.high !== null &&
+              bar.low !== null &&
+              bar.close !== null
+            );
+
+          stage = `store Massive bars for ${symbol}`;
+          const { error: barsError } = await db.from('ohlcv_bars').upsert(rows, {
+            onConflict: 'symbol,timeframe,bar_time',
+            ignoreDuplicates: false,
+          });
+          if (barsError) throw barsError;
+          barsWritten += rows.length;
+        }
       }
 
-      const rows = bars
-        .map((bar: any) => ({
-          symbol,
-          timeframe: '1d',
-          bar_time: new Date(Number(bar.t)).toISOString(),
-          open: n(bar.o),
-          high: n(bar.h),
-          low: n(bar.l),
-          close: n(bar.c),
-          volume: n(bar.v),
-        }))
-        .filter((bar: any) =>
-          bar.bar_time &&
-          bar.open !== null &&
-          bar.high !== null &&
-          bar.low !== null &&
-          bar.close !== null
-        );
-
-      stage = `store Massive bars for ${symbol}`;
-      const { error: barsError } = await db.from('ohlcv_bars').upsert(rows, {
-        onConflict: 'symbol,timeframe,bar_time',
-        ignoreDuplicates: false,
-      });
-      if (barsError) throw barsError;
-      barsWritten += rows.length;
+      if (!bars.length) {
+        results.push({ symbol, ok: false, error: 'No usable daily history is available yet.' });
+        continue;
+      }
 
       const closes = bars.map((bar: any) => n(bar.c)).filter((value: number | null): value is number => value !== null);
       const volumes = bars.map((bar: any) => n(bar.v)).filter((value: number | null): value is number => value !== null);
@@ -319,7 +356,8 @@ Deno.serve(async (req) => {
       results.push({
         symbol,
         ok: true,
-        bars: rows.length,
+        bars: bars.length,
+        history_source: historySource,
         latest_bar: quoteRow.as_of,
         price: currentPrice,
         quote_source: snapshots.has(symbol) ? 'snapshot' : 'daily_aggregate_fallback',
@@ -330,8 +368,11 @@ Deno.serve(async (req) => {
         trend,
       });
 
-      // Respect the documented free-tier limit when several symbols are refreshed.
-      if (index < symbols.length - 1) await sleep(12500);
+      // Historical requests are rare after the local cache is seeded. Pace only
+      // those requests so the Basic API allowance is not consumed by routine runs.
+      if (historySource === 'massive' && historyRequestsUsed < 4 && index < symbols.length - 1) {
+        await sleep(12500);
+      }
     }
 
     stage = 'update provider status';
@@ -346,8 +387,8 @@ Deno.serve(async (req) => {
       secret_env_name: 'MASSIVE_API_KEY',
       docs_url: 'https://massive.com/docs/rest/stocks/overview',
       notes: snapshotStatus === 'available'
-        ? 'Massive snapshot + daily aggregate integration. Current price uses last trade, then minute/day snapshot fallbacks; historical bars drive technical context.'
-        : 'Massive daily aggregates are connected, but stock snapshot access was not available to this API key/plan during the latest refresh.',
+        ? 'Massive snapshot integration is active. Routine analysis reuses locally cached daily history so the Basic request allowance is reserved for current quotes and missing-history backfill.'
+        : 'Massive daily history can be reused locally, but stock snapshot access was not available to this API key/plan during the latest refresh.',
       last_sync: now,
       last_error: results.find((row) => row.ok === false)?.error ?? null,
     }, { onConflict: 'provider_key' });
