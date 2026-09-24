@@ -440,7 +440,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
         right={<DemoBadge />}
       >
         {noTrade.length === 0 ? (
-          <EmptyState title="No rejections in this run" body="Every analysed name cleared the engine's minimum evidence thresholds for this run." />
+          <EmptyState title="No evaluated setups in this run" body="This run did not produce any current signal records to classify as opportunities or rejections." />
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {noTrade.map((s) => {
