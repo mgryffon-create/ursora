@@ -247,7 +247,7 @@ export const TraderProfileView: React.FC<{ onboarding?: boolean; onSaved?: () =>
       setConnectedAccounts(accounts);
       const warning = result.warnings?.length ? ` · ${result.warnings.length} sync warning${result.warnings.length === 1 ? '' : 's'}` : '';
       setBrokerageMessage(
-        `Synced ${result.accounts} account${result.accounts === 1 ? '' : 's'}, ${result.positions} position${result.positions === 1 ? '' : 's'}, and ${result.activities} historical activit${result.activities === 1 ? 'y' : 'ies'}${warning}.`,
+        `Synced ${result.accounts} account${result.accounts === 1 ? '' : 's'}, ${result.positions} position${result.positions === 1 ? '' : 's'}, ${result.activities} historical activit${result.activities === 1 ? 'y' : 'ies'}, and reconstructed ${result.episodes ?? 0} trade episode${result.episodes === 1 ? '' : 's'}${warning}.`,
       );
     } catch (error) {
       setBrokerageMessage(readableError(error));
@@ -340,89 +340,6 @@ export const TraderProfileView: React.FC<{ onboarding?: boolean; onSaved?: () =>
           {message}
         </div>
       )}
-
-      <Panel
-        title="Connected brokerage data"
-        subtitle="SnapTrade is the account and trade-history layer for Trader Intelligence. Market evidence still comes from URSORA's market-data providers."
-        right={
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void connectBrokerage()}
-              disabled={brokerageBusy}
-              className="gap-1.5 border-sky-500/40 text-sky-200 hover:bg-sky-500/10"
-            >
-              {brokerageBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
-              Connect brokerage
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void syncBrokerage()}
-              disabled={brokerageBusy}
-              className="gap-1.5 border-zinc-700"
-            >
-              {brokerageBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-              Sync accounts
-            </Button>
-          </div>
-        }
-      >
-        {connectedAccounts.length ? (
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {connectedAccounts.map((account) => (
-              <div key={account.id} className="rounded-sm border border-zinc-800 bg-black/20 p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">
-                      {account.institution_name ?? 'Connected brokerage'}
-                    </div>
-                    <div className="mt-1 text-sm font-medium text-zinc-100">{account.name ?? 'Brokerage account'}</div>
-                  </div>
-                  <span className={cn(
-                    'rounded-sm border px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-wider',
-                    account.status === 'open' || account.status === null
-                      ? 'border-emerald-500/30 bg-emerald-500/[0.06] text-emerald-300'
-                      : 'border-amber-500/30 bg-amber-500/[0.06] text-amber-300',
-                  )}>
-                    {account.is_paper ? 'paper' : account.status ?? 'connected'}
-                  </span>
-                </div>
-                <div className="mt-2 grid grid-cols-2 gap-2 font-mono text-[9px] text-zinc-500">
-                  <div>
-                    <div className="uppercase tracking-wider text-zinc-600">Account</div>
-                    <div className="mt-0.5 text-zinc-400">{account.masked_number ?? account.raw_type ?? '—'}</div>
-                  </div>
-                  <div>
-                    <div className="uppercase tracking-wider text-zinc-600">Total value</div>
-                    <div className="mt-0.5 text-zinc-400">
-                      {account.total_value === null
-                        ? '—'
-                        : new Intl.NumberFormat('en-US', { style: 'currency', currency: account.total_value_currency ?? 'USD' }).format(account.total_value)}
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-2 border-t border-zinc-800/70 pt-2 font-mono text-[8px] uppercase tracking-wider text-zinc-600">
-                  Last URSORA sync {new Date(account.synced_at).toLocaleString()}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="rounded-sm border border-dashed border-zinc-800 p-3">
-            <div className="text-[11px] text-zinc-400">No SnapTrade brokerage account has been synced yet.</div>
-            <div className="mt-1 text-[10px] leading-relaxed text-zinc-600">
-              Connect a brokerage through SnapTrade, then return here and select Sync accounts. The first activity sync will give Trader Intelligence real historical trade data to work with.
-            </div>
-          </div>
-        )}
-        {brokerageMessage && (
-          <div className="mt-2 rounded-sm border border-zinc-800 bg-black/20 px-2.5 py-2 text-[10px] leading-relaxed text-zinc-400">
-            {brokerageMessage}
-          </div>
-        )}
-      </Panel>
 
       {!editing && hasSavedProfile ? (
         <>
@@ -569,6 +486,90 @@ export const TraderProfileView: React.FC<{ onboarding?: boolean; onSaved?: () =>
         </Panel>
       </div>
       )}
+
+      <Panel
+        title="Brokerage connections"
+        subtitle="Connected accounts are a data source for Trader Intelligence. They do not replace or lock your MyURSORA baseline."
+        right={
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void connectBrokerage()}
+              disabled={brokerageBusy}
+              className="gap-1.5 border-sky-500/40 text-sky-200 hover:bg-sky-500/10"
+            >
+              {brokerageBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
+              Connect brokerage
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void syncBrokerage()}
+              disabled={brokerageBusy}
+              className="gap-1.5 border-zinc-700"
+            >
+              {brokerageBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Sync accounts
+            </Button>
+          </div>
+        }
+      >
+        {connectedAccounts.length ? (
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {connectedAccounts.map((account) => (
+              <div key={account.id} className="rounded-sm border border-zinc-800 bg-black/20 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">
+                      {account.institution_name ?? 'Connected brokerage'}
+                    </div>
+                    <div className="mt-1 text-sm font-medium text-zinc-100">{account.name ?? 'Brokerage account'}</div>
+                  </div>
+                  <span className={cn(
+                    'rounded-sm border px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-wider',
+                    account.status === 'open' || account.status === null
+                      ? 'border-emerald-500/30 bg-emerald-500/[0.06] text-emerald-300'
+                      : 'border-amber-500/30 bg-amber-500/[0.06] text-amber-300',
+                  )}>
+                    {account.is_paper ? 'paper' : account.status ?? 'connected'}
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2 font-mono text-[9px] text-zinc-500">
+                  <div>
+                    <div className="uppercase tracking-wider text-zinc-600">Account</div>
+                    <div className="mt-0.5 text-zinc-400">{account.masked_number ?? account.raw_type ?? '—'}</div>
+                  </div>
+                  <div>
+                    <div className="uppercase tracking-wider text-zinc-600">Total value</div>
+                    <div className="mt-0.5 text-zinc-400">
+                      {account.total_value === null
+                        ? '—'
+                        : new Intl.NumberFormat('en-US', { style: 'currency', currency: account.total_value_currency ?? 'USD' }).format(account.total_value)}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-2 border-t border-zinc-800/70 pt-2 font-mono text-[8px] uppercase tracking-wider text-zinc-600">
+                  Last URSORA sync {new Date(account.synced_at).toLocaleString()}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-sm border border-dashed border-zinc-800 p-3">
+            <div className="text-[11px] text-zinc-400">No SnapTrade brokerage account has been synced yet.</div>
+            <div className="mt-1 text-[10px] leading-relaxed text-zinc-600">
+              Connect a brokerage through SnapTrade, then return here and select Sync accounts. The first activity sync will give Trader Intelligence real historical trade data to work with.
+            </div>
+          </div>
+        )}
+        {brokerageMessage && (
+          <div className="mt-2 rounded-sm border border-zinc-800 bg-black/20 px-2.5 py-2 text-[10px] leading-relaxed text-zinc-400">
+            {brokerageMessage}
+          </div>
+        )}
+      </Panel>
+
     </div>
   );
 };
