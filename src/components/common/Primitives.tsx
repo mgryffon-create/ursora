@@ -26,6 +26,57 @@ export const DemoBadge: React.FC<{ className?: string; label?: string }> = ({ cl
   </span>
 );
 
+export type DataBadgeKind = 'observed' | 'delayed' | 'derived' | 'inferred' | 'simulated';
+
+export const DataBadge: React.FC<{
+  kind: DataBadgeKind;
+  className?: string;
+  label?: string;
+}> = ({ kind, className, label }) => {
+  const config = {
+    observed: {
+      cls: 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300',
+      label: 'MARKET DATA',
+      title: 'Observed provider data stored by URSORA.',
+    },
+    delayed: {
+      cls: 'border-sky-500/35 bg-sky-500/10 text-sky-300',
+      label: 'DELAYED MARKET DATA',
+      title: 'Observed provider data delivered on a delayed feed.',
+    },
+    derived: {
+      cls: 'border-violet-500/35 bg-violet-500/10 text-violet-300',
+      label: 'DERIVED ANALYSIS',
+      title: 'Calculated by URSORA from stored source data; not itself a market observation.',
+    },
+    inferred: {
+      cls: 'border-amber-500/35 bg-amber-500/10 text-amber-300',
+      label: 'INFERRED DATA',
+      title: 'An inferred or imputed value rather than a direct observation.',
+    },
+    simulated: {
+      cls: 'border-amber-500/40 bg-amber-500/10 text-amber-300',
+      label: 'SIMULATED DATA',
+      title: 'Simulated development data. This is not observed market data.',
+    },
+  } as const;
+  const selected = config[kind];
+  return (
+    <span
+      className={cn(
+        'inline-flex shrink-0 items-center gap-1 rounded-sm border px-1.5 py-[1px]',
+        'font-mono text-[10px] font-semibold uppercase tracking-wider',
+        selected.cls,
+        className,
+      )}
+      title={selected.title}
+    >
+      <Database className="h-2.5 w-2.5" aria-hidden="true" />
+      {label ?? selected.label}
+    </span>
+  );
+};
+
 export const Unavailable: React.FC<{ className?: string }> = ({ className }) => (
   <span
     className={cn('font-mono text-[11px] uppercase tracking-wide text-zinc-500', className)}
