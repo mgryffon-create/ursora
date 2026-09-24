@@ -39,6 +39,12 @@ async function requireUser(req: Request) {
   return { user, db };
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  try { return JSON.stringify(error); } catch { return String(error); }
+}
+
 function n(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
@@ -286,6 +292,6 @@ Deno.serve(async (req) => {
     });
   } catch (error) {
     if (error instanceof AuthError) return json({ error: error.message }, error.status);
-    return json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    return json({ error: errorMessage(error) }, 500);
   }
 });
