@@ -45,6 +45,12 @@ function alphaKey() {
   return key;
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  try { return JSON.stringify(error); } catch { return String(error); }
+}
+
 function n(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
@@ -148,7 +154,7 @@ Deno.serve(async (req) => {
         const bTime = bState?.last_attempt ? new Date(bState.last_attempt).getTime() : 0;
         return aTime - bTime;
       })
-      .slice(0, 4);
+      .slice(0, 1);
 
     const results: any[] = [];
     let inserted = 0;
