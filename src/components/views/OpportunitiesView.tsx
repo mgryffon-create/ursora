@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertOctagon, Ban, Clock, Layers, Filter, Loader2, RefreshCw, Search, TrendingUp, X,
+  AlertOctagon, Ban, Clock, Layers, Filter, Loader2, RefreshCw, Search, Star, TrendingUp, X,
 } from 'lucide-react';
 import db from '@/lib/db';
 import { fetchLatestQuotes, fetchRuns, fetchTickers, fetchTodaySignals, runFreshAnalysis, track } from '@/lib/api';
@@ -51,7 +51,7 @@ const CompareToggle: React.FC<{
 );
 
 export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => void }> = ({ onOpenThesis }) => {
-  const { watchlist } = useAuth();
+  const { user, watchlist, favorites, toggleFavorite } = useAuth();
   const [signals, setSignals] = useState<Signal[]>([]);
   const [candidates, setCandidates] = useState<Record<number, ContractCandidate[]>>({});
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
@@ -135,8 +135,45 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
     });
   }, []);
 
-  const meetingCriteria = useMemo(() => signals.filter((s) => s.strategy !== 'No Trade'), [signals]);
-  const noTrade = useMemo(() => signals.filter((s) => s.strategy === 'No Trade'), [signals]);
+  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
+
+  const favoriteFirst = useCallback(
+    (items: Signal[]) =>
+      items
+        .map((signal, index) => ({ signal, index }))
+        .sort((a, b) => {
+          const favoriteDelta =
+            Number(favoriteSet.has(b.signal.symbol)) - Number(favoriteSet.has(a.signal.symbol));
+          return favoriteDelta || a.index - b.index;
+        })
+        .map(({ signal }) => signal),
+    [favoriteSet],
+  );
+
+  const meetingCriteria = useMemo(
+    () => favoriteFirst(signals.filter((s) => s.strategy !== 'No Trade')),
+    [signals, favoriteFirst],
+  );
+  const noTrade = useMemo(
+    () => favoriteFirst(signals.filter((s) => s.strategy === 'No Trade')),
+    [signals, favoriteFirst],
+  );
+
+  const onToggleFavorite = useCallback(
+    async (symbol: string) => {
+      if (!user) {
+        setError('Sign in to save ticker favorites to your URSORA account.');
+        return;
+      }
+      try {
+        setError(null);
+        await toggleFavorite(symbol);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [user, toggleFavorite],
+  );
 
   const normalizedSymbolQuery = symbolQuery.trim().toUpperCase();
 
@@ -259,6 +296,9 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
         <span className="font-mono text-[10px] text-zinc-500">
           {filtered.length} meeting criteria · {filteredNoTrade.length} not selected
         </span>
+        {favorites.length > 0 && (
+          <span className="font-mono text-[10px] text-amber-300">{favorites.length} favorited · pinned first in each section</span>
+        )}
         {normalizedSymbolQuery && (
           <span className="font-mono text-[10px] text-sky-300">ticker: {normalizedSymbolQuery}</span>
         )}
@@ -350,8 +390,24 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
                     />
                   </td>
                   <td className="px-3 py-3">
-                    <div className="font-mono text-[12px] font-semibold text-zinc-100">{s.symbol}</div>
-                    <div className="max-w-[170px] truncate text-[10px] text-zinc-500">{tickers[s.symbol]?.company ?? <Unavailable />}</div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => void onToggleFavorite(s.symbol)}
+                        aria-label={favoriteSet.has(s.symbol) ? `Unfavorite ${s.symbol}` : `Favorite ${s.symbol}`}
+                        title={user ? (favoriteSet.has(s.symbol) ? 'Remove from favorites' : 'Add to favorites') : 'Sign in to save favorites'}
+                        className={cn(
+                          'rounded-sm p-0.5 transition-colors',
+                          favoriteSet.has(s.symbol)
+                            ? 'text-amber-300 hover:text-amber-200'
+                            : 'text-zinc-600 hover:text-amber-300',
+                        )}
+                      >
+                        <Star className={cn('h-3.5 w-3.5', favoriteSet.has(s.symbol) && 'fill-current')} aria-hidden="true" />
+                      </button>
+                      <div className="font-mono text-[12px] font-semibold text-zinc-100">{s.symbol}</div>
+                    </div>
+                    <div className="max-w-[170px] truncate pl-5 text-[10px] text-zinc-500">{tickers[s.symbol]?.company ?? <Unavailable />}</div>
                   </td>
                   <td className="px-3 py-3">
                     <div className="font-mono tabular-nums text-zinc-100">{money(s.stock_price_at_generation) ?? <Unavailable />}</div>
@@ -418,6 +474,20 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-[10px] text-zinc-500">#{i + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => void onToggleFavorite(s.symbol)}
+                      aria-label={favoriteSet.has(s.symbol) ? `Unfavorite ${s.symbol}` : `Favorite ${s.symbol}`}
+                      title={user ? (favoriteSet.has(s.symbol) ? 'Remove from favorites' : 'Add to favorites') : 'Sign in to save favorites'}
+                      className={cn(
+                        'rounded-sm p-0.5 transition-colors',
+                        favoriteSet.has(s.symbol)
+                          ? 'text-amber-300 hover:text-amber-200'
+                          : 'text-zinc-600 hover:text-amber-300',
+                      )}
+                    >
+                      <Star className={cn('h-4 w-4', favoriteSet.has(s.symbol) && 'fill-current')} aria-hidden="true" />
+                    </button>
                     <span className="font-mono text-sm font-semibold text-zinc-100">{s.symbol}</span>
                     <DemoBadge />
                   </div>
@@ -505,6 +575,20 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void onToggleFavorite(s.symbol)}
+                        aria-label={favoriteSet.has(s.symbol) ? `Unfavorite ${s.symbol}` : `Favorite ${s.symbol}`}
+                        title={user ? (favoriteSet.has(s.symbol) ? 'Remove from favorites' : 'Add to favorites') : 'Sign in to save favorites'}
+                        className={cn(
+                          'rounded-sm p-0.5 transition-colors',
+                          favoriteSet.has(s.symbol)
+                            ? 'text-amber-300 hover:text-amber-200'
+                            : 'text-zinc-600 hover:text-amber-300',
+                        )}
+                      >
+                        <Star className={cn('h-4 w-4', favoriteSet.has(s.symbol) && 'fill-current')} aria-hidden="true" />
+                      </button>
                       <Ban className="h-3.5 w-3.5 text-amber-400" aria-hidden="true" />
                       <span className="font-mono text-sm font-semibold text-zinc-100">{s.symbol}</span>
                       <span className="font-mono text-[10px] uppercase tracking-wider text-amber-300">no trade</span>
