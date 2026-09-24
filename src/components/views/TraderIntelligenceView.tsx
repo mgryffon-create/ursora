@@ -11,7 +11,7 @@ import PatternCard, { ConfidenceTag } from '@/components/trader/PatternCard';
 import { classifyError, reportError } from '@/lib/errors';
 import { dateLabel, minutesLabel, multiple, signedMoney, timeLabel } from '@/lib/format';
 
-import { track } from '@/lib/api';
+import { fetchTraderProfile, track } from '@/lib/api';
 import {
   ALERT_CATEGORIES, MODEL_VERSION, SENSITIVITY, TRADE_ORIGINS, bandTone,
   type Sensitivity,
@@ -27,6 +27,7 @@ import {
 import { generateProfile, PROFILES, type ProfileKey } from '@/lib/behavioral/synthetic';
 import { runBehavioralTests, summariseTests, type TestResult } from '@/lib/behavioral/tests';
 import type { LitConstruct, LitLink, LitStudy, TradeModification, TradePlan, TradeRecord } from '@/lib/behavioral/types';
+import type { TraderProfile } from '@/lib/types';
 
 type Tab = 'today' | 'baseline' | 'patterns' | 'process' | 'performance' | 'research';
 
@@ -86,6 +87,7 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
   const [plans, setPlans] = useState<TradePlan[]>([]);
   const [mods, setMods] = useState<TradeModification[]>([]);
   const [prefs, setPrefs] = useState<BehavioralPrefs>(DEFAULT_BEHAVIORAL_PREFS);
+  const [traderProfile, setTraderProfile] = useState<TraderProfile | null>(null);
   const [lit, setLit] = useState<{ constructs: LitConstruct[]; studies: LitStudy[]; links: LitLink[] }>({ constructs: [], studies: [], links: [] });
   const [demoProfile, setDemoProfile] = useState<ProfileKey | null>(null);
   const [tests, setTests] = useState<TestResult[] | null>(null);
@@ -99,18 +101,20 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
     setError(null);
     setErrorState(null);
     try {
-      const [t, p, m, pr, l] = await Promise.all([
+      const [t, p, m, pr, l, tp] = await Promise.all([
         fetchTradeRecords(user?.id ?? null),
         fetchTradePlans(user?.id ?? null),
         fetchModifications(user?.id ?? null),
         fetchBehavioralPrefs(user?.id ?? null),
         fetchLiterature(),
+        user ? fetchTraderProfile() : Promise.resolve(null),
       ]);
       setTrades(t);
       setPlans(p);
       setMods(m);
       setPrefs(pr);
       setLit(l);
+      setTraderProfile(tp);
     } catch (e) {
       setError(reportError('trader-intelligence', e, 'Trader Intelligence data could not be loaded.'));
       setErrorState(classifyError(e));
@@ -201,6 +205,34 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
           subject="Trader Intelligence"
           onRetry={() => void load()}
         />
+      )}
+
+      {traderProfile && (
+        <Panel
+          title="Your stated trading baseline"
+          subtitle="Trader Intelligence compares observed behavior with these self-defined preferences; it does not use them to change market evidence."
+        >
+          <div className="flex flex-wrap gap-2">
+            {traderProfile.trading_styles.slice(0, 3).map((value) => (
+              <span key={value} className="rounded-sm border border-sky-500/30 bg-sky-500/10 px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-sky-300">
+                {value.replaceAll('_', ' ')}
+              </span>
+            ))}
+            <span className="rounded-sm border border-zinc-700 px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-zinc-400">
+              risk · {traderProfile.risk_comfort}
+            </span>
+            {traderProfile.primary_goals.slice(0, 2).map((value) => (
+              <span key={value} className="rounded-sm border border-zinc-700 px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-zinc-400">
+                {value.replaceAll('_', ' ')}
+              </span>
+            ))}
+          </div>
+          {traderProfile.self_reported_habits.length > 0 && (
+            <p className="mt-2 text-[11px] text-zinc-500">
+              Self-reported focus: {traderProfile.self_reported_habits.slice(0, 3).map((value) => value.replaceAll('_', ' ')).join(' · ')}
+            </p>
+          )}
+        </Panel>
       )}
 
       {/* THE THREE DISTINCT SYSTEMS — never collapsed into one number */}
