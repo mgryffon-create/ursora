@@ -13,7 +13,9 @@ export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' 
   const [mode, setMode] = useState<'signin' | 'signup'>(initialMode);
   const [email, setEmail] = useState(() => typeof window !== 'undefined' ? (window.localStorage.getItem('ursora_saved_email') ?? '') : '');
   const [password, setPassword] = useState('');
-  const [remember, setRemember] = useState(true);
+  const [remember, setRemember] = useState(() =>
+    typeof window === 'undefined' ? true : window.localStorage.getItem('ursora_remember_login') !== 'false'
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
