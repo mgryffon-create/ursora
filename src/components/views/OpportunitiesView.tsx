@@ -271,7 +271,11 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
   const discoveryQuotes = useMemo(
     () =>
       Object.values(quotes)
-        .filter((quote) => Boolean(tickers[quote.symbol]))
+        .filter((quote) => {
+          if (!tickers[quote.symbol]) return false;
+          const asOf = new Date(quote.as_of ?? quote.retrieved_at).getTime();
+          return !Number.isFinite(asOf) || Date.now() - asOf <= 36 * 3600000;
+        })
         .sort((a, b) => {
           const score = (quote: Quote) =>
             Math.abs(quote.change_pct ?? 0) + Math.max(0, (quote.rel_volume ?? 1) - 1) * 2;
