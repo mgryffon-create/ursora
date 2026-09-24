@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Brain, ChevronDown, CircleHelp, FlaskConical, LineChart,
-  ListChecks, LogOut, Menu, Radar, ScrollText, X,
+  ListChecks, LogOut, Menu, Radar, ScrollText, UserRound, X,
 } from 'lucide-react';
 import { fetchSnapshot, fetchTickers, refreshMarketSymbols } from '@/lib/api';
 import db from '@/lib/db';
@@ -62,7 +62,6 @@ const NAV_GROUPS: {
     Icon: Brain,
     defaultView: 'history',
     items: [
-      { key: 'profile', label: 'Trader Profile', hint: 'Goals, style, risk and preferences', Icon: Brain },
       { key: 'history', label: 'Activity', hint: 'TradeCycle calendar and timeline', Icon: ScrollText },
       { key: 'trader', label: 'Patterns', hint: 'Recurring process and behavior', Icon: Brain },
       { key: 'backtest', label: 'Historical Evidence', hint: 'How setups behaved historically', Icon: FlaskConical },
@@ -71,7 +70,7 @@ const NAV_GROUPS: {
 ];
 
 const groupForView = (view: ViewKey): NavGroupKey => {
-  if (view === 'thesis' || view === 'opportunities' || view === 'command' || view === 'about') return 'today';
+  if (view === 'thesis' || view === 'opportunities' || view === 'command' || view === 'about' || view === 'profile') return 'today';
   if (view === 'trades') return 'trades';
   return 'intelligence';
 };
@@ -373,9 +372,19 @@ export const AppLayout: React.FC = () => {
               <CircleHelp className="h-3 w-3" aria-hidden="true" />
               <span className="hidden md:inline">About</span>
             </button>
-            <span className="hidden font-mono text-[10px] text-zinc-500 sm:inline">
-              {user ? user.email : 'demo session'}
-            </span>
+            {user ? (
+              <button
+                type="button"
+                onClick={() => go('profile')}
+                className="hidden items-center gap-1.5 rounded-sm border border-zinc-800 px-2 py-1.5 font-mono text-[10px] text-zinc-400 transition-colors hover:border-sky-500/30 hover:text-sky-300 sm:inline-flex"
+                title="Open your URSORA profile"
+              >
+                <UserRound className="h-3 w-3" aria-hidden="true" />
+                Profile
+              </button>
+            ) : (
+              <span className="hidden font-mono text-[10px] text-zinc-500 sm:inline">demo session</span>
+            )}
             {user ? (
               <button
                 type="button"
@@ -506,6 +515,16 @@ export const AppLayout: React.FC = () => {
 
       {showOnboarding && (
         <OnboardingTour
+          onSetupTraderProfile={() => {
+            const accountKey = user ? `ursora_onboarding_v2_${user.id}` : 'ursora_onboarding_v2_demo';
+            window.localStorage.setItem('ursora_onboarding_v1', 'seen');
+            window.localStorage.setItem(accountKey, 'seen');
+            setShowOnboarding(false);
+            if (user && !user.user_metadata?.ursora_onboarding_completed) {
+              void db.auth.updateUser({ data: { ursora_onboarding_completed: true } });
+            }
+            go('profile');
+          }}
           onFinish={() => {
             const accountKey = user ? `ursora_onboarding_v2_${user.id}` : 'ursora_onboarding_v2_demo';
             window.localStorage.setItem('ursora_onboarding_v1', 'seen');
