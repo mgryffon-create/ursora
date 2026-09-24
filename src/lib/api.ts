@@ -3,7 +3,7 @@ import { APP_CONFIG } from '@/lib/config';
 import type {
   ActiveAnalysis, AnalysisRun, Bar, ContractCandidate, EarningsEvent, EconomicEvent, FeedEvent, Filing, TraderProfile,
   MarketMover, MarketSnapshot, NewsItem, PaperTrade, ProviderConfig, Quote,
-  RiskAssessment, SentimentReading, Signal, SignalUpdate, Ticker, TranscriptStatement,
+  RiskAssessment, SentimentReading, Signal, SignalUpdate, SnapTradeAccount, Ticker, TranscriptStatement,
 } from '@/lib/types';
 
 /** The project REST layer serialises bare JS arrays as Postgres array literals,
@@ -33,6 +33,9 @@ export const EDGE_FUNCTIONS = {
   alphaEarningsSync: 'sync-alpha-earnings',
   marketContextSync: 'sync-market-context',
   historicalPlayback: 'historical-session-playback',
+  snapTradeRegister: 'snaptrade-register-user',
+  snapTradePortal: 'snaptrade-connection-portal',
+  snapTradeSync: 'sync-snaptrade-accounts',
 } as const;
 
 export type EdgeFunctionSlug = (typeof EDGE_FUNCTIONS)[keyof typeof EDGE_FUNCTIONS];
@@ -169,6 +172,38 @@ export async function refreshMarketSymbols(
   if (refreshContext) {
     await callEdge(EDGE_FUNCTIONS.marketContextSync, { force: true });
   }
+}
+
+export interface SnapTradeSyncResult {
+  success: boolean;
+  accounts: number;
+  positions: number;
+  balances: number;
+  activities: number;
+  warnings: string[];
+  synced_at: string;
+}
+
+export async function registerSnapTradeUser(): Promise<{ success: boolean; registered: boolean; created: boolean }> {
+  return callEdge(EDGE_FUNCTIONS.snapTradeRegister, {});
+}
+
+export async function createSnapTradeConnectionPortal(): Promise<{ success: boolean; redirect_uri: string; expires_in_seconds: number }> {
+  return callEdge(EDGE_FUNCTIONS.snapTradePortal, {});
+}
+
+export async function syncSnapTradeAccounts(includeActivities = true): Promise<SnapTradeSyncResult> {
+  return callEdge<SnapTradeSyncResult>(EDGE_FUNCTIONS.snapTradeSync, { include_activities: includeActivities });
+}
+
+export async function fetchSnapTradeAccounts(): Promise<SnapTradeAccount[]> {
+  const { data, error } = await db
+    .from('snaptrade_accounts')
+    .select('*')
+    .order('institution_name', { ascending: true })
+    .order('name', { ascending: true });
+  if (error) throw error;
+  return rows<SnapTradeAccount>(data as SnapTradeAccount[]);
 }
 
 export interface HistoricalPlaybackMarker {
