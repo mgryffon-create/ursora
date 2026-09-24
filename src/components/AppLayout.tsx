@@ -19,13 +19,14 @@ import ThesisView from '@/components/views/ThesisView';
 import SignalHistoryView from '@/components/views/SignalHistoryView';
 import BacktestView from '@/components/views/BacktestView';
 import TraderIntelligenceView from '@/components/views/TraderIntelligenceView';
+import TraderProfileView from '@/components/views/TraderProfileView';
 import TradesView from '@/components/views/TradesView';
 import AboutView from '@/components/views/AboutView';
 import OnboardingTour from '@/components/OnboardingTour';
 
 type ViewKey =
   | 'opportunities' | 'command' | 'trades' | 'history'
-  | 'backtest' | 'thesis' | 'trader' | 'about';
+  | 'backtest' | 'thesis' | 'trader' | 'profile' | 'about';
 
 type NavGroupKey = 'today' | 'trades' | 'intelligence';
 
@@ -61,6 +62,7 @@ const NAV_GROUPS: {
     Icon: Brain,
     defaultView: 'history',
     items: [
+      { key: 'profile', label: 'Trader Profile', hint: 'Goals, style, risk and preferences', Icon: Brain },
       { key: 'history', label: 'Activity', hint: 'TradeCycle calendar and timeline', Icon: ScrollText },
       { key: 'trader', label: 'Patterns', hint: 'Recurring process and behavior', Icon: Brain },
       { key: 'backtest', label: 'Historical Evidence', hint: 'How setups behaved historically', Icon: FlaskConical },
@@ -289,6 +291,8 @@ export const AppLayout: React.FC = () => {
         return <BacktestView />;
       case 'trader':
         return <TraderIntelligenceView onOpenThesis={openThesis} />;
+      case 'profile':
+        return <TraderProfileView />;
       case 'about':
         return <AboutView />;
       default:
