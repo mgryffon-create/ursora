@@ -32,6 +32,20 @@ const thesisSummary = (signal?: Signal | null) => {
   return `${signal.direction === 'bearish' ? 'Bearish' : signal.direction === 'bullish' ? 'Bullish' : 'Neutral'} ${signal.holding_period ?? 'swing'} thesis: ${primary} price structure, ${confirmation} confirmation, and ${context} context.`;
 };
 
+const curiosityTag = (quote?: Quote | null) => {
+  if (!quote) return 'DATA GAP';
+  const move = Math.abs(quote.change_pct ?? 0);
+  const relVolume = quote.rel_volume ?? 0;
+  const trend = String(quote.trend ?? '').toLowerCase();
+
+  if (move >= 3) return 'LARGE MOVE';
+  if (move >= 1.5) return 'PRICE MOVE';
+  if (relVolume >= 1.5) return 'VOLUME';
+  if (trend.includes('up')) return 'UPTREND';
+  if (trend.includes('down')) return 'DOWNTREND';
+  return 'ON RADAR';
+};
+
 const curiositySummary = (quote?: Quote | null) => {
   if (!quote) return 'No recent snapshot is stored yet. Select this ticker to refresh and analyze it.';
   const move = quote.change_pct ?? 0;
@@ -58,6 +72,7 @@ type RouteCardProps = {
   favorite?: boolean;
   selected?: boolean;
   selectable?: boolean;
+  discovery?: boolean;
   onSelect?: () => void;
   onOpen?: () => void;
   onFavorite?: () => void;
@@ -65,10 +80,12 @@ type RouteCardProps = {
 
 const RouteCard: React.FC<RouteCardProps> = ({
   symbol, quote, ticker, signal, active, favorite = false, selected = false,
-  selectable = false, onSelect, onOpen, onFavorite,
+  selectable = false, discovery = false, onSelect, onOpen, onFavorite,
 }) => {
   const fullThesisAvailable = Boolean(onOpen);
-  const setupText = thesisSummary(signal) ?? curiositySummary(quote);
+  const setupText = discovery && !active
+    ? curiositySummary(quote)
+    : thesisSummary(signal) ?? curiositySummary(quote);
 
   const openOrSelect = () => {
     if (onOpen) onOpen();
@@ -87,9 +104,10 @@ const RouteCard: React.FC<RouteCardProps> = ({
         }
       }}
       className={cn(
-        'rounded-md border bg-black/25 p-3 transition-colors',
+        'rounded-md border bg-black/25 p-3 transition-all',
         fullThesisAvailable ? 'cursor-pointer hover:border-sky-500/40' : selectable ? 'cursor-pointer hover:border-zinc-700' : '',
         selected ? 'border-sky-500/60 bg-sky-500/[0.07]' : 'border-zinc-800',
+        discovery && !selected && 'border-sky-500/25 bg-sky-500/[0.045] shadow-[inset_3px_0_0_rgba(56,189,248,0.45)] hover:border-sky-400/55 hover:bg-sky-500/[0.07]',
         active && 'border-emerald-500/30 bg-emerald-500/[0.035]',
       )}
     >
@@ -113,6 +131,11 @@ const RouteCard: React.FC<RouteCardProps> = ({
               </button>
             )}
             <span className="font-mono text-sm font-semibold text-zinc-100">{symbol}</span>
+            {discovery && (
+              <span className="rounded-sm border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.12em] text-sky-300">
+                {curiosityTag(quote)}
+              </span>
+            )}
             {signal && <DirectionTag direction={signal.direction} />}
           </div>
           <div className="mt-0.5 truncate text-[10px] text-zinc-500">{ticker?.company ?? '—'}</div>
@@ -173,7 +196,14 @@ const RouteCard: React.FC<RouteCardProps> = ({
         )}
       </div>
 
-      <p className="mt-3 text-[11px] leading-relaxed text-zinc-400">{setupText}</p>
+      {discovery ? (
+        <div className="mt-3 rounded-sm border border-sky-500/15 bg-black/20 px-2.5 py-2">
+          <div className="font-mono text-[8px] uppercase tracking-[0.16em] text-sky-400/80">Why it is on the radar</div>
+          <p className="mt-1 text-[11px] leading-relaxed text-zinc-300">{setupText}</p>
+        </div>
+      ) : (
+        <p className="mt-3 text-[11px] leading-relaxed text-zinc-400">{setupText}</p>
+      )}
 
       <div className="mt-3 flex items-center justify-between gap-2 border-t border-zinc-800/80 pt-2 font-mono text-[9px] uppercase tracking-wider">
         <span className={fullThesisAvailable ? 'text-sky-300' : 'text-zinc-600'}>
@@ -512,6 +542,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
                     favorite={false}
                     selected={analysisSelection.includes(symbol)}
                     selectable
+                    discovery
                     onSelect={() => toggleAnalysisSelection(symbol)}
                     onOpen={signal ? () => onOpenThesis(signal.id) : undefined}
                     onFavorite={() => void onToggleFavorite(symbol)}
