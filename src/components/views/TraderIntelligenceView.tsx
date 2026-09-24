@@ -22,12 +22,12 @@ import {
 import { deriveProfileContext, type ProfileContextInsight } from '@/lib/behavioral/profile-context';
 import {
   DEFAULT_BEHAVIORAL_PREFS, enabledCategories, fetchBehavioralPrefs, fetchLiterature,
-  fetchModifications, fetchTradePlans, fetchTradeRecords, saveBehavioralPrefs, setTradeOrigin,
+  fetchModifications, fetchTradeCycleThesisEvents, fetchTradePlans, fetchTradeRecords, saveBehavioralPrefs, setTradeOrigin,
   type BehavioralPrefs,
 } from '@/lib/behavioral/api';
 import { generateProfile, PROFILES, type ProfileKey } from '@/lib/behavioral/synthetic';
 import { runBehavioralTests, summariseTests, type TestResult } from '@/lib/behavioral/tests';
-import type { LitConstruct, LitLink, LitStudy, TradeModification, TradePlan, TradeRecord } from '@/lib/behavioral/types';
+import type { LitConstruct, LitLink, LitStudy, TradeCycleThesisEvent, TradeModification, TradePlan, TradeRecord } from '@/lib/behavioral/types';
 import type { TraderProfile } from '@/lib/types';
 
 type Tab = 'today' | 'baseline' | 'patterns' | 'process' | 'performance' | 'research';
@@ -50,6 +50,51 @@ const Stat: React.FC<{ label: string; value: React.ReactNode; hint?: string; ton
     {hint && <div className="mt-0.5 truncate text-[10px] text-zinc-600">{hint}</div>}
   </div>
 );
+const ProfilePatternCheckCard: React.FC<{
+  insight: ProfileContextInsight;
+  tone: (status: ProfileContextInsight['status']) => string;
+}> = ({ insight, tone }) => (
+  <article className="rounded-md border border-zinc-800 bg-[#111419] p-3">
+    <div className="flex flex-wrap items-start justify-between gap-2">
+      <div>
+        <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-500">MyURSORA pattern check</div>
+        <h3 className="mt-1 text-sm font-semibold text-zinc-100">{insight.profileSignal}</h3>
+      </div>
+      <span className={cn(
+        'rounded-sm border px-2 py-1 font-mono text-[9px] font-semibold uppercase tracking-wider',
+        insight.status === 'ALIGNED' ? 'border-emerald-500/30 bg-emerald-500/[0.06]'
+          : insight.status === 'DIVERGENT' ? 'border-red-500/30 bg-red-500/[0.06]'
+            : insight.status === 'MIXED' ? 'border-amber-500/30 bg-amber-500/[0.06]'
+              : 'border-zinc-700 bg-black/20',
+        tone(insight.status),
+      )}>
+        {insight.status}
+      </span>
+    </div>
+
+    <div className="mt-3 rounded-sm border border-zinc-800 bg-black/25 px-3 py-2.5">
+      <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">Observed context</div>
+      <div className="mt-1 text-[13px] font-medium text-zinc-200">{insight.observed}</div>
+    </div>
+
+    {insight.contextItems && insight.contextItems.length > 0 && (
+      <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+        {insight.contextItems.map((item) => (
+          <div key={`${insight.key}-${item.label}`} className="rounded-sm border border-zinc-800/80 bg-black/20 px-2.5 py-2">
+            <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">{item.label}</div>
+            <div className="mt-0.5 text-[11px] text-zinc-300">{item.value}</div>
+          </div>
+        ))}
+      </div>
+    )}
+
+    <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">{insight.detail}</p>
+    <div className="mt-2 border-t border-zinc-800/70 pt-2 font-mono text-[9px] uppercase tracking-wider text-zinc-600">
+      {insight.sample > 0 ? `${insight.sample} evidence episode${insight.sample === 1 ? '' : 's'}` : 'Awaiting measurable episodes'}
+    </div>
+  </article>
+);
+
 
 const Table: React.FC<{ head: string[]; rows: (React.ReactNode[])[]; empty?: string; headHelp?: Record<string, string> }> = ({ head, rows, empty, headHelp = {} }) => (
   <div className="overflow-x-auto">
@@ -89,6 +134,7 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
   const [mods, setMods] = useState<TradeModification[]>([]);
   const [prefs, setPrefs] = useState<BehavioralPrefs>(DEFAULT_BEHAVIORAL_PREFS);
   const [traderProfile, setTraderProfile] = useState<TraderProfile | null>(null);
+  const [thesisEvents, setThesisEvents] = useState<TradeCycleThesisEvent[]>([]);
   const [lit, setLit] = useState<{ constructs: LitConstruct[]; studies: LitStudy[]; links: LitLink[] }>({ constructs: [], studies: [], links: [] });
   const [demoProfile, setDemoProfile] = useState<ProfileKey | null>(null);
   const [tests, setTests] = useState<TestResult[] | null>(null);
@@ -102,13 +148,14 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
     setError(null);
     setErrorState(null);
     try {
-      const [t, p, m, pr, l, tp] = await Promise.all([
+      const [t, p, m, pr, l, tp, te] = await Promise.all([
         fetchTradeRecords(user?.id ?? null),
         fetchTradePlans(user?.id ?? null),
         fetchModifications(user?.id ?? null),
         fetchBehavioralPrefs(user?.id ?? null),
         fetchLiterature(),
         user ? fetchTraderProfile() : Promise.resolve(null),
+        user ? fetchTradeCycleThesisEvents(user.id) : Promise.resolve([]),
       ]);
       setTrades(t);
       setPlans(p);
@@ -116,6 +163,7 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
       setPrefs(pr);
       setLit(l);
       setTraderProfile(tp);
+      setThesisEvents(te);
     } catch (e) {
       setError(reportError('trader-intelligence', e, 'Trader Intelligence data could not be loaded.'));
       setErrorState(classifyError(e));
@@ -142,8 +190,8 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
 
   const { baseline, sessions, today, risk, patterns, observations } = intel;
   const profileContext = useMemo(
-    () => deriveProfileContext(traderProfile, activeTrades, baseline),
-    [traderProfile, activeTrades, baseline],
+    () => deriveProfileContext(traderProfile, activeTrades, baseline, thesisEvents),
+    [traderProfile, activeTrades, baseline, thesisEvents],
   );
   const profileRowsFor = (category: ProfileContextInsight['category']) =>
     profileContext.filter((row) => row.category === category);
@@ -576,18 +624,17 @@ export const TraderIntelligenceView: React.FC<{ onOpenThesis?: (id: number) => v
           {traderProfile && (
             <Panel
               title="MyURSORA pattern checks"
-              subtitle="Self-reported habits are treated as hypotheses. URSORA checks them against observed behavior when the required data exists and leaves them unresolved when it does not."
+              subtitle="Each self-reported habit becomes its own evidence card. Relevant behavioral episodes and measurements pipe into the card as brokerage and TradeCycle history accumulates."
             >
-              <Table
-                head={['MyURSORA hypothesis / goal', 'Observed behavior', 'Current read', 'Context']}
-                rows={profileRowsFor('patterns').map((row) => [
-                  row.profileSignal,
-                  row.observed,
-                  <span key="status" className={cn('font-semibold', contextTone(row.status))}>{row.status}</span>,
-                  <span key="detail" className="text-zinc-500">{row.detail}</span>,
-                ])}
-                empty="Add habits or Trader Intelligence goals in MyURSORA to create personal pattern checks."
-              />
+              {profileRowsFor('patterns').length > 0 ? (
+                <div className="grid gap-2 lg:grid-cols-2">
+                  {profileRowsFor('patterns').map((row) => (
+                    <ProfilePatternCheckCard key={row.key} insight={row} tone={contextTone} />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-zinc-500">Add habits or Trader Intelligence goals in MyURSORA to create personal pattern checks.</p>
+              )}
             </Panel>
           )}
 
