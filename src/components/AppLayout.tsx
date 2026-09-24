@@ -62,6 +62,7 @@ const NAV_GROUPS: {
     Icon: Brain,
     defaultView: 'history',
     items: [
+      { key: 'profile', label: 'MyURSORA', hint: 'Goals, habits and trading baseline', Icon: UserRound },
       { key: 'history', label: 'Activity', hint: 'TradeCycle calendar and timeline', Icon: ScrollText },
       { key: 'trader', label: 'Patterns', hint: 'Recurring process and behavior', Icon: Brain },
       { key: 'backtest', label: 'Historical Evidence', hint: 'How setups behaved historically', Icon: FlaskConical },
@@ -70,7 +71,7 @@ const NAV_GROUPS: {
 ];
 
 const groupForView = (view: ViewKey): NavGroupKey => {
-  if (view === 'thesis' || view === 'opportunities' || view === 'command' || view === 'about' || view === 'profile') return 'today';
+  if (view === 'thesis' || view === 'opportunities' || view === 'command' || view === 'about') return 'today';
   if (view === 'trades') return 'trades';
   return 'intelligence';
 };
@@ -376,11 +377,11 @@ export const AppLayout: React.FC = () => {
               <button
                 type="button"
                 onClick={() => go('profile')}
-                className="hidden items-center gap-1.5 rounded-sm border border-zinc-800 px-2 py-1.5 font-mono text-[10px] text-zinc-400 transition-colors hover:border-sky-500/30 hover:text-sky-300 sm:inline-flex"
-                title="Open your URSORA profile"
+                className="hidden items-center gap-1.5 rounded-sm border border-sky-500/50 bg-sky-500/10 px-2.5 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-sky-200 shadow-[0_0_18px_rgba(14,165,233,0.08)] transition-colors hover:border-sky-400/70 hover:bg-sky-500/15 hover:text-sky-100 sm:inline-flex"
+                title="Open MyURSORA"
               >
-                <UserRound className="h-3 w-3" aria-hidden="true" />
-                Profile
+                <UserRound className="h-3.5 w-3.5" aria-hidden="true" />
+                MyURSORA
               </button>
             ) : (
               <span className="hidden font-mono text-[10px] text-zinc-500 sm:inline">demo session</span>
