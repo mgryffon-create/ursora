@@ -163,6 +163,7 @@ Deno.serve(async (req) => {
     const { data: quoteRows, error: quoteError } = await db
       .from('quotes')
       .select('symbol,price,change_pct,trend,as_of,retrieved_at,is_demo')
+      .eq('is_demo', false)
       .in('symbol', ['SPY', 'QQQ', 'IWM'])
       .order('retrieved_at', { ascending: false })
       .order('as_of', { ascending: false });
@@ -200,6 +201,7 @@ Deno.serve(async (req) => {
     const { data: latestTrackedQuotes } = await db
       .from('quotes')
       .select('symbol,change_pct,as_of,retrieved_at,is_demo')
+      .eq('is_demo', false)
       .order('retrieved_at', { ascending: false })
       .order('as_of', { ascending: false })
       .limit(200);
