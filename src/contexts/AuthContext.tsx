@@ -85,13 +85,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     let active = true;
-    db.auth.getSession().then(async ({ data }) => {
+
+    (async () => {
+      const remember = typeof window === 'undefined'
+        ? true
+        : window.localStorage.getItem('ursora_remember_login') !== 'false';
+      const sameBrowserSession = typeof window !== 'undefined'
+        && window.sessionStorage.getItem('ursora_session_active') === 'true';
+
+      // When "Remember me" was disabled, Supabase still writes its refresh token
+      // to localStorage. The session-only marker disappears when the browser
+      // session ends, so discard that persisted token on the next browser launch.
+      if (!remember && !sameBrowserSession) {
+        await db.auth.signOut({ scope: 'local' });
+      }
+
+      const { data } = await db.auth.getSession();
       if (!active) return;
       setSession(data.session ?? null);
       setUser(data.session?.user ?? null);
       await loadUserData(data.session?.user?.id ?? null);
       if (active) setLoading(false);
-    });
+    })();
+
     const { data: sub } = db.auth.onAuthStateChange((_event, next) => {
       setSession(next ?? null);
       setUser(next?.user ?? null);
@@ -106,7 +122,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signIn = useCallback(async (email: string, password: string, remember = true) => {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('ursora_remember_login', remember ? 'true' : 'false');
+      if (remember) {
+        window.sessionStorage.removeItem('ursora_session_active');
+      } else {
+        window.sessionStorage.setItem('ursora_session_active', 'true');
+      }
     }
+
     const { error } = await db.auth.signInWithPassword({ email, password });
     if (error) throw new Error(error.message);
   }, []);
@@ -137,6 +159,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signOut = useCallback(async () => {
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.removeItem('ursora_session_active');
+    }
     await db.auth.signOut();
     setWatchlist(DEFAULT_UNIVERSE);
     setPrefs(DEFAULT_PREFS);
