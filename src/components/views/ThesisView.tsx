@@ -183,10 +183,24 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <div className="text-right">
-              <div className="font-mono text-2xl tabular-nums text-zinc-50">{money(quote?.price ?? signal.stock_price_at_generation) ?? <Unavailable />}</div>
-              <div className={cn('font-mono text-[11px]', changeColor(quote?.change_pct))}>
-                {pct(quote?.change_pct) ?? '—'} · last {clockET(quote?.as_of)}
+              <div className="font-mono text-2xl tabular-nums text-zinc-50">
+                {money(signal.stock_price_at_generation) ?? <Unavailable />}
               </div>
+              <div className={cn(
+                'font-mono text-[11px]',
+                changeColor(typeof signal.score_breakdown?.raw?.change_pct === 'number'
+                  ? signal.score_breakdown.raw.change_pct
+                  : null),
+              )}>
+                {pct(typeof signal.score_breakdown?.raw?.change_pct === 'number'
+                  ? signal.score_breakdown.raw.change_pct
+                  : null) ?? '—'} · signal price
+              </div>
+              {quote?.price != null && (
+                <div className="mt-0.5 font-mono text-[9px] text-zinc-600">
+                  current {money(quote.price)} · {clockET(quote.as_of)}
+                </div>
+              )}
             </div>
             <div className="w-40 space-y-2">
               <ScoreBar label="Opportunity" score={signal.opportunity_score} />
