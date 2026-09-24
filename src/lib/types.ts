@@ -78,6 +78,9 @@ export interface ScoreFactor {
   effective_weight: number;
   weight_change: number;
   contribution: number;
+  provenance?: 'observed' | 'derived' | 'imputed' | 'unavailable' | string;
+  reliability?: number | null;
+  source_quality?: number | null;
   strength_band?: 'Insufficient' | 'Weak' | 'Moderate' | 'Strong';
   thesis_vote?: 'ABSTAIN' | 'SUPPORT' | 'OPPOSE';
   effect: 'INCREASED' | 'DECREASED' | 'NEUTRAL';
