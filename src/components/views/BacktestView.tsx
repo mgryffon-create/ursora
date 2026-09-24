@@ -1,14 +1,20 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, FlaskConical, Loader2, Play } from 'lucide-react';
-import { EDGE_FUNCTIONS, callEdge, fetchTickers, track } from '@/lib/api';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, FlaskConical, History, Loader2, Play } from 'lucide-react';
+import {
+  EDGE_FUNCTIONS, callEdge, fetchHistoricalPlayback, fetchTickers, track,
+  type HistoricalPlaybackResponse,
+} from '@/lib/api';
 import type { Ticker } from '@/lib/types';
 import { DEFAULT_UNIVERSE, useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import {
   DemoBadge, Disclaimer, EmptyState, Metric, Panel, SectionHeading, Unavailable,
 } from '@/components/common/Primitives';
-import { EquityCurve } from '@/components/charts/PriceChart';
+import { EquityCurve, SessionPlaybackChart } from '@/components/charts/PriceChart';
 import { cn } from '@/lib/utils';
+import { fetchTradeRecords } from '@/lib/behavioral/api';
+import type { TradeRecord } from '@/lib/behavioral/types';
+import { signedMoney } from '@/lib/format';
 
 interface BacktestMetrics {
   sample_size: number;
@@ -58,7 +64,7 @@ interface BacktestResponse {
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
-export const BacktestView: React.FC = () => {
+export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initialTradeIds = [] }) => {
   const { user } = useAuth();
   const [tickers, setTickers] = useState<Ticker[]>([]);
   const [selected, setSelected] = useState<string[]>(['NVDA', 'AAPL', 'TSLA', 'SPY']);
@@ -70,10 +76,58 @@ export const BacktestView: React.FC = () => {
   const [result, setResult] = useState<BacktestResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [episodeTrades, setEpisodeTrades] = useState<TradeRecord[]>([]);
+  const [selectedTradeId, setSelectedTradeId] = useState<number | null>(initialTradeIds[0] ?? null);
+  const [playback, setPlayback] = useState<HistoricalPlaybackResponse | null>(null);
+  const [playbackBusy, setPlaybackBusy] = useState(false);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
 
   useEffect(() => {
     void fetchTickers().then(setTickers).catch(() => setTickers([]));
   }, []);
+
+  useEffect(() => {
+    if (!user || initialTradeIds.length === 0) {
+      setEpisodeTrades([]);
+      if (initialTradeIds.length === 0) setSelectedTradeId(null);
+      return;
+    }
+
+    void fetchTradeRecords(user.id)
+      .then((rows) => {
+        const wanted = new Set(initialTradeIds);
+        const filtered = rows.filter((trade) => wanted.has(trade.id));
+        setEpisodeTrades(filtered);
+        if (filtered.length && !filtered.some((trade) => trade.id === selectedTradeId)) {
+          setSelectedTradeId(filtered[0].id);
+        }
+      })
+      .catch((episodeError) => {
+        setPlaybackError(episodeError instanceof Error ? episodeError.message : String(episodeError));
+      });
+  }, [initialTradeIds, selectedTradeId, user]);
+
+  useEffect(() => {
+    if (!selectedTradeId || !user) {
+      setPlayback(null);
+      return;
+    }
+
+    setPlaybackBusy(true);
+    setPlaybackError(null);
+    void fetchHistoricalPlayback(selectedTradeId)
+      .then(setPlayback)
+      .catch((episodeError) => {
+        setPlayback(null);
+        setPlaybackError(episodeError instanceof Error ? episodeError.message : String(episodeError));
+      })
+      .finally(() => setPlaybackBusy(false));
+  }, [selectedTradeId, user]);
+
+  const selectedEpisodeTrade = useMemo(
+    () => episodeTrades.find((trade) => trade.id === selectedTradeId) ?? null,
+    [episodeTrades, selectedTradeId],
+  );
 
   const run = useCallback(async () => {
     setBusy(true);
@@ -106,14 +160,135 @@ export const BacktestView: React.FC = () => {
     <div className="space-y-4">
       <SectionHeading
         eyebrow="Historical evidence"
-        title="See how similar setups behaved in past market conditions"
-        description="Historical evidence helps test whether a setup has appeared before, how often it occurred, and how price behaved afterward. It is context for learning and model validation, not a prediction of the next trade."
+        title="Replay the market around your TradeCycle"
+        description="Historical Evidence connects your actual trade actions with the market session and URSORA thesis events so you can inspect what changed between entry and exit."
         right={<DemoBadge />}
       />
 
       <Panel
-        title="Test settings"
-        subtitle="Define the historical period and signal criteria to evaluate."
+        title="TradeCycle episode playback"
+        subtitle="Entry, thesis weakening or invalidation, and exit are plotted against the underlying market session when the required timestamps and historical market data are available."
+      >
+        {initialTradeIds.length === 0 ? (
+          <div className="rounded-sm border border-dashed border-zinc-800 p-4">
+            <div className="flex items-center gap-2 text-zinc-300">
+              <History className="h-4 w-4 text-sky-400" aria-hidden="true" />
+              <span className="text-sm font-medium">No behavioral episode selected</span>
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+              Open a pattern card in Trader Intelligence and choose View episodes. Historical Evidence will open with the exact trades that contributed to that pattern.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-3 xl:grid-cols-[260px_minmax(0,1fr)]">
+            <div className="space-y-1.5">
+              <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Evidence episodes</div>
+              {episodeTrades.map((trade) => {
+                const selectedEpisode = trade.id === selectedTradeId;
+                const when = trade.entry_at ?? trade.created_at;
+                return (
+                  <button
+                    type="button"
+                    key={trade.id}
+                    onClick={() => setSelectedTradeId(trade.id)}
+                    className={cn(
+                      'w-full rounded-sm border p-2.5 text-left transition-colors',
+                      selectedEpisode
+                        ? 'border-sky-500/50 bg-sky-500/[0.08]'
+                        : 'border-zinc-800 bg-black/20 hover:border-zinc-700',
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-[12px] font-semibold text-zinc-100">{trade.symbol}</span>
+                      <span className="font-mono text-[9px] text-zinc-600">
+                        {when ? new Date(when).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' }) : 'date unavailable'}
+                      </span>
+                    </div>
+                    <div className="mt-1 font-mono text-[9px] uppercase tracking-wider text-zinc-500">
+                      {trade.option_type ?? trade.strategy ?? trade.asset_type ?? 'trade episode'}
+                    </div>
+                  </button>
+                );
+              })}
+              {episodeTrades.length === 0 && (
+                <div className="rounded-sm border border-dashed border-zinc-800 p-3 text-[11px] text-zinc-600">
+                  The referenced trade episodes are not available in this account yet.
+                </div>
+              )}
+            </div>
+
+            <div className="min-w-0">
+              {playbackBusy ? (
+                <div className="flex min-h-[360px] items-center justify-center">
+                  <Loader2 className="h-5 w-5 animate-spin text-sky-400" aria-hidden="true" />
+                </div>
+              ) : playbackError ? (
+                <div className="rounded-sm border border-amber-500/30 bg-amber-500/[0.06] p-3 text-[11px] leading-relaxed text-amber-100">
+                  {playbackError}
+                </div>
+              ) : playback ? (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-end justify-between gap-2">
+                    <div>
+                      <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-500">Session playback</div>
+                      <div className="mt-0.5 text-lg font-semibold text-zinc-100">
+                        {playback.symbol} · {playback.session_date}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 font-mono text-[9px] uppercase tracking-wider text-zinc-500">
+                      {playback.episode.post_invalidation_minutes !== null && (
+                        <span className="rounded-sm border border-red-500/25 bg-red-500/[0.05] px-2 py-1 text-red-300">
+                          {playback.episode.post_invalidation_minutes}m after invalidation
+                        </span>
+                      )}
+                      {playback.episode.realized_pl !== null && (
+                        <span className="rounded-sm border border-zinc-700 px-2 py-1">
+                          P/L {signedMoney(playback.episode.realized_pl)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <SessionPlaybackChart bars={playback.bars} markers={playback.markers} />
+
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <div className="rounded-sm border border-zinc-800 bg-black/20 p-2.5">
+                      <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Entry</div>
+                      <div className="mt-1 text-[11px] text-zinc-300">
+                        {new Date(playback.episode.entry_at).toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' })}
+                      </div>
+                    </div>
+                    <div className="rounded-sm border border-zinc-800 bg-black/20 p-2.5">
+                      <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Thesis invalidation</div>
+                      <div className="mt-1 text-[11px] text-zinc-300">
+                        {playback.episode.invalidation_at
+                          ? new Date(playback.episode.invalidation_at).toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' })
+                          : 'No timestamped invalidation recorded'}
+                      </div>
+                    </div>
+                    <div className="rounded-sm border border-zinc-800 bg-black/20 p-2.5">
+                      <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Exit</div>
+                      <div className="mt-1 text-[11px] text-zinc-300">
+                        {playback.episode.exit_at
+                          ? new Date(playback.episode.exit_at).toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' })
+                          : 'Position still open / exit unavailable'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : selectedEpisodeTrade ? (
+                <div className="rounded-sm border border-dashed border-zinc-800 p-4 text-[11px] text-zinc-600">
+                  Select the episode to load its market-session playback.
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
+      </Panel>
+
+      <Panel
+        title="Historical setup testing"
+        subtitle="Separate from personal TradeCycle playback: test how similar URSORA setups behaved across historical market conditions."
         help="Historical tests use only information that would have been available at each point in time. Future information is excluded, and these results remain separate from your connected brokerage outcomes."
       >
         <div className="grid gap-3 2xl:grid-cols-[0.85fr_1.65fr]">
