@@ -106,67 +106,45 @@ Deno.serve(async (req) => {
 
     if (!symbols.length) {
       const { data, error } = await db
-        .from('quotes')
-        .select('symbol,as_of')
-        .order('as_of', { ascending: false })
-        .limit(120);
+        .from('tickers')
+        .select('symbol')
+        .eq('is_default', true)
+        .order('priority', { ascending: true })
+        .limit(30);
       if (error) throw error;
-
-      const seen = new Set<string>();
-      for (const row of data ?? []) {
-        const symbol = String((row as any).symbol ?? '').toUpperCase();
-        if (symbol && !seen.has(symbol)) {
-          seen.add(symbol);
-          symbols.push(symbol);
-        }
-      }
+      symbols = (data ?? []).map((row: any) => String(row.symbol ?? '').toUpperCase()).filter(Boolean);
     }
 
     symbols = [...new Set(symbols)].slice(0, 30);
     const key = alphaKey();
     const providerKey = 'alpha_intelligence';
-    const capability = 'news_sentiment';
     const cacheHours = 18;
     const staleBefore = Date.now() - cacheHours * 3600000;
 
-    let states: any[] = [];
-    let syncStateAvailable = true;
-    const stateResult = await db
-      .from('provider_symbol_syncs')
-      .select('symbol,last_attempt,last_success,last_error,item_count')
-      .eq('provider_key', providerKey)
-      .eq('capability', capability)
-      .in('symbol', symbols);
+    // Use the actual news table as the cache/rotation source of truth. This keeps
+    // news refresh independent from the optional provider_symbol_syncs migration.
+    const { data: recentStoredNews, error: storedNewsError } = await db
+      .from('news_items')
+      .select('symbol,retrieved_at,published_at')
+      .in('symbol', symbols)
+      .eq('source_type', 'verified_news')
+      .order('retrieved_at', { ascending: false })
+      .limit(2000);
+    if (storedNewsError) throw storedNewsError;
 
-    if (stateResult.error) {
-      const message = errorMessage(stateResult.error);
-      if (/PGRST205|provider_symbol_syncs|schema cache/i.test(message)) {
-        syncStateAvailable = false;
-        states = [];
-      } else {
-        throw stateResult.error;
-      }
-    } else {
-      states = stateResult.data ?? [];
+    const latestNewsBySymbol = new Map<string, number>();
+    for (const row of recentStoredNews ?? []) {
+      const symbol = String((row as any).symbol ?? '').toUpperCase();
+      const ts = new Date((row as any).retrieved_at ?? (row as any).published_at ?? 0).getTime();
+      if (!symbol || !Number.isFinite(ts)) continue;
+      if (!latestNewsBySymbol.has(symbol)) latestNewsBySymbol.set(symbol, ts);
     }
 
-    const stateBySymbol = new Map(
-      states.map((row: any) => [String(row.symbol).toUpperCase(), row]),
-    );
-
-    const refreshSymbols = symbols
-      .filter((symbol) => {
-        const state: any = stateBySymbol.get(symbol);
-        const lastAttempt = state?.last_attempt ? new Date(state.last_attempt).getTime() : 0;
-        return !Number.isFinite(lastAttempt) || lastAttempt < staleBefore;
-      })
-      .sort((a, b) => {
-        const aState: any = stateBySymbol.get(a);
-        const bState: any = stateBySymbol.get(b);
-        const aTime = aState?.last_attempt ? new Date(aState.last_attempt).getTime() : 0;
-        const bTime = bState?.last_attempt ? new Date(bState.last_attempt).getTime() : 0;
-        return aTime - bTime;
-      })
+    // Refresh one oldest/missing symbol per run to stay inside Alpha Vantage's
+    // request allowance while guaranteeing rotation across the full universe.
+    const refreshSymbols = [...symbols]
+      .filter((symbol) => (latestNewsBySymbol.get(symbol) ?? 0) < staleBefore)
+      .sort((a, b) => (latestNewsBySymbol.get(a) ?? 0) - (latestNewsBySymbol.get(b) ?? 0))
       .slice(0, 1);
 
     const results: any[] = [];
@@ -248,35 +226,10 @@ Deno.serve(async (req) => {
           inserted += rows.length;
         }
 
-        if (syncStateAvailable) {
-          const { error: syncError } = await db.from('provider_symbol_syncs').upsert({
-            provider_key: providerKey,
-            capability,
-            symbol,
-            last_attempt: attemptedAt,
-            last_success: attemptedAt,
-            last_error: null,
-            item_count: rows.length,
-            updated_at: attemptedAt,
-          }, { onConflict: 'provider_key,capability,symbol' });
-          if (syncError) throw syncError;
-        }
-
         refreshed += 1;
         results.push({ symbol, ok: true, articles: rows.length });
       } catch (error) {
         const message = errorMessage(error);
-        if (syncStateAvailable) {
-          await db.from('provider_symbol_syncs').upsert({
-            provider_key: providerKey,
-            capability,
-            symbol,
-            last_attempt: attemptedAt,
-            last_error: message,
-            updated_at: attemptedAt,
-          }, { onConflict: 'provider_key,capability,symbol' });
-        }
-
         results.push({ symbol, ok: false, error: message });
 
         // Stop burning requests if the provider says the allowance/frequency is exhausted.
@@ -285,14 +238,20 @@ Deno.serve(async (req) => {
 
     }
 
+    const articleCounts = new Map<string, number>();
+    for (const row of recentStoredNews ?? []) {
+      const symbol = String((row as any).symbol ?? '').toUpperCase();
+      if (!symbol) continue;
+      articleCounts.set(symbol, (articleCounts.get(symbol) ?? 0) + 1);
+    }
+
     for (const symbol of symbols) {
       if (!refreshSymbols.includes(symbol)) {
-        const state: any = stateBySymbol.get(symbol);
         results.push({
           symbol,
           ok: true,
           cached: true,
-          articles: Number(state?.item_count ?? 0),
+          articles: articleCounts.get(symbol) ?? 0,
         });
       }
     }
@@ -318,7 +277,8 @@ Deno.serve(async (req) => {
       refreshed,
       cached: symbols.length - refreshSymbols.length,
       inserted,
-      sync_state_available: syncStateAvailable,
+      rotation_source: 'news_items',
+      next_refresh_candidates: refreshSymbols,
       results,
     });
   } catch (error) {
