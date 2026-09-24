@@ -255,32 +255,24 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
   const normalizedQuery = symbolQuery.trim().toUpperCase();
 
-  const discoveryQuotes = useMemo(
-    () =>
-      Object.values(quotes)
-        .filter((quote) => {
-          if (!tickers[quote.symbol]) return false;
-          if (normalizedQuery && !quote.symbol.includes(normalizedQuery)) return false;
-          const asOf = new Date(quote.as_of ?? quote.retrieved_at).getTime();
-          return !Number.isFinite(asOf) || Date.now() - asOf <= 36 * 3600000;
-        })
-        .sort((a, b) => {
-          const curiosityScore = (quote: Quote) =>
-            Math.abs(quote.change_pct ?? 0) + Math.max(0, (quote.rel_volume ?? 1) - 1) * 2;
-          return curiosityScore(b) - curiosityScore(a);
-        }),
-    [normalizedQuery, quotes, tickers],
-  );
-
   const watchlistSymbols = useMemo(
     () => favorites.filter((symbol) => !normalizedQuery || symbol.includes(normalizedQuery)),
     [favorites, normalizedQuery],
   );
 
-  const otherSetups = useMemo(
-    () => discoveryQuotes.filter((quote) => !favoriteSet.has(quote.symbol) && !activeBySymbol[quote.symbol]),
-    [activeBySymbol, discoveryQuotes, favoriteSet],
-  );
+  const otherSetupSymbols = useMemo(() => {
+    const curiosityScore = (symbol: string) => {
+      const quote = quotes[symbol];
+      if (!quote) return -1;
+      return Math.abs(quote.change_pct ?? 0) + Math.max(0, (quote.rel_volume ?? 1) - 1) * 2;
+    };
+
+    return Object.keys(tickers)
+      .map((symbol) => symbol.toUpperCase())
+      .filter((symbol) => !favoriteSet.has(symbol))
+      .filter((symbol) => !normalizedQuery || symbol.includes(normalizedQuery))
+      .sort((a, b) => curiosityScore(b) - curiosityScore(a));
+  }, [favoriteSet, normalizedQuery, quotes, tickers]);
 
   const suggested = useMemo(
     () =>
@@ -496,31 +488,33 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
             <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-sky-300">Market setups</div>
             <h2 className="mt-1 text-base font-semibold text-zinc-100">Daily market scan</h2>
             <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
-              Lightweight stored market snapshots, not trade suggestions. Select what interests you and URSORA will run the full evidence pipeline only on those names.
+              The configured non-watchlist universe appears here every day. Market snapshots refresh once daily; missing data stays visible as unavailable rather than removing the ticker. Select what interests you for a full evidence analysis.
             </p>
           </div>
 
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-            {otherSetups.length === 0 ? (
+            {otherSetupSymbols.length === 0 ? (
               <div className="rounded-md border border-dashed border-zinc-800 p-4 text-[11px] text-zinc-500">
-                No recent un-favorited market snapshots match this search.
+                No un-favorited tickers match this search.
               </div>
             ) : (
-              otherSetups.map((quote) => {
-                const signal = signalFor(quote.symbol);
+              otherSetupSymbols.map((symbol) => {
+                const quote = quotes[symbol] ?? null;
+                const signal = signalFor(symbol);
                 return (
                   <RouteCard
-                    key={quote.symbol}
-                    symbol={quote.symbol}
+                    key={symbol}
+                    symbol={symbol}
                     quote={quote}
-                    ticker={tickers[quote.symbol]}
+                    ticker={tickers[symbol]}
                     signal={signal}
-                    favorite={favoriteSet.has(quote.symbol)}
-                    selected={analysisSelection.includes(quote.symbol)}
+                    active={activeBySymbol[symbol] ?? null}
+                    favorite={false}
+                    selected={analysisSelection.includes(symbol)}
                     selectable
-                    onSelect={() => toggleAnalysisSelection(quote.symbol)}
+                    onSelect={() => toggleAnalysisSelection(symbol)}
                     onOpen={signal ? () => onOpenThesis(signal.id) : undefined}
-                    onFavorite={() => void onToggleFavorite(quote.symbol)}
+                    onFavorite={() => void onToggleFavorite(symbol)}
                   />
                 );
               })
