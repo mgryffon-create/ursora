@@ -185,6 +185,24 @@ function impactMultiplier(impact: string | null | undefined): number {
 }
 
 
+function easternMarketPhase(value = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(value);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+  const weekday = get('weekday');
+  const hour = Number(get('hour'));
+  const minute = Number(get('minute'));
+  const mins = hour * 60 + minute;
+  const weekend = weekday === 'Sat' || weekday === 'Sun';
+  const regularOpen = !weekend && mins >= 570 && mins < 960;
+  return { regularOpen, phase: weekend ? 'weekend' : regularOpen ? 'regular' : mins < 570 ? 'premarket' : 'after_hours' };
+}
+
 function freshnessFrom(timestamp: unknown, halfLifeHours: number, nowMs: number): number {
   if (!timestamp) return 0.55;
   const ts = new Date(String(timestamp)).getTime();
@@ -422,6 +440,7 @@ Deno.serve(async (req) => {
     const runId = crypto.randomUUID();
     const started = new Date().toISOString();
     const nowMs = Date.now();
+    const marketPhase = easternMarketPhase(new Date(nowMs));
     const ahp = deriveAhpWeights();
 
     const { data: snapshot } = await db
@@ -449,16 +468,35 @@ Deno.serve(async (req) => {
         'Massive Test Data',
         'Massive Stock Snapshot + Aggregates',
         'Massive Daily Aggregates',
+        'Massive Frozen Session Close',
       ])
       .order('retrieved_at', { ascending: false })
       .order('as_of', { ascending: false })
-      .limit(500);
+      .limit(1000);
     if (quoteError) throw quoteError;
 
-    const bySymbol = new Map<string, AnyRow>();
+    const quotesBySymbol = new Map<string, AnyRow[]>();
     for (const q of latestQuotes ?? []) {
       const symbol = String(q.symbol ?? '').toUpperCase();
-      if (symbol && !bySymbol.has(symbol)) bySymbol.set(symbol, q);
+      if (!symbol) continue;
+      const list = quotesBySymbol.get(symbol) ?? [];
+      list.push(q);
+      quotesBySymbol.set(symbol, list);
+    }
+
+    const bySymbol = new Map<string, AnyRow>();
+    for (const [symbol, rows] of quotesBySymbol) {
+      // The current engine is a 1–5 day swing/tactical engine. Outside regular
+      // market hours, always anchor it to the most recent frozen session close.
+      // Premarket/after-hours test prints must not make a swing thesis oscillate
+      // minute-to-minute. During the regular session, use the freshest live/test row.
+      const chosen = marketPhase.regularOpen
+        ? rows.find((row) => String(row.source_name) !== 'Massive Frozen Session Close') ?? rows[0]
+        : rows
+            .filter((row) => String(row.source_name) === 'Massive Frozen Session Close')
+            .sort((a, b) => String(b.as_of ?? '').localeCompare(String(a.as_of ?? '')))[0]
+          ?? rows[0];
+      if (chosen) bySymbol.set(symbol, chosen);
     }
 
 
@@ -1640,7 +1678,7 @@ Deno.serve(async (req) => {
         },
         regime: snapshot?.regime ?? 'Mixed',
         regime_explanation: snapshot?.regime_note ?? 'Broader market conditions derived from the latest stored market data.',
-        engine_version: 'tradecycle-5.2',
+        engine_version: 'tradecycle-5.2.1',
         is_demo: Boolean(q.is_demo ?? true),
         generated_at: started,
       });
@@ -1662,7 +1700,7 @@ Deno.serve(async (req) => {
       feed_events: 0,
       regime: snapshot?.regime ?? null,
       notes: signalCount
-        ? `TradeCycle v5.2 literature-informed structure analysis completed for authenticated user ${user.id}.`
+        ? `TradeCycle v5.2.1 swing analysis completed for authenticated user ${user.id}; outside regular hours, price evidence is anchored to the most recent frozen session close.`
         : 'No stored quote data were available; no signals were generated.',
       started_at: started,
       finished_at: new Date().toISOString(),
@@ -1674,7 +1712,7 @@ Deno.serve(async (req) => {
       signals: signalCount,
       updates: 0,
       run_id: runId,
-      engine_version: 'tradecycle-5.2',
+      engine_version: 'tradecycle-5.2.1',
       note: signalCount ? 'Signals generated using all currently available evidence categories.' : 'No stored quote data available.',
     });
   } catch (e) {
