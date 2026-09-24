@@ -117,23 +117,30 @@ Deno.serve(async (req) => {
     if (!signalRows.length) return json({ success: true, run_id: runId, candidates: 0, risks: 0 });
 
     const symbols = [...new Set(signalRows.map((s: AnyRow) => String(s.symbol).toUpperCase()))];
-    const { data: options, error: optionError } = await db
-      .from('option_market_snapshots')
-      .select('*')
-      .in('underlying_symbol', symbols)
-      .gte('retrieved_at', new Date(Date.now() - 36 * 3600000).toISOString())
-      .order('retrieved_at', { ascending: false });
-    if (optionError) throw optionError;
+    const optionRows: AnyRow[] = [];
+    for (const underlying of symbols) {
+      const { data: latestBatch, error: latestBatchError } = await db
+        .from('option_market_snapshots')
+        .select('retrieved_at')
+        .eq('underlying_symbol', underlying)
+        .gte('retrieved_at', new Date(Date.now() - 36 * 3600000).toISOString())
+        .order('retrieved_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (latestBatchError) throw latestBatchError;
+      if (!latestBatch?.retrieved_at) continue;
 
-    const rawOptionRows = options ?? [];
-    const latestBatchBySymbol = new Map<string, string>();
-    const optionRows = rawOptionRows.filter((row: AnyRow) => {
-      const symbol = String(row.underlying_symbol ?? '').toUpperCase();
-      if (!symbol) return false;
-      const retrieved = String(row.retrieved_at ?? '');
-      if (!latestBatchBySymbol.has(symbol)) latestBatchBySymbol.set(symbol, retrieved);
-      return retrieved === latestBatchBySymbol.get(symbol);
-    });
+      const { data: batchRows, error: batchError } = await db
+        .from('option_market_snapshots')
+        .select('*')
+        .eq('underlying_symbol', underlying)
+        .eq('retrieved_at', latestBatch.retrieved_at)
+        .order('expiration', { ascending: true })
+        .order('strike', { ascending: true })
+        .limit(1000);
+      if (batchError) throw batchError;
+      optionRows.push(...(batchRows ?? []));
+    }
     const candidates: AnyRow[] = [];
     const risks: AnyRow[] = [];
 
