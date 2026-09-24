@@ -450,6 +450,7 @@ Deno.serve(async (req) => {
         'Massive Stock Snapshot + Aggregates',
         'Massive Daily Aggregates',
       ])
+      .order('retrieved_at', { ascending: false })
       .order('as_of', { ascending: false })
       .limit(500);
     if (quoteError) throw quoteError;
