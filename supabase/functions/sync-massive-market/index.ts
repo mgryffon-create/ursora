@@ -192,7 +192,7 @@ Deno.serve(async (req) => {
 
   let stage = 'startup';
   try {
-    const { db } = await requireUser(req);
+    const { user, db } = await requireUser(req);
     const body = await req.json().catch(() => ({}));
 
     let symbols: string[] = Array.isArray(body.symbols)
@@ -200,20 +200,25 @@ Deno.serve(async (req) => {
       : [];
 
     if (!symbols.length) {
-      stage = 'load ticker list';
-      const { data, error } = await db
-        .from('tickers')
-        .select('symbol')
-        .eq('is_default', true)
-        .order('priority')
-        .limit(14);
-      if (error) throw error;
-      symbols = (data ?? []).map((row: any) => String(row.symbol).toUpperCase()).filter(Boolean);
+      stage = 'load prioritized ticker list';
+      const [{ data: favoriteRows, error: favoriteError }, { data: tickerRows, error: tickerError }] = await Promise.all([
+        db.from('user_favorites').select('symbol').eq('user_id', user.id).order('added_at', { ascending: true }),
+        db.from('tickers').select('symbol').eq('is_default', true).order('priority').limit(20),
+      ]);
+      if (favoriteError) throw favoriteError;
+      if (tickerError) throw tickerError;
+
+      const favoriteSymbols = (favoriteRows ?? [])
+        .map((row: any) => String(row.symbol).toUpperCase())
+        .filter(Boolean);
+      const defaultSymbols = (tickerRows ?? [])
+        .map((row: any) => String(row.symbol).toUpperCase())
+        .filter(Boolean);
+      symbols = [...favoriteSymbols, ...defaultSymbols];
     }
 
-    // Keep the full default universe in one refresh. Current quotes come from one
-    // multi-ticker snapshot call; historical bars are reused from the database and
-    // only fetched from Massive when a symbol has insufficient local history.
+    // Explicitly requested symbols are analyzed exactly as requested. Fallback
+    // refreshes prioritize persistent favorites first, then the default discovery universe.
     symbols = [...new Set(symbols)].slice(0, 20);
     if (!symbols.length) return json({ error: 'No symbols configured.' }, 400);
 
