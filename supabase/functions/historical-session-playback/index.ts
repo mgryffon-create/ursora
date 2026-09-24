@@ -108,28 +108,58 @@ Deno.serve(async (req) => {
     const tradeId = Number(body.trade_id);
     if (!Number.isFinite(tradeId)) return json({ error: 'trade_id is required.' }, 400);
 
-    const { data: trade, error: tradeError } = await db
-      .from('paper_trades')
-      .select('*')
-      .eq('id', tradeId)
-      .eq('user_id', user.id)
-      .maybeSingle();
-    if (tradeError) throw tradeError;
-    if (!trade) return json({ error: 'Trade not found for this account.' }, 404);
+    const brokerageEpisode = tradeId < 0;
+    let trade: Record<string, any> | null = null;
+    let events: Record<string, any>[] = [];
+
+    if (brokerageEpisode) {
+      const episodeId = Math.abs(tradeId);
+      const { data: episode, error: episodeError } = await db
+        .from('snaptrade_trade_episodes')
+        .select('*')
+        .eq('id', episodeId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (episodeError) throw episodeError;
+      if (!episode) return json({ error: 'Brokerage trade episode not found for this account.' }, 404);
+
+      trade = {
+        ...episode,
+        entry_at: episode.opened_at,
+        entry_price: episode.average_entry_price,
+        exit_at: episode.closed_at,
+        exit_price: episode.average_exit_price,
+        closed_at: episode.closed_at,
+        created_at: episode.opened_at,
+        return_pct: episode.realized_return_pct,
+        thesis_review_status: null,
+      };
+    } else {
+      const { data: paperTrade, error: tradeError } = await db
+        .from('paper_trades')
+        .select('*')
+        .eq('id', tradeId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (tradeError) throw tradeError;
+      if (!paperTrade) return json({ error: 'Trade not found for this account.' }, 404);
+      trade = paperTrade;
+
+      const { data: storedEvents, error: eventError } = await db
+        .from('tradecycle_thesis_events')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('trade_id', tradeId)
+        .order('created_at', { ascending: true });
+      if (eventError) throw eventError;
+      events = storedEvents ?? [];
+    }
 
     const entryAt = trade.entry_at ?? trade.created_at;
     if (!entryAt) return json({ error: 'Trade has no entry timestamp.' }, 422);
     const sessionDate = etDate(entryAt);
     const symbol = String(trade.symbol ?? '').toUpperCase();
     if (!symbol) return json({ error: 'Trade has no symbol.' }, 422);
-
-    const { data: events, error: eventError } = await db
-      .from('tradecycle_thesis_events')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('trade_id', tradeId)
-      .order('created_at', { ascending: true });
-    if (eventError) throw eventError;
 
     const payload = await massiveGet(
       `/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/1/minute/${sessionDate}/${sessionDate}`,
@@ -226,7 +256,12 @@ Deno.serve(async (req) => {
         return_pct: n(trade.return_pct),
         thesis_review_status: trade.thesis_review_status ?? null,
       },
-      source: 'Massive 1-minute aggregates',
+      source: brokerageEpisode
+        ? 'SnapTrade execution history + Massive 1-minute aggregates'
+        : 'TradeCycle history + Massive 1-minute aggregates',
+      thesis_event_source: brokerageEpisode
+        ? 'Historical TradeCycle reconstruction not yet materialized for this imported brokerage episode.'
+        : 'Stored TradeCycle lifecycle events',
     });
   } catch (error) {
     if (error instanceof AuthError) return json({ error: error.message }, error.status);
