@@ -11,7 +11,7 @@ import {
 } from '@/lib/compare';
 import { Button } from '@/components/ui/button';
 import {
-  DemoBadge, DirectionTag, Disclaimer, EmptyState, FlagTag, Panel, RiskTag, ScoreBar, SectionHeading,
+  DataBadge, DemoBadge, DirectionTag, Disclaimer, EmptyState, FlagTag, Panel, RiskTag, ScoreBar, SectionHeading,
   Spinner, Unavailable,
 } from '@/components/common/Primitives';
 import { cn } from '@/lib/utils';
@@ -192,6 +192,16 @@ export const CompareView: React.FC<{
   const risks = useMemo(() => (n >= 2 ? riskRows(columns) : []), [columns, n]);
   const factors = useMemo(() => (n >= 2 ? factorRows(columns) : []), [columns, n]);
 
+  const comparisonHasSimulated = columns.some((column) => column.signal.is_demo);
+  const comparisonHasInferred = columns.some((column) =>
+    (column.signal.score_breakdown?.factors ?? []).some((factor) => factor.provenance === 'imputed')
+  );
+  const analysisBadge = comparisonHasSimulated
+    ? <DemoBadge />
+    : comparisonHasInferred
+      ? <DataBadge kind="inferred" label="INCLUDES INFERRED DATA" />
+      : <DataBadge kind="derived" label="DERIVED ANALYSIS" />;
+
   const show = (rows: CompareRow[]) => (diffOnly ? rows.filter((r) => !r.same) : rows);
   const differingFactors = useMemo(() => factors.filter((f) => (f.spread ?? 0) > 3 || f.partial).length, [factors]);
 
@@ -245,7 +255,7 @@ export const CompareView: React.FC<{
       <Panel
         title="What actually differs"
         subtitle="Derived from the stored records, not restated from the scores. Each line names the specific piece of evidence that separates these setups — or says plainly that a section does not separate them."
-        right={<DemoBadge />}
+        right={analysisBadge}
         className="border-sky-500/30"
       >
         <ul className="space-y-2.5">
@@ -359,7 +369,7 @@ export const CompareView: React.FC<{
             title="Score breakdown, factor by factor"
             note="Each row shows the factor score, its importance in the analysis, and its contribution to the final score. Missing information is shown as unavailable rather than treated as zero."
             Icon={Zap}
-            right={<DemoBadge />}
+            right={analysisBadge}
           />
           {factors
             .filter((f) => (diffOnly ? (f.spread ?? 0) > 3 || f.partial : true))
@@ -526,7 +536,7 @@ export const CompareView: React.FC<{
             title="Market events"
             note="Scheduled or dated market events associated with each opportunity. If no event is available, URSORA does not infer one."
             Icon={Sparkles}
-            right={<DemoBadge />}
+            right={analysisBadge}
           />
           <TextBlockRow
             label="Market-event summary"
@@ -568,7 +578,7 @@ export const CompareView: React.FC<{
             title="Risk case"
             note="The comparison shows favorable, expected, and adverse cases, followed by measurable risk factors and the conditions that could make the analysis no longer valid."
             Icon={ShieldAlert}
-            right={<DemoBadge />}
+            right={analysisBadge}
           />
           <TextBlockRow
             label="Bull case"
