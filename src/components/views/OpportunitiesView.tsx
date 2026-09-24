@@ -329,8 +329,17 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
                     <div className="max-w-[170px] truncate text-[10px] text-zinc-500">{tickers[s.symbol]?.company ?? <Unavailable />}</div>
                   </td>
                   <td className="px-3 py-3">
-                    <div className="font-mono tabular-nums text-zinc-100">{money(q?.price ?? s.stock_price_at_generation) ?? <Unavailable />}</div>
-                    <div className={cn('font-mono text-[10px]', changeColor(q?.change_pct))}>{pct(q?.change_pct) ?? '—'}</div>
+                    <div className="font-mono tabular-nums text-zinc-100">{money(s.stock_price_at_generation) ?? <Unavailable />}</div>
+                    <div className={cn(
+                      'font-mono text-[10px]',
+                      changeColor(typeof s.score_breakdown?.raw?.change_pct === 'number'
+                        ? s.score_breakdown.raw.change_pct
+                        : null),
+                    )}>
+                      {pct(typeof s.score_breakdown?.raw?.change_pct === 'number'
+                        ? s.score_breakdown.raw.change_pct
+                        : null) ?? '—'}
+                    </div>
                   </td>
                   <td className="px-3 py-3"><DirectionTag direction={s.direction} /></td>
                   <td className={cn('px-3 py-3 font-mono text-base font-semibold tabular-nums', scoreColor(s.opportunity_score))}>{s.opportunity_score}</td>
@@ -388,8 +397,17 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
                   <div className="mt-0.5 text-[11px] text-zinc-500">{tickers[s.symbol]?.company ?? <Unavailable />}</div>
                 </div>
                 <div className="text-right">
-                  <div className="font-mono text-sm tabular-nums text-zinc-100">{money(q?.price ?? s.stock_price_at_generation) ?? <Unavailable />}</div>
-                  <div className={cn('font-mono text-[10px]', changeColor(q?.change_pct))}>{pct(q?.change_pct) ?? '—'}</div>
+                  <div className="font-mono text-sm tabular-nums text-zinc-100">{money(s.stock_price_at_generation) ?? <Unavailable />}</div>
+                  <div className={cn(
+                    'font-mono text-[10px]',
+                    changeColor(typeof s.score_breakdown?.raw?.change_pct === 'number'
+                      ? s.score_breakdown.raw.change_pct
+                      : null),
+                  )}>
+                    {pct(typeof s.score_breakdown?.raw?.change_pct === 'number'
+                      ? s.score_breakdown.raw.change_pct
+                      : null) ?? '—'}
+                  </div>
                 </div>
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
