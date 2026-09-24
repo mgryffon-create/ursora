@@ -68,7 +68,11 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function massiveGet(path: string, params: Record<string, string | number | boolean> = {}) {
   const url = new URL(`https://api.massive.com${path}`);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
+  return massiveGetUrl(url.toString());
+}
 
+async function massiveGetUrl(urlValue: string) {
+  const url = new URL(urlValue, 'https://api.massive.com');
   let lastError: unknown = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -90,7 +94,7 @@ async function massiveGet(path: string, params: Record<string, string | number |
       lastError = error;
       const message = errorMessage(error);
       if (!/429|rate|limit|5\d\d|temporar/i.test(message) || attempt === 1) throw error;
-      await sleep(1500);
+      await sleep(1200);
     }
   }
   throw lastError;
@@ -145,8 +149,8 @@ Deno.serve(async (req) => {
       .slice(0, 5);
 
     const now = new Date().toISOString();
-    const expirationMin = dateOnly(new Date(Date.now() + 5 * 86400000));
-    const expirationMax = dateOnly(new Date(Date.now() + 65 * 86400000));
+    const expirationMin = dateOnly(new Date(Date.now() + 7 * 86400000));
+    const expirationMax = dateOnly(new Date(Date.now() + 60 * 86400000));
     const results: AnyRow[] = [];
     let totalRows = 0;
     let entitlementErrors = 0;
@@ -172,20 +176,27 @@ Deno.serve(async (req) => {
 
       stage = `request Massive option chain for ${underlying}`;
 
-      let payload: any;
+      let chain: any[] = [];
       try {
-        payload = await massiveGet(
+        let payload = await massiveGet(
           `/v3/snapshot/options/${encodeURIComponent(underlying)}`,
           {
             'expiration_date.gte': expirationMin,
             'expiration_date.lte': expirationMax,
-            'strike_price.gte': Math.max(0.5, underlyingPrice * 0.80).toFixed(2),
-            'strike_price.lte': (underlyingPrice * 1.20).toFixed(2),
+            'strike_price.gte': Math.max(0.5, underlyingPrice * 0.75).toFixed(2),
+            'strike_price.lte': (underlyingPrice * 1.25).toFixed(2),
             order: 'asc',
             sort: 'expiration_date',
-            limit: 80,
+            limit: 250,
           },
         );
+
+        for (let page = 0; page < 4; page++) {
+          if (Array.isArray(payload?.results)) chain.push(...payload.results);
+          const nextUrl = typeof payload?.next_url === 'string' ? payload.next_url : null;
+          if (!nextUrl) break;
+          payload = await massiveGetUrl(nextUrl);
+        }
       } catch (error) {
         const message = errorMessage(error);
         const entitlement = /401|403|subscription|entitle|plan|not.?authorized/i.test(message);
@@ -207,7 +218,9 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const chain = Array.isArray(payload?.results) ? payload.results : [];
+      chain = [...new Map(
+        chain.map((item: any) => [String(item?.details?.ticker ?? ''), item])
+      ).values()].filter((item: any) => item?.details?.ticker);
       const rows = chain.map((item: any) => {
         const details = item?.details ?? {};
         const quoteData = item?.last_quote ?? {};
@@ -243,8 +256,8 @@ Deno.serve(async (req) => {
           vega: n(greeks.vega),
           spread_pct: spreadPct,
           retrieved_at: now,
-          source_name: 'Massive Option Chain Snapshot',
-          is_demo: true,
+          source_name: 'Massive Options Starter · 15m delayed',
+          is_demo: false,
         };
       }).filter((row: AnyRow) =>
         row.option_symbol &&
@@ -287,7 +300,6 @@ Deno.serve(async (req) => {
           total_oi: totalOI || null,
           iv: atmIv,
           unusual_options_volume: unusual,
-          retrieved_at: now,
         }).eq('id', quote.id);
         if (updateError) throw updateError;
       }
@@ -324,14 +336,14 @@ Deno.serve(async (req) => {
       interface_name: 'OptionsDataProvider',
       display_name: 'Massive Options',
       adapter: 'MassiveOptionChainSnapshotAdapter',
-      mode: allEntitlementBlocked ? 'error' : 'demo',
+      mode: allEntitlementBlocked ? 'error' : 'connected',
       supplies: ['option chain snapshots', 'bid/ask', 'volume', 'open interest', 'implied volatility', 'Greeks'],
       candidate_providers: ['Massive'],
       secret_env_name: 'MASSIVE_API_KEY',
       docs_url: 'https://massive.com/docs/rest/options/snapshots/option-chain-snapshot',
       notes: allEntitlementBlocked
         ? 'The current Massive API entitlement did not allow option-chain snapshots on the latest refresh.'
-        : 'Massive option-chain snapshots are connected for the test universe. Contract rows remain demo-labelled while URSORA validates the data pipeline.',
+        : 'Massive Options Starter is connected. URSORA ingests 15-minute-delayed option-chain snapshots with Greeks, IV, OI, volume and quote fields where supplied by the plan.',
       last_sync: now,
       last_error: allEntitlementBlocked ? 'Massive option-chain snapshot entitlement is unavailable for this API key/plan.' : null,
     }, { onConflict: 'provider_key' });
@@ -359,11 +371,11 @@ Deno.serve(async (req) => {
     return json({
       success: true,
       provider: 'Massive',
-      mode: 'test',
+      mode: 'connected_delayed',
       entitlement_status: 'available_or_partial',
       contracts_written: totalRows,
       results,
-      is_demo: true,
+      is_demo: false,
     });
   } catch (error) {
     if (error instanceof AuthError) return json({ error: error.message }, error.status);
