@@ -327,24 +327,71 @@ export async function fetchMovers(): Promise<MarketMover[]> {
   return rows<MarketMover>(data as MarketMover[]);
 }
 
+const isMissingTraderProfileTable = (error: unknown) => {
+  const message = describeUnknownError(error);
+  return /trader_profiles|PGRST205|schema cache|relation .* does not exist/i.test(message);
+};
+
+const profileFromMetadata = (user: { id: string; user_metadata?: Record<string, unknown> } | null | undefined): TraderProfile | null => {
+  const raw = user?.user_metadata?.ursora_trader_profile;
+  if (!raw || typeof raw !== 'object' || !user?.id) return null;
+  const profile = raw as Partial<TraderProfile>;
+  return {
+    user_id: user.id,
+    brokerages: Array.isArray(profile.brokerages) ? profile.brokerages : [],
+    trading_styles: Array.isArray(profile.trading_styles) ? profile.trading_styles : [],
+    trade_types: Array.isArray(profile.trade_types) ? profile.trade_types : [],
+    primary_goals: Array.isArray(profile.primary_goals) ? profile.primary_goals : [],
+    profit_target_type: profile.profit_target_type ?? 'none',
+    profit_target_value: profile.profit_target_value ?? null,
+    risk_comfort: profile.risk_comfort ?? 'moderate',
+    max_loss_type: profile.max_loss_type ?? 'none',
+    max_loss_value: profile.max_loss_value ?? null,
+    ursora_goals: Array.isArray(profile.ursora_goals) ? profile.ursora_goals : [],
+    self_reported_habits: Array.isArray(profile.self_reported_habits) ? profile.self_reported_habits : [],
+    created_at: profile.created_at,
+    updated_at: profile.updated_at,
+  };
+};
+
 export async function fetchTraderProfile(): Promise<TraderProfile | null> {
+  const { data: authData } = await db.auth.getUser();
+  const metadataProfile = profileFromMetadata(authData.user);
+
   const { data, error } = await db
     .from('trader_profiles')
     .select('*')
     .limit(1)
     .maybeSingle();
-  if (error) throw error;
-  return (data as TraderProfile | null) ?? null;
+
+  if (error) {
+    if (isMissingTraderProfileTable(error)) return metadataProfile;
+    throw error;
+  }
+
+  const tableProfile = (data as TraderProfile | null) ?? null;
+  return tableProfile ?? metadataProfile;
 }
 
 export async function saveTraderProfile(profile: Omit<TraderProfile, 'user_id'> & { user_id: string }): Promise<void> {
-  const { error } = await db
+  const now = new Date().toISOString();
+  const durableProfile: TraderProfile = { ...profile, updated_at: now };
+
+  // Auth metadata is the durable account-level profile source available immediately,
+  // including before the trader_profiles migration is applied. This keeps MyURSORA
+  // persistent across logout/login and across devices on the same account.
+  const { error: metadataError } = await db.auth.updateUser({
+    data: { ursora_trader_profile: durableProfile },
+  });
+  if (metadataError) throw metadataError;
+
+  // Mirror to the relational table when it exists so analytics and future brokerage
+  // pipelines can query the profile without parsing auth metadata.
+  const { error: tableError } = await db
     .from('trader_profiles')
-    .upsert({
-      ...profile,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id' });
-  if (error) throw error;
+    .upsert(durableProfile, { onConflict: 'user_id' });
+
+  if (tableError && !isMissingTraderProfileTable(tableError)) throw tableError;
 }
 
 export async function fetchActiveAnalyses(): Promise<ActiveAnalysis[]> {
