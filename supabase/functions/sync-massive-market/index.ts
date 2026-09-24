@@ -112,6 +112,49 @@ function massiveTimestamp(value: unknown): string | null {
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
+function easternParts(value = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(value);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+  return {
+    year: Number(get('year')),
+    month: Number(get('month')),
+    day: Number(get('day')),
+    weekday: get('weekday'),
+    hour: Number(get('hour')),
+    minute: Number(get('minute')),
+  };
+}
+
+function marketPhase(value = new Date()) {
+  const et = easternParts(value);
+  const mins = et.hour * 60 + et.minute;
+  const weekend = et.weekday === 'Sat' || et.weekday === 'Sun';
+  const sessionKey = `${et.year}-${String(et.month).padStart(2, '0')}-${String(et.day).padStart(2, '0')}`;
+
+  if (weekend) return { phase: 'weekend' as const, sessionKey, regularOpen: false };
+  if (mins >= 570 && mins < 960) return { phase: 'regular' as const, sessionKey, regularOpen: true };
+  if (mins >= 960) return { phase: 'after_hours' as const, sessionKey, regularOpen: false };
+  if (mins >= 240) return { phase: 'premarket' as const, sessionKey, regularOpen: false };
+  return { phase: 'closed' as const, sessionKey, regularOpen: false };
+}
+
+function etSessionKey(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return null;
+  const et = easternParts(date);
+  return `${et.year}-${String(et.month).padStart(2, '0')}-${String(et.day).padStart(2, '0')}`;
+}
+
 async function massiveGet(path: string, params: Record<string, string | number | boolean> = {}) {
   const url = new URL(`https://api.massive.com${path}`);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
@@ -176,9 +219,31 @@ Deno.serve(async (req) => {
 
     const to = new Date();
     const from = new Date(Date.now() - 420 * 86400000);
-    const now = new Date().toISOString();
+    const nowDate = new Date();
+    const now = nowDate.toISOString();
+    const session = marketPhase(nowDate);
     const results: AnyRow[] = [];
     let barsWritten = 0;
+
+    stage = 'load existing frozen closing quotes';
+    const { data: frozenRows, error: frozenRowsError } = await db
+      .from('quotes')
+      .select('*')
+      .in('symbol', symbols)
+      .eq('source_type', 'market_data_eod_test')
+      .order('retrieved_at', { ascending: true })
+      .limit(500);
+    if (frozenRowsError) throw frozenRowsError;
+
+    const frozenBySymbol = new Map<string, AnyRow>();
+    for (const row of frozenRows ?? []) {
+      const symbol = String((row as any).symbol ?? '').toUpperCase();
+      if (!symbol) continue;
+      const key = etSessionKey((row as any).as_of ?? (row as any).published_at);
+      if (key === session.sessionKey && !frozenBySymbol.has(symbol)) {
+        frozenBySymbol.set(symbol, row as AnyRow);
+      }
+    }
 
     stage = 'load cached daily history';
     const { data: cachedBarRows, error: cachedBarsError } = await db
@@ -292,9 +357,22 @@ Deno.serve(async (req) => {
       const snapshotTrade = n(snapshot?.lastTrade?.p);
       const snapshotMinute = n(snapshot?.min?.c);
       const snapshotDayClose = n(snapshot?.day?.c);
-      const currentPrice = snapshotTrade ?? snapshotMinute ?? snapshotDayClose ?? latestClose;
-      const previousClose = n(snapshot?.prevDay?.c) ?? n(previous?.c);
-      const latestVolume = n(snapshot?.day?.v) ?? n(latest?.v);
+      const frozenQuote = frozenBySymbol.get(symbol);
+
+      // Regular-session analysis can use the freshest trade/minute snapshot.
+      // After 4 PM ET, lock the session to one canonical closing row. This keeps
+      // repeated analysis runs deterministic and prevents sandbox/provider
+      // snapshots from manufacturing a different "current market" after close.
+      const freezeForSession = session.phase === 'after_hours';
+      const currentPrice = freezeForSession
+        ? (n(frozenQuote?.price) ?? snapshotDayClose ?? latestClose ?? snapshotMinute ?? snapshotTrade)
+        : (snapshotTrade ?? snapshotMinute ?? snapshotDayClose ?? latestClose);
+      const previousClose = freezeForSession
+        ? (n(frozenQuote?.prev_close) ?? n(snapshot?.prevDay?.c) ?? n(previous?.c))
+        : (n(snapshot?.prevDay?.c) ?? n(previous?.c));
+      const latestVolume = freezeForSession
+        ? (n(frozenQuote?.volume) ?? n(snapshot?.day?.v) ?? n(latest?.v))
+        : (n(snapshot?.day?.v) ?? n(latest?.v));
       const averageVolume = sma(volumes, 20);
       const s20 = sma(closes, 20);
       const s50 = sma(closes, 50);
@@ -320,44 +398,61 @@ Deno.serve(async (req) => {
             : 'mixed';
       }
 
+      const providerAsOf = massiveTimestamp(snapshot?.updated)
+        ?? (latest?.t ? new Date(Number(latest.t)).toISOString() : now);
+      const frozenAsOf = freezeForSession
+        ? (frozenQuote?.as_of ?? providerAsOf)
+        : providerAsOf;
+
       const quoteRow = {
         symbol,
         price: currentPrice,
-        change_abs: changeAbs,
-        change_pct: changePct,
-        day_open: n(snapshot?.day?.o) ?? n(latest?.o),
-        day_high: n(snapshot?.day?.h) ?? n(latest?.h),
-        day_low: n(snapshot?.day?.l) ?? n(latest?.l),
+        change_abs: freezeForSession ? (n(frozenQuote?.change_abs) ?? changeAbs) : changeAbs,
+        change_pct: freezeForSession ? (n(frozenQuote?.change_pct) ?? changePct) : changePct,
+        day_open: freezeForSession ? (n(frozenQuote?.day_open) ?? n(snapshot?.day?.o) ?? n(latest?.o)) : (n(snapshot?.day?.o) ?? n(latest?.o)),
+        day_high: freezeForSession ? (n(frozenQuote?.day_high) ?? n(snapshot?.day?.h) ?? n(latest?.h)) : (n(snapshot?.day?.h) ?? n(latest?.h)),
+        day_low: freezeForSession ? (n(frozenQuote?.day_low) ?? n(snapshot?.day?.l) ?? n(latest?.l)) : (n(snapshot?.day?.l) ?? n(latest?.l)),
         prev_close: previousClose,
-        prev_day_high: n(snapshot?.prevDay?.h) ?? n(previous?.h),
-        prev_day_low: n(snapshot?.prevDay?.l) ?? n(previous?.l),
+        prev_day_high: freezeForSession ? (n(frozenQuote?.prev_day_high) ?? n(snapshot?.prevDay?.h) ?? n(previous?.h)) : (n(snapshot?.prevDay?.h) ?? n(previous?.h)),
+        prev_day_low: freezeForSession ? (n(frozenQuote?.prev_day_low) ?? n(snapshot?.prevDay?.l) ?? n(previous?.l)) : (n(snapshot?.prevDay?.l) ?? n(previous?.l)),
         volume: latestVolume,
-        avg_volume: averageVolume === null ? null : Math.round(averageVolume),
-        rel_volume: averageVolume && latestVolume ? latestVolume / averageVolume : null,
-        vwap: n(snapshot?.day?.vw) ?? n(latest?.vw),
+        avg_volume: freezeForSession ? (n(frozenQuote?.avg_volume) ?? (averageVolume === null ? null : Math.round(averageVolume))) : (averageVolume === null ? null : Math.round(averageVolume)),
+        rel_volume: freezeForSession ? (n(frozenQuote?.rel_volume) ?? (averageVolume && latestVolume ? latestVolume / averageVolume : null)) : (averageVolume && latestVolume ? latestVolume / averageVolume : null),
+        vwap: freezeForSession ? (n(frozenQuote?.vwap) ?? n(snapshot?.day?.vw) ?? n(latest?.vw)) : (n(snapshot?.day?.vw) ?? n(latest?.vw)),
         sma20: s20,
         sma50: s50,
         sma200: s200,
         support,
         resistance,
-        gap_pct: (n(snapshot?.day?.o) ?? n(latest?.o)) !== null && previousClose
-          ? (((n(snapshot?.day?.o) ?? n(latest?.o)) as number) - previousClose) / previousClose * 100
-          : null,
+        gap_pct: freezeForSession
+          ? (n(frozenQuote?.gap_pct) ?? ((n(snapshot?.day?.o) ?? n(latest?.o)) !== null && previousClose
+              ? (((n(snapshot?.day?.o) ?? n(latest?.o)) as number) - previousClose) / previousClose * 100
+              : null))
+          : ((n(snapshot?.day?.o) ?? n(latest?.o)) !== null && previousClose
+              ? (((n(snapshot?.day?.o) ?? n(latest?.o)) as number) - previousClose) / previousClose * 100
+              : null),
         atr: a14,
         momentum_score: rsi14,
         trend,
-        source_name: snapshots.has(symbol) ? 'Massive Stock Snapshot + Aggregates' : 'Massive Daily Aggregates',
-        source_type: snapshots.has(symbol) ? 'market_data_snapshot_test' : 'market_data_test',
-        published_at: massiveTimestamp(snapshot?.updated) ?? (latest?.t ? new Date(Number(latest.t)).toISOString() : now),
+        source_name: freezeForSession
+          ? 'Massive Frozen Session Close'
+          : (snapshots.has(symbol) ? 'Massive Stock Snapshot + Aggregates' : 'Massive Daily Aggregates'),
+        source_type: freezeForSession
+          ? 'market_data_eod_test'
+          : (snapshots.has(symbol) ? 'market_data_snapshot_test' : 'market_data_test'),
+        published_at: frozenAsOf,
         retrieved_at: now,
         confidence: snapshots.has(symbol) ? 0.95 : 0.90,
         is_demo: true,
-        as_of: massiveTimestamp(snapshot?.updated) ?? (latest?.t ? new Date(Number(latest.t)).toISOString() : now),
+        as_of: frozenAsOf,
       };
 
       stage = `store Massive quote for ${symbol}`;
-      const { error: quoteError } = await db.from('quotes').insert(quoteRow);
-      if (quoteError) throw quoteError;
+      if (!(freezeForSession && frozenQuote)) {
+        const { error: quoteError } = await db.from('quotes').insert(quoteRow);
+        if (quoteError) throw quoteError;
+        if (freezeForSession) frozenBySymbol.set(symbol, quoteRow);
+      }
 
       results.push({
         symbol,
@@ -366,7 +461,9 @@ Deno.serve(async (req) => {
         history_source: historySource,
         latest_bar: quoteRow.as_of,
         price: currentPrice,
-        quote_source: snapshots.has(symbol) ? 'snapshot' : 'daily_aggregate_fallback',
+        quote_source: freezeForSession ? 'frozen_session_close' : (snapshots.has(symbol) ? 'snapshot' : 'daily_aggregate_fallback'),
+        market_phase: session.phase,
+        frozen_for_session: Boolean(freezeForSession),
         last_trade: snapshotTrade,
         last_quote_bid: n(snapshot?.lastQuote?.p),
         last_quote_ask: n(snapshot?.lastQuote?.P),
@@ -407,6 +504,9 @@ Deno.serve(async (req) => {
       bars_written: barsWritten,
       snapshot_status: snapshotStatus,
       snapshot_symbols: [...snapshots.keys()],
+      market_phase: session.phase,
+      session_key: session.sessionKey,
+      frozen_symbols: [...frozenBySymbol.keys()],
       results,
       is_demo: true,
     });
