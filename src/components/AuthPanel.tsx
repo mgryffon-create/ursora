@@ -172,8 +172,8 @@ export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' 
       </button>
 
       <p className="mt-4 border-t border-zinc-800 pt-3 text-[10px] leading-relaxed text-zinc-600">
-        URSORA currently runs without a connected live market-data feed. Any modelled values are clearly labelled
-        SIMULATED DATA until live providers are connected. Research tool only — not investment advice.
+        URSORA uses connected provider data where available and labels observed, delayed, derived, inferred, simulated,
+        and unavailable information separately. Research tool only — not investment advice.
       </p>
 
     </div>
