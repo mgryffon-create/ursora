@@ -1452,9 +1452,11 @@ Deno.serve(async (req) => {
       // 1) Moderate/Strong price structure is required to establish direction.
       // 2) At least one Moderate/Strong confirmation family (momentum/participation)
       //    is required for Supported.
-      // 3) Strongly Supported requires Strong price structure, both confirmation
+      // 3) Supported requires at least two independent Moderate/Strong supporting
+      //    families total: price structure plus at least one confirmation family.
+      // 4) Strongly Supported requires Strong price structure, both confirmation
       //    families aligned, at least one supportive context family, and no Strong opposition.
-      // 4) Context can strengthen/weaken a thesis, but cannot create one without price.
+      // 5) Context can strengthen/weaken a thesis, but cannot create one without price.
       const hasMeaningfulConflict =
         supportingMeaningful.length > 0 && opposingMeaningful.length > 0;
 
@@ -1484,7 +1486,7 @@ Deno.serve(async (req) => {
         thesisState = 'Strongly Supported';
       } else if (
         confirmationSupport.length >= 1 &&
-        supportingMeaningful.length >= 3 &&
+        supportingMeaningful.length >= 2 &&
         supportShare !== null &&
         supportShare >= 67 &&
         strongConfirmationOppose.length === 0
@@ -1523,13 +1525,13 @@ Deno.serve(async (req) => {
         tradeEligible &&
         supportShare !== null &&
         supportShare >= 67 &&
-        independentDirectionalFamilies >= 3 &&
+        independentDirectionalFamilies >= 2 &&
         confirmationSupport.length >= 1 &&
         strongConfirmationOppose.length === 0 &&
-        directionalCompleteness >= 65 &&
-        directionalUncertainty <= 55;
+        confidence >= 60 &&
+        candidatePool.length > 0;
 
-      const suggested = suggestionEligible ? candidatePool[0] ?? null : null;
+      const suggested = suggestionEligible ? candidatePool[0] : null;
 
       const riskLevel =
         eventInsideHoldingWindow ||
@@ -1549,8 +1551,8 @@ Deno.serve(async (req) => {
             ? 'Price/structure has not established a Moderate-or-Strong directional thesis. Confirmation and context evidence are shown, but they cannot create a bullish or bearish thesis without meaningful price structure.'
             : confirmationSupport.length === 0 && confirmationOppose.length === 0
               ? `Price/structure establishes a ${direction} direction, but momentum and participation do not yet provide Moderate-or-Strong confirmation. URSORA is waiting for corroboration rather than treating the thesis as supported.`
-              : supportingMeaningful.length < 3
-                ? `The ${direction} price thesis has confirmation, but only ${supportingMeaningful.length} independent Moderate-or-Strong supporting families currently qualify. At least 3 are required before URSORA calls the thesis Supported.`
+              : supportingMeaningful.length < 2
+                ? `The ${direction} price thesis has not yet gained a second independent Moderate-or-Strong supporting family. Price plus at least one confirmation family are required before URSORA calls the thesis Supported.`
                 : 'The directional structure is coherent, but corroboration is still below the threshold required for a Supported thesis.'
           : thesisState === 'Mixed'
             ? 'Moderate-or-Strong evidence is genuinely split between support and opposition, so URSORA is treating the thesis as mixed.'
@@ -1562,20 +1564,20 @@ Deno.serve(async (req) => {
                   ? tradeBlockers.join(' ')
                   : !suggestionEligible
                     ? [
-                        directionalCompleteness < 65
-                          ? `Directional evidence completeness is ${directionalCompleteness}% and must reach at least 65% for a proactive suggestion.`
-                          : null,
-                        directionalUncertainty > 55
-                          ? `Directional evidence uncertainty is ${directionalUncertainty}% and must be 55% or lower for a proactive suggestion.`
-                          : null,
-                        independentDirectionalFamilies < 3
-                          ? `Only ${independentDirectionalFamilies} independent Moderate-or-Strong directional evidence families currently qualify; at least 3 are required.`
+                        independentDirectionalFamilies < 2
+                          ? `Only ${independentDirectionalFamilies} independent Moderate-or-Strong directional evidence families currently qualify; at least 2 are required.`
                           : null,
                         supportShare === null
                           ? 'Thesis support cannot yet be established from enough Moderate-or-Strong evidence.'
                           : supportShare < 67
                             ? `Only ${supportShare}% of weighted Moderate-or-Strong evidence supports the proposed direction; at least 67% is required for a proactive suggestion.`
                             : null,
+                        confidence < 60
+                          ? `Overall confidence is ${confidence}; at least 60 is required for a proactive suggestion.`
+                          : null,
+                        candidatePool.length === 0
+                          ? 'The thesis is supported, but no 7–60 DTE contract currently has usable bid/ask data for execution.'
+                          : null,
                       ].filter(Boolean).join(' ')
                     : null;
 
@@ -1700,13 +1702,13 @@ Deno.serve(async (req) => {
             tradeBlockers.length ? `Trade constraints: ${tradeBlockers.join(' ')}` : 'No hard trade constraints were identified from the data currently available.',
             suggestionEligible
               ? 'Suggestion eligibility: eligible for proactive contract suggestion.'
-              : `Suggestion eligibility: not eligible for proactive suggestion. Current gate values — price structure ${priceFactor?.strength_band ?? 'Insufficient'}, confirmation ${confirmationState}, weighted support ${supportShare ?? 'unavailable'}%, independent Moderate/Strong families ${independentDirectionalFamilies}, directional completeness ${directionalCompleteness}%, directional uncertainty ${directionalUncertainty}%.`,
+              : `Suggestion eligibility: not eligible for proactive suggestion. Current gate values — price structure ${priceFactor?.strength_band ?? 'Insufficient'}, confirmation ${confirmationState}, weighted support ${supportShare ?? 'unavailable'}%, independent Moderate/Strong families ${independentDirectionalFamilies}, confidence ${confidence}, executable contracts ${candidatePool.length}.`,
             'Observed and derived evidence are reliability-discounted for freshness, source quality, and redundancy. Imputed evidence receives an additional imputation-confidence discount. Unavailable evidence contributes no directional support.',
           ],
         },
         regime: snapshot?.regime ?? 'Mixed',
         regime_explanation: snapshot?.regime_note ?? 'Broader market conditions derived from the latest stored market data.',
-        engine_version: 'tradecycle-5.3.0',
+        engine_version: 'tradecycle-5.4.0',
         is_demo: Boolean(q.is_demo ?? true),
         generated_at: started,
       });
