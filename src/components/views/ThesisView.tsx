@@ -140,6 +140,12 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const interactionFlags = signal?.score_breakdown?.interaction_flags ?? [];
   const thesisBlockers = signal?.score_breakdown?.thesis_blockers ?? signal?.score_breakdown?.blockers ?? [];
   const tradeBlockers = signal?.score_breakdown?.trade_blockers ?? [];
+  const rawAnalysis = signal?.score_breakdown?.raw ?? {};
+  const tacticalSupport = Number.isFinite(Number(rawAnalysis.tactical_support)) ? Number(rawAnalysis.tactical_support) : null;
+  const tacticalResistance = Number.isFinite(Number(rawAnalysis.tactical_resistance)) ? Number(rawAnalysis.tactical_resistance) : null;
+  const tacticalLookback = Number.isFinite(Number(rawAnalysis.tactical_lookback_sessions)) ? Number(rawAnalysis.tactical_lookback_sessions) : null;
+  const tacticalTargetBasis = typeof rawAnalysis.tactical_target_basis === 'string' ? rawAnalysis.tactical_target_basis : null;
+  const tacticalInvalidationBasis = typeof rawAnalysis.tactical_invalidation_basis === 'string' ? rawAnalysis.tactical_invalidation_basis : null;
   const balanced = useMemo(() => candidates.find((c) => c.profile === 'Balanced') ?? candidates[0] ?? null, [candidates]);
   const retail = sentiment.find((s) => s.cohort === 'retail');
   const professional = sentiment.find((s) => s.cohort === 'professional');
@@ -701,7 +707,10 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         {/* PRICE ACTION */}
         <TabsContent value="price" className="mt-3 space-y-3">
           <Panel
-            title="Price movement with key levels drawn"
+            title="Price movement with tactical swing levels"
+            subtitle={tacticalLookback
+              ? `TradeCycle levels use the nearest structure from the last ${tacticalLookback} daily sessions plus ATR reachability bounds. Longer-range support and resistance remain context only.`
+              : 'TradeCycle levels prioritize recent swing structure and ATR reachability for the 1–5 day holding period.'}
             right={quote?.is_demo
               ? <DemoBadge />
               : <DataBadge kind={quoteIsDelayed ? 'delayed' : 'observed'} label={quoteIsDelayed ? 'MASSIVE MARKET DATA · SESSION CLOSE' : 'MASSIVE MARKET DATA'} />}
@@ -710,12 +719,27 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               bars={bars}
               levels={[
                 { value: quote?.vwap, label: 'VWAP', color: '#38bdf8' },
-                { value: quote?.resistance, label: 'Resistance', color: '#34d399' },
-                { value: quote?.support, label: 'Support', color: '#f87171' },
-                { value: signal.invalidation_level, label: 'Trade no longer valid at', color: '#fbbf24', dash: '2 2' },
+                { value: tacticalResistance, label: 'Recent swing resistance', color: '#34d399' },
+                { value: tacticalSupport, label: 'Recent swing support', color: '#f87171' },
+                { value: signal.target_price, label: '1–5 day target', color: '#34d399', dash: '6 3' },
+                { value: signal.invalidation_level, label: '1–5 day invalidation', color: '#fbbf24', dash: '2 2' },
                 { value: signal.suggested_strike, label: 'Strike', color: '#a78bfa', dash: '6 3' },
               ]}
             />
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <div className="rounded-sm border border-zinc-800 bg-black/20 p-2.5">
+                <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">Target basis</div>
+                <div className="mt-1 text-[11px] leading-relaxed text-zinc-400">
+                  {tacticalTargetBasis ?? 'Recent swing structure with ATR reachability fallback.'}
+                </div>
+              </div>
+              <div className="rounded-sm border border-zinc-800 bg-black/20 p-2.5">
+                <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">Invalidation basis</div>
+                <div className="mt-1 text-[11px] leading-relaxed text-zinc-400">
+                  {tacticalInvalidationBasis ?? 'Recent swing structure with ATR noise buffer.'}
+                </div>
+              </div>
+            </div>
           </Panel>
           <Panel
             title="Current trading-session movement"
@@ -743,25 +767,23 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               <Metric label="20-day MA" value={num(quote?.sma20)} />
               <Metric label="50-day MA" value={num(quote?.sma50)} />
               <Metric label="200-day MA" value={num(quote?.sma200)} />
-              <Metric label="Support" value={num(quote?.support)} valueClass="text-red-300" />
-              <Metric label="Resistance" value={num(quote?.resistance)} valueClass="text-emerald-300" />
+              <Metric label="Broader support" value={num(quote?.support)} valueClass="text-red-300" />
+              <Metric label="Broader resistance" value={num(quote?.resistance)} valueClass="text-emerald-300" />
               <Metric label="Gap" value={pct(quote?.gap_pct)} />
               <Metric label="ATR" value={num(quote?.atr)} />
               <Metric label="Momentum" value={quote?.momentum_score} />
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               <div className="rounded-sm border border-emerald-500/30 bg-emerald-500/5 p-2.5">
-                <div className="font-mono text-[10px] uppercase tracking-wider text-emerald-300">Breakout level</div>
+                <div className="font-mono text-[10px] uppercase tracking-wider text-emerald-300">Broader breakout context</div>
                 <p className="mt-1 text-[12px] text-zinc-400">
-                  A close above <Val value={num(quote?.resistance)} className="text-emerald-300" /> with relative volume
-                  holding above <Val value={num(quote?.rel_volume)} />x confirms continuation.
+                  The broader stored resistance is <Val value={num(quote?.resistance)} className="text-emerald-300" />. It informs context, but the 1–5 day target above is derived from nearer swing structure and ATR reachability.
                 </p>
               </div>
               <div className="rounded-sm border border-red-500/30 bg-red-500/5 p-2.5">
-                <div className="font-mono text-[10px] uppercase tracking-wider text-red-300">Breakdown level</div>
+                <div className="font-mono text-[10px] uppercase tracking-wider text-red-300">Broader breakdown context</div>
                 <p className="mt-1 text-[12px] text-zinc-400">
-                  Losing <Val value={num(quote?.support)} className="text-red-300" /> puts price below its session VWAP
-                  and voids the structural case.
+                  The broader stored support is <Val value={num(quote?.support)} className="text-red-300" />. It does not automatically become the 1–5 day invalidation level when that level is too distant for the trade horizon.
                 </p>
               </div>
             </div>
