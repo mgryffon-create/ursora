@@ -22,7 +22,7 @@ import {
 import { deriveProfileContext, type ProfileContextInsight } from '@/lib/behavioral/profile-context';
 import {
   DEFAULT_BEHAVIORAL_PREFS, enabledCategories, fetchBehavioralPrefs, fetchLiterature,
-  fetchModifications, fetchTradeCycleThesisEvents, fetchTradePlans, fetchTradeRecords, saveBehavioralPrefs, setTradeOrigin,
+  fetchBrokerageTradeRecords, fetchModifications, fetchTradeCycleThesisEvents, fetchTradePlans, saveBehavioralPrefs, setTradeOrigin,
   type BehavioralPrefs,
 } from '@/lib/behavioral/api';
 import { generateProfile, PROFILES, type ProfileKey } from '@/lib/behavioral/synthetic';
@@ -183,7 +183,7 @@ export const TraderIntelligenceView: React.FC<{
     setErrorState(null);
 
     const [tradeResult, planResult, modResult, prefResult, litResult, profileResult, thesisResult] = await Promise.allSettled([
-      fetchTradeRecords(user?.id ?? null),
+      fetchBrokerageTradeRecords(user?.id ?? null),
       fetchTradePlans(user?.id ?? null),
       fetchModifications(user?.id ?? null),
       fetchBehavioralPrefs(user?.id ?? null),
