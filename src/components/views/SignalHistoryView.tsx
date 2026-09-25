@@ -3,8 +3,8 @@ import { CalendarDays, ChevronLeft, ChevronRight, Search, X } from 'lucide-react
 import {
   fetchModifications,
   fetchStoredObservations,
+  fetchBrokerageTradeRecords,
   fetchTradeCycleThesisEvents,
-  fetchTradeRecords,
 } from '@/lib/behavioral/api';
 import { isClosed, tradePl } from '@/lib/behavioral/engine';
 import type {
@@ -56,7 +56,10 @@ const tradeInstrument = (trade: TradeRecord) => {
   return trade.symbol;
 };
 
-export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }> = ({ onOpenThesis }) => {
+export const SignalHistoryView: React.FC<{
+  onOpenThesis: (id: number) => void;
+  onOpenHistoricalEvidence?: (tradeIds: number[]) => void;
+}> = ({ onOpenThesis, onOpenHistoricalEvidence }) => {
   const { user } = useAuth();
   const [trades, setTrades] = useState<TradeRecord[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
@@ -81,13 +84,15 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
     }
 
     const [tradeResult, observationResult, thesisEventResult, modificationResult] = await Promise.allSettled([
-      fetchTradeRecords(user.id),
+      fetchBrokerageTradeRecords(user.id),
       fetchStoredObservations(user.id),
       fetchTradeCycleThesisEvents(user.id),
       fetchModifications(user.id),
     ]);
 
-    const loadedTrades = tradeResult.status === 'fulfilled' ? tradeResult.value : [];
+    const loadedTrades = (tradeResult.status === 'fulfilled' ? tradeResult.value : [])
+      .slice()
+      .sort((a, b) => +new Date(b.entry_at ?? b.created_at) - +new Date(a.entry_at ?? a.created_at));
     setTrades(loadedTrades);
     setObservations(observationResult.status === 'fulfilled' ? observationResult.value : []);
     setThesisEvents(thesisEventResult.status === 'fulfilled' ? thesisEventResult.value : []);
@@ -441,13 +446,24 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
                           </div>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => setSelectedTradeId(trade.id)}
-                          className="mt-3 font-mono text-[10px] uppercase tracking-wider text-sky-400 hover:text-sky-300"
-                        >
-                          review TradeCycle
-                        </button>
+                        <div className="mt-3 flex flex-wrap gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTradeId(trade.id)}
+                            className="font-mono text-[10px] uppercase tracking-wider text-sky-400 hover:text-sky-300"
+                          >
+                            review TradeCycle
+                          </button>
+                          {onOpenHistoricalEvidence && isClosed(trade) && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenHistoricalEvidence([trade.id])}
+                              className="font-mono text-[10px] uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
+                            >
+                              historical evidence
+                            </button>
+                          )}
+                        </div>
                       </article>
                     );
                   })}
@@ -536,6 +552,16 @@ export const SignalHistoryView: React.FC<{ onOpenThesis: (id: number) => void }>
                   ))}
                 </ol>
               </Panel>
+
+              {onOpenHistoricalEvidence && isClosed(selectedTrade) && (
+                <button
+                  type="button"
+                  onClick={() => onOpenHistoricalEvidence([selectedTrade.id])}
+                  className="font-mono text-[10px] uppercase tracking-wider text-sky-400 hover:text-sky-300"
+                >
+                  open this trade in Historical Evidence
+                </button>
+              )}
 
               {selectedTrade.signal_id && (
                 <button
