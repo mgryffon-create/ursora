@@ -493,6 +493,69 @@ function deriveTacticalSwingLevels(
   };
 }
 
+function deriveRecentMoveProfile(
+  bars: AnyRow[],
+  sessionHigh: number | null,
+  sessionLow: number | null,
+): {
+  median_range_5: number | null;
+  median_true_range_5: number | null;
+  median_abs_close_move_5: number | null;
+  current_session_range: number | null;
+  local_move_unit: number | null;
+} {
+  const ordered = [...bars]
+    .sort((a, b) => String(a.bar_time).localeCompare(String(b.bar_time)))
+    .slice(-8);
+
+  const recent = ordered.slice(-5);
+  const ranges = recent
+    .map((bar) => {
+      const high = n(bar.high);
+      const low = n(bar.low);
+      return high !== null && low !== null ? Math.max(0, high - low) : null;
+    })
+    .filter((value): value is number => value !== null && value > 0);
+
+  const trueRanges: number[] = [];
+  const closeMoves: number[] = [];
+  for (let i = Math.max(1, ordered.length - 5); i < ordered.length; i++) {
+    const high = n(ordered[i].high);
+    const low = n(ordered[i].low);
+    const close = n(ordered[i].close);
+    const prevClose = n(ordered[i - 1].close);
+    if (high !== null && low !== null && prevClose !== null) {
+      trueRanges.push(Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose)));
+    }
+    if (close !== null && prevClose !== null) closeMoves.push(Math.abs(close - prevClose));
+  }
+
+  const medianRange5 = median(ranges);
+  const medianTrueRange5 = median(trueRanges);
+  const medianCloseMove5 = median(closeMoves);
+  const currentSessionRange =
+    sessionHigh !== null && sessionLow !== null && sessionHigh > sessionLow
+      ? sessionHigh - sessionLow
+      : null;
+
+  // The local move unit estimates what the stock has actually been traversing
+  // recently. Close-to-close movement gets the most weight because a 1–5 day
+  // swing target should not assume the entire intraday high/low range is captured.
+  const components: number[] = [];
+  if (medianCloseMove5 !== null) components.push(medianCloseMove5 * 1.35);
+  if (medianRange5 !== null) components.push(medianRange5 * 0.65);
+  if (medianTrueRange5 !== null) components.push(medianTrueRange5 * 0.60);
+  if (currentSessionRange !== null) components.push(currentSessionRange * 0.55);
+
+  return {
+    median_range_5: medianRange5,
+    median_true_range_5: medianTrueRange5,
+    median_abs_close_move_5: medianCloseMove5,
+    current_session_range: currentSessionRange,
+    local_move_unit: median(components),
+  };
+}
+
 Deno.serve(async (req) => {
   const preflight = handleOptions(req); if (preflight) return preflight;
   if (req.method !== 'POST') return json({ error: 'POST required' }, 405);
@@ -711,12 +774,15 @@ Deno.serve(async (req) => {
       const quoteResistance = n(q.resistance);
       const quoteAtr = n(q.atr);
       const relVolume = n(q.rel_volume);
+      const sessionHigh = n(q.day_high);
+      const sessionLow = n(q.day_low);
 
       const derivedStructure = deriveStructureFromBars(barsBySymbol.get(symbol) ?? []);
       const support = quoteSupport ?? derivedStructure.support;
       const resistance = quoteResistance ?? derivedStructure.resistance;
       const atr = quoteAtr ?? derivedStructure.atr;
       const tacticalStructure = deriveTacticalSwingLevels(barsBySymbol.get(symbol) ?? [], price);
+      const recentMove = deriveRecentMoveProfile(barsBySymbol.get(symbol) ?? [], sessionHigh, sessionLow);
 
       // ----- v5 directional evidence families (-100 bearish, +100 bullish) -----
       // Weak evidence describes a lean but does not vote on the thesis. Moderate and
@@ -1025,9 +1091,9 @@ Deno.serve(async (req) => {
       }
 
       // Tactical 1–5 day structure.
-      // Broad 20-day support/resistance remains context only. Entry management uses
-      // the nearest recent swing structure, then applies an ATR noise buffer and
-      // reachability caps appropriate to a 1–5 session holding period.
+      // Broad support/resistance and 14-day ATR are context/ceilings. The working
+      // target and invalidation are led by what the stock has actually traversed
+      // over the last ~5 sessions, then anchored to nearby pivots when reachable.
       let riskRewardEvidence: number | null = null;
       let estimatedRatio: number | null = null;
       let tacticalTarget: number | null = null;
@@ -1035,113 +1101,90 @@ Deno.serve(async (req) => {
       let tacticalTargetBasis = 'unavailable';
       let tacticalInvalidationBasis = 'unavailable';
 
-      if (price !== null && atr !== null && atr > 0 && direction !== 'neutral') {
-        const minRiskDistance = atr * 0.55;
-        const maxRiskDistance = atr * 1.15;
-        const fallbackTargetDistance = atr * 1.25;
-        const maxTargetDistance = atr * 1.75;
-        const pivotBuffer = atr * 0.15;
+      if (price !== null && direction !== 'neutral') {
+        const localUnit =
+          recentMove.local_move_unit ??
+          (atr !== null && atr > 0 ? atr * 0.70 : null);
 
-        if (direction === 'bullish') {
-          const rawInvalidation = tacticalStructure.support !== null && tacticalStructure.support < price
-            ? tacticalStructure.support - pivotBuffer
-            : price - atr;
-          const rawRiskDistance = Math.max(0, price - rawInvalidation);
-          const boundedRiskDistance = Math.min(maxRiskDistance, Math.max(minRiskDistance, rawRiskDistance));
-          tacticalInvalidation = price - boundedRiskDistance;
-          tacticalInvalidationBasis = tacticalStructure.support !== null
-            ? `${tacticalStructure.support_source} + ATR noise buffer`
-            : '1 ATR fallback';
+        if (localUnit !== null && localUnit > 0) {
+          const atrTargetCeiling = atr !== null && atr > 0 ? atr * 1.35 : localUnit * 1.60;
+          const atrRiskCeiling = atr !== null && atr > 0 ? atr * 0.95 : localUnit * 1.10;
+          const targetReach = Math.max(localUnit * 1.10, Math.min(localUnit * 1.55, atrTargetCeiling));
+          const maxRiskDistance = Math.max(localUnit * 0.65, Math.min(localUnit * 1.05, atrRiskCeiling));
+          const minRiskDistance = localUnit * 0.45;
+          const pivotBuffer = localUnit * 0.12;
 
-          const structuralTarget = tacticalStructure.resistance !== null && tacticalStructure.resistance > price
-            ? tacticalStructure.resistance
-            : null;
-          const rawTargetDistance = structuralTarget !== null
-            ? structuralTarget - price
-            : fallbackTargetDistance;
-          const boundedTargetDistance = Math.min(maxTargetDistance, Math.max(0, rawTargetDistance));
-          tacticalTarget = price + boundedTargetDistance;
-          tacticalTargetBasis = structuralTarget !== null
-            ? `${tacticalStructure.resistance_source}, capped at 1.75 ATR`
-            : '1.25 ATR reachable-move fallback';
-        } else {
-          const rawInvalidation = tacticalStructure.resistance !== null && tacticalStructure.resistance > price
-            ? tacticalStructure.resistance + pivotBuffer
-            : price + atr;
-          const rawRiskDistance = Math.max(0, rawInvalidation - price);
-          const boundedRiskDistance = Math.min(maxRiskDistance, Math.max(minRiskDistance, rawRiskDistance));
-          tacticalInvalidation = price + boundedRiskDistance;
-          tacticalInvalidationBasis = tacticalStructure.resistance !== null
-            ? `${tacticalStructure.resistance_source} + ATR noise buffer`
-            : '1 ATR fallback';
+          if (direction === 'bullish') {
+            const structuralTarget =
+              tacticalStructure.resistance !== null &&
+              tacticalStructure.resistance > price &&
+              tacticalStructure.resistance - price <= targetReach
+                ? tacticalStructure.resistance
+                : null;
 
-          const structuralTarget = tacticalStructure.support !== null && tacticalStructure.support < price
-            ? tacticalStructure.support
-            : null;
-          const rawTargetDistance = structuralTarget !== null
-            ? price - structuralTarget
-            : fallbackTargetDistance;
-          const boundedTargetDistance = Math.min(maxTargetDistance, Math.max(0, rawTargetDistance));
-          tacticalTarget = price - boundedTargetDistance;
-          tacticalTargetBasis = structuralTarget !== null
-            ? `${tacticalStructure.support_source}, capped at 1.75 ATR`
-            : '1.25 ATR reachable-move fallback';
-        }
+            tacticalTarget = structuralTarget ?? price + localUnit * 1.15;
+            if (tacticalTarget - price > targetReach) tacticalTarget = price + targetReach;
+            tacticalTargetBasis = structuralTarget !== null
+              ? `${tacticalStructure.resistance_source} inside recent realized-move envelope`
+              : 'recent 5-session realized move; ATR used only as a ceiling';
 
-        const targetDistance = tacticalTarget === null ? null : Math.abs(tacticalTarget - price);
-        const riskDistance = tacticalInvalidation === null ? null : Math.abs(price - tacticalInvalidation);
+            const structuralInvalidation =
+              tacticalStructure.support !== null &&
+              tacticalStructure.support < price &&
+              price - tacticalStructure.support <= maxRiskDistance
+                ? tacticalStructure.support - pivotBuffer
+                : null;
 
-        if (targetDistance !== null && riskDistance !== null && riskDistance > 0) {
-          estimatedRatio = targetDistance / riskDistance;
-          riskRewardEvidence = clamp((estimatedRatio - 1) * 70);
+            const rawInvalidation = structuralInvalidation ?? price - localUnit * 0.72;
+            const riskDistance = Math.min(
+              maxRiskDistance,
+              Math.max(minRiskDistance, price - rawInvalidation),
+            );
+            tacticalInvalidation = price - riskDistance;
+            tacticalInvalidationBasis = structuralInvalidation !== null
+              ? `${tacticalStructure.support_source} + local-volatility buffer`
+              : 'recent 5-session realized move; ATR used only as a ceiling';
+          } else {
+            const structuralTarget =
+              tacticalStructure.support !== null &&
+              tacticalStructure.support < price &&
+              price - tacticalStructure.support <= targetReach
+                ? tacticalStructure.support
+                : null;
+
+            tacticalTarget = structuralTarget ?? price - localUnit * 1.15;
+            if (price - tacticalTarget > targetReach) tacticalTarget = price - targetReach;
+            tacticalTargetBasis = structuralTarget !== null
+              ? `${tacticalStructure.support_source} inside recent realized-move envelope`
+              : 'recent 5-session realized move; ATR used only as a ceiling';
+
+            const structuralInvalidation =
+              tacticalStructure.resistance !== null &&
+              tacticalStructure.resistance > price &&
+              tacticalStructure.resistance - price <= maxRiskDistance
+                ? tacticalStructure.resistance + pivotBuffer
+                : null;
+
+            const rawInvalidation = structuralInvalidation ?? price + localUnit * 0.72;
+            const riskDistance = Math.min(
+              maxRiskDistance,
+              Math.max(minRiskDistance, rawInvalidation - price),
+            );
+            tacticalInvalidation = price + riskDistance;
+            tacticalInvalidationBasis = structuralInvalidation !== null
+              ? `${tacticalStructure.resistance_source} + local-volatility buffer`
+              : 'recent 5-session realized move; ATR used only as a ceiling';
+          }
+
+          const targetDistance = tacticalTarget === null ? null : Math.abs(tacticalTarget - price);
+          const riskDistance = tacticalInvalidation === null ? null : Math.abs(price - tacticalInvalidation);
+
+          if (targetDistance !== null && riskDistance !== null && riskDistance > 0) {
+            estimatedRatio = targetDistance / riskDistance;
+            riskRewardEvidence = clamp((estimatedRatio - 1) * 70);
+          }
         }
       }
-
-      // Cross-factor agreement only considers independent directional factors with meaningful strength.
-      const directionalEvidence = [priceEvidence, momentumEvidence, participationEvidence, marketEvidence, optionsEvidence, newsEvidence]
-        .filter((v): v is number => v !== null && Math.abs(v) >= 45);
-      const supportingCount = directionalEvidence.filter((v) => v > 0).length;
-      const opposingCount = directionalEvidence.filter((v) => v < 0).length;
-      const agreement = directionalEvidence.length >= 3
-        ? Math.round((Math.max(supportingCount, opposingCount) / directionalEvidence.length) * 100)
-        : null;
-      const agreementForConfidence = agreement ?? 50;
-      const nextEarnings = (earningsBySymbol.get(symbol) ?? [])[0] ?? null;
-      const hoursToEarnings = nextEarnings?.report_time
-        ? (new Date(nextEarnings.report_time).getTime() - nowMs) / 3600000
-        : null;
-      const eventInsideHoldingWindow = hoursToEarnings !== null && hoursToEarnings >= 0 && hoursToEarnings <= 5 * 24;
-
-      const quoteFreshness = freshnessFrom(q.retrieved_at ?? q.as_of, 18, nowMs);
-      const quoteConfidence = clamp(n(q.confidence) ?? 0.78, 0.35, 1);
-      const marketFreshness = avg([spy, qqq].map((row) => row ? freshnessFrom(row.retrieved_at ?? row.as_of, 18, nowMs) : null)) ?? 0.45;
-      const optionFreshness = symbolOptions.length
-        ? avg(symbolOptions.slice(0, 50).map((row) => freshnessFrom(row.retrieved_at, 12, nowMs))) ?? 0.5
-        : 0;
-      const newsFreshness = symbolNews.length
-        ? avg(symbolNews.slice(0, 12).map((row) => freshnessFrom(row.published_at, 24, nowMs))) ?? 0.5
-        : 0;
-
-      const priceProvenance: EvidenceProvenance = priceEvidence === null ? 'unavailable' : 'derived';
-      const momentumProvenance: EvidenceProvenance = momentumEvidence === null ? 'unavailable' : 'derived';
-      const participationProvenance: EvidenceProvenance = participationEvidence === null ? 'unavailable' : 'derived';
-      const marketProvenance: EvidenceProvenance = marketEvidence === null ? 'unavailable' : 'observed';
-      const optionsProvenance: EvidenceProvenance = optionsEvidence === null
-        ? 'unavailable'
-        : symbolOptions.length ? 'observed' : 'imputed';
-      const newsProvenance: EvidenceProvenance = newsEvidence === null ? 'unavailable' : 'observed';
-      const liquidityProvenance: EvidenceProvenance = liquidityEvidence === null ? 'unavailable' : 'observed';
-      const riskRewardProvenance: EvidenceProvenance = riskRewardEvidence === null ? 'unavailable' : 'derived';
-
-      // Redundancy penalties keep correlated evidence from being counted as independent confirmation.
-      const priceIndependence = 1.0;
-      const momentumIndependence = priceEvidence !== null ? 0.68 : 1.0;
-      const participationIndependence = priceEvidence !== null ? 0.78 : 1.0;
-      const marketIndependence = 0.88;
-      const optionsIndependence = 0.95;
-      const newsIndependence = 1.0;
-      const liquidityIndependence = optionsEvidence !== null ? 0.82 : 1.0;
-      const riskRewardIndependence = priceEvidence !== null ? 0.78 : 1.0;
 
       const factorSpecs: FactorSpec[] = [
         {
@@ -1731,6 +1774,11 @@ Deno.serve(async (req) => {
             tactical_lookback_sessions: tacticalStructure.lookback_sessions,
             tactical_support_source: tacticalStructure.support_source,
             tactical_resistance_source: tacticalStructure.resistance_source,
+            recent_median_range_5: recentMove.median_range_5,
+            recent_median_true_range_5: recentMove.median_true_range_5,
+            recent_median_abs_close_move_5: recentMove.median_abs_close_move_5,
+            current_session_range: recentMove.current_session_range,
+            local_move_unit: recentMove.local_move_unit,
             tactical_target: tacticalTarget,
             tactical_target_basis: tacticalTargetBasis,
             tactical_invalidation: tacticalInvalidation,
@@ -1801,7 +1849,7 @@ Deno.serve(async (req) => {
             `AHP consistency ratio: ${(ahp.consistency_ratio * 100).toFixed(2)}%.`,
             direction === 'neutral'
               ? 'Tactical target/invalidation are not produced without an established direction.'
-              : `1–5 day tactical structure uses ${tacticalStructure.lookback_sessions} recent daily sessions, nearest recent pivots, and ATR reachability bounds. Target basis: ${tacticalTargetBasis}. Invalidation basis: ${tacticalInvalidationBasis}.`,
+              : `1–5 day tactical structure uses ${tacticalStructure.lookback_sessions} recent daily sessions, a 5-session realized-move profile, and nearest reachable pivots. ATR is a ceiling/fallback rather than the primary width generator. Target basis: ${tacticalTargetBasis}. Invalidation basis: ${tacticalInvalidationBasis}.`,
             thesisBlockers.length ? `Thesis constraints: ${thesisBlockers.join(' ')}` : 'No thesis-level directional constraints were identified.',
             tradeBlockers.length ? `Trade constraints: ${tradeBlockers.join(' ')}` : 'No hard trade constraints were identified from the data currently available.',
             suggestionEligible
@@ -1812,7 +1860,7 @@ Deno.serve(async (req) => {
         },
         regime: snapshot?.regime ?? 'Mixed',
         regime_explanation: snapshot?.regime_note ?? 'Broader market conditions derived from the latest stored market data.',
-        engine_version: 'tradecycle-5.5.0',
+        engine_version: 'tradecycle-5.6.0',
         is_demo: Boolean(q.is_demo ?? true),
         generated_at: started,
       });
@@ -1891,7 +1939,7 @@ Deno.serve(async (req) => {
       feed_events: 0,
       regime: snapshot?.regime ?? null,
       notes: signalCount
-        ? `TradeCycle v5.5.0 swing analysis completed for authenticated user ${user.id}; outside regular hours, price evidence is anchored to the most recent frozen session close.`
+        ? `TradeCycle v5.6.0 swing analysis completed for authenticated user ${user.id}; outside regular hours, price evidence is anchored to the most recent frozen session close.`
         : 'No stored quote data were available; no signals were generated.',
       started_at: started,
       finished_at: new Date().toISOString(),
@@ -1903,7 +1951,7 @@ Deno.serve(async (req) => {
       signals: signalCount,
       updates: 0,
       run_id: runId,
-      engine_version: 'tradecycle-5.5.0',
+      engine_version: 'tradecycle-5.6.0',
       note: signalCount ? 'Signals generated using all currently available evidence categories.' : 'No stored quote data available.',
     });
   } catch (e) {
