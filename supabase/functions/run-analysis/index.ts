@@ -429,6 +429,70 @@ function deriveStructureFromBars(bars: AnyRow[]): { support: number | null; resi
   };
 }
 
+function deriveTacticalSwingLevels(
+  bars: AnyRow[],
+  price: number | null,
+): {
+  support: number | null;
+  resistance: number | null;
+  support_source: string;
+  resistance_source: string;
+  lookback_sessions: number;
+} {
+  const ordered = [...bars]
+    .sort((a, b) => String(a.bar_time).localeCompare(String(b.bar_time)))
+    .slice(-12);
+
+  if (!ordered.length || price === null) {
+    return {
+      support: null,
+      resistance: null,
+      support_source: 'unavailable',
+      resistance_source: 'unavailable',
+      lookback_sessions: ordered.length,
+    };
+  }
+
+  const swingLows: number[] = [];
+  const swingHighs: number[] = [];
+
+  // One-bar pivots are intentionally short-horizon. We want the nearest recent
+  // structure relevant to a 1–5 day swing, not the extreme of a multi-week range.
+  for (let i = 1; i < ordered.length - 1; i++) {
+    const prevLow = n(ordered[i - 1].low);
+    const low = n(ordered[i].low);
+    const nextLow = n(ordered[i + 1].low);
+    const prevHigh = n(ordered[i - 1].high);
+    const high = n(ordered[i].high);
+    const nextHigh = n(ordered[i + 1].high);
+
+    if (low !== null && prevLow !== null && nextLow !== null && low <= prevLow && low <= nextLow) {
+      swingLows.push(low);
+    }
+    if (high !== null && prevHigh !== null && nextHigh !== null && high >= prevHigh && high >= nextHigh) {
+      swingHighs.push(high);
+    }
+  }
+
+  const pivotSupports = swingLows.filter((level) => level < price).sort((a, b) => b - a);
+  const pivotResistances = swingHighs.filter((level) => level > price).sort((a, b) => a - b);
+
+  const recent = ordered.slice(-5);
+  const recentLows = recent.map((bar) => n(bar.low)).filter((v): v is number => v !== null && v < price);
+  const recentHighs = recent.map((bar) => n(bar.high)).filter((v): v is number => v !== null && v > price);
+
+  const support = pivotSupports[0] ?? (recentLows.length ? Math.max(...recentLows) : null);
+  const resistance = pivotResistances[0] ?? (recentHighs.length ? Math.min(...recentHighs) : null);
+
+  return {
+    support,
+    resistance,
+    support_source: pivotSupports.length ? 'recent swing low' : support !== null ? 'recent 5-session low' : 'unavailable',
+    resistance_source: pivotResistances.length ? 'recent swing high' : resistance !== null ? 'recent 5-session high' : 'unavailable',
+    lookback_sessions: ordered.length,
+  };
+}
+
 Deno.serve(async (req) => {
   const preflight = handleOptions(req); if (preflight) return preflight;
   if (req.method !== 'POST') return json({ error: 'POST required' }, 405);
@@ -652,6 +716,7 @@ Deno.serve(async (req) => {
       const support = quoteSupport ?? derivedStructure.support;
       const resistance = quoteResistance ?? derivedStructure.resistance;
       const atr = quoteAtr ?? derivedStructure.atr;
+      const tacticalStructure = deriveTacticalSwingLevels(barsBySymbol.get(symbol) ?? [], price);
 
       // ----- v5 directional evidence families (-100 bearish, +100 bullish) -----
       // Weak evidence describes a lean but does not vote on the thesis. Moderate and
@@ -959,39 +1024,68 @@ Deno.serve(async (req) => {
         liquidityEvidence = pieces ? clamp(score / pieces) : null;
       }
 
-      // Tactical 1–5 day structure. Long-window support/resistance are context,
-      // but invalidation is bounded by one ATR so a distant 20-day extreme cannot
-      // create an unrealistic stop for a short holding period.
+      // Tactical 1–5 day structure.
+      // Broad 20-day support/resistance remains context only. Entry management uses
+      // the nearest recent swing structure, then applies an ATR noise buffer and
+      // reachability caps appropriate to a 1–5 session holding period.
       let riskRewardEvidence: number | null = null;
       let estimatedRatio: number | null = null;
       let tacticalTarget: number | null = null;
       let tacticalInvalidation: number | null = null;
+      let tacticalTargetBasis = 'unavailable';
+      let tacticalInvalidationBasis = 'unavailable';
 
       if (price !== null && atr !== null && atr > 0 && direction !== 'neutral') {
+        const minRiskDistance = atr * 0.55;
+        const maxRiskDistance = atr * 1.15;
+        const fallbackTargetDistance = atr * 1.25;
+        const maxTargetDistance = atr * 1.75;
+        const pivotBuffer = atr * 0.15;
+
         if (direction === 'bullish') {
-          const atrInvalidation = price - atr;
-          tacticalInvalidation =
-            support !== null && support < price
-              ? Math.max(support, atrInvalidation)
-              : atrInvalidation;
+          const rawInvalidation = tacticalStructure.support !== null && tacticalStructure.support < price
+            ? tacticalStructure.support - pivotBuffer
+            : price - atr;
+          const rawRiskDistance = Math.max(0, price - rawInvalidation);
+          const boundedRiskDistance = Math.min(maxRiskDistance, Math.max(minRiskDistance, rawRiskDistance));
+          tacticalInvalidation = price - boundedRiskDistance;
+          tacticalInvalidationBasis = tacticalStructure.support !== null
+            ? `${tacticalStructure.support_source} + ATR noise buffer`
+            : '1 ATR fallback';
 
-          const atrTarget = price + atr * 1.5;
-          tacticalTarget =
-            resistance !== null && resistance > price
-              ? Math.min(resistance, atrTarget)
-              : atrTarget;
+          const structuralTarget = tacticalStructure.resistance !== null && tacticalStructure.resistance > price
+            ? tacticalStructure.resistance
+            : null;
+          const rawTargetDistance = structuralTarget !== null
+            ? structuralTarget - price
+            : fallbackTargetDistance;
+          const boundedTargetDistance = Math.min(maxTargetDistance, Math.max(0, rawTargetDistance));
+          tacticalTarget = price + boundedTargetDistance;
+          tacticalTargetBasis = structuralTarget !== null
+            ? `${tacticalStructure.resistance_source}, capped at 1.75 ATR`
+            : '1.25 ATR reachable-move fallback';
         } else {
-          const atrInvalidation = price + atr;
-          tacticalInvalidation =
-            resistance !== null && resistance > price
-              ? Math.min(resistance, atrInvalidation)
-              : atrInvalidation;
+          const rawInvalidation = tacticalStructure.resistance !== null && tacticalStructure.resistance > price
+            ? tacticalStructure.resistance + pivotBuffer
+            : price + atr;
+          const rawRiskDistance = Math.max(0, rawInvalidation - price);
+          const boundedRiskDistance = Math.min(maxRiskDistance, Math.max(minRiskDistance, rawRiskDistance));
+          tacticalInvalidation = price + boundedRiskDistance;
+          tacticalInvalidationBasis = tacticalStructure.resistance !== null
+            ? `${tacticalStructure.resistance_source} + ATR noise buffer`
+            : '1 ATR fallback';
 
-          const atrTarget = price - atr * 1.5;
-          tacticalTarget =
-            support !== null && support < price
-              ? Math.max(support, atrTarget)
-              : atrTarget;
+          const structuralTarget = tacticalStructure.support !== null && tacticalStructure.support < price
+            ? tacticalStructure.support
+            : null;
+          const rawTargetDistance = structuralTarget !== null
+            ? price - structuralTarget
+            : fallbackTargetDistance;
+          const boundedTargetDistance = Math.min(maxTargetDistance, Math.max(0, rawTargetDistance));
+          tacticalTarget = price - boundedTargetDistance;
+          tacticalTargetBasis = structuralTarget !== null
+            ? `${tacticalStructure.support_source}, capped at 1.75 ATR`
+            : '1.25 ATR reachable-move fallback';
         }
 
         const targetDistance = tacticalTarget === null ? null : Math.abs(tacticalTarget - price);
@@ -1632,8 +1726,15 @@ Deno.serve(async (req) => {
             reward_risk_ratio: estimatedRatio,
             structural_support: support,
             structural_resistance: resistance,
+            tactical_support: tacticalStructure.support,
+            tactical_resistance: tacticalStructure.resistance,
+            tactical_lookback_sessions: tacticalStructure.lookback_sessions,
+            tactical_support_source: tacticalStructure.support_source,
+            tactical_resistance_source: tacticalStructure.resistance_source,
             tactical_target: tacticalTarget,
+            tactical_target_basis: tacticalTargetBasis,
             tactical_invalidation: tacticalInvalidation,
+            tactical_invalidation_basis: tacticalInvalidationBasis,
             posterior_log_odds: posteriorLogOdds,
           },
           thesis_state: thesisState,
@@ -1698,6 +1799,9 @@ Deno.serve(async (req) => {
               ? `Directional agreement: insufficient meaningful evidence families to calculate.`
               : `Directional agreement: ${agreement}% across ${directionalEvidence.length} meaningful directional families.`,
             `AHP consistency ratio: ${(ahp.consistency_ratio * 100).toFixed(2)}%.`,
+            direction === 'neutral'
+              ? 'Tactical target/invalidation are not produced without an established direction.'
+              : `1–5 day tactical structure uses ${tacticalStructure.lookback_sessions} recent daily sessions, nearest recent pivots, and ATR reachability bounds. Target basis: ${tacticalTargetBasis}. Invalidation basis: ${tacticalInvalidationBasis}.`,
             thesisBlockers.length ? `Thesis constraints: ${thesisBlockers.join(' ')}` : 'No thesis-level directional constraints were identified.',
             tradeBlockers.length ? `Trade constraints: ${tradeBlockers.join(' ')}` : 'No hard trade constraints were identified from the data currently available.',
             suggestionEligible
@@ -1708,7 +1812,7 @@ Deno.serve(async (req) => {
         },
         regime: snapshot?.regime ?? 'Mixed',
         regime_explanation: snapshot?.regime_note ?? 'Broader market conditions derived from the latest stored market data.',
-        engine_version: 'tradecycle-5.4.0',
+        engine_version: 'tradecycle-5.5.0',
         is_demo: Boolean(q.is_demo ?? true),
         generated_at: started,
       });
@@ -1787,7 +1891,7 @@ Deno.serve(async (req) => {
       feed_events: 0,
       regime: snapshot?.regime ?? null,
       notes: signalCount
-        ? `TradeCycle v5.4.0 swing analysis completed for authenticated user ${user.id}; outside regular hours, price evidence is anchored to the most recent frozen session close.`
+        ? `TradeCycle v5.5.0 swing analysis completed for authenticated user ${user.id}; outside regular hours, price evidence is anchored to the most recent frozen session close.`
         : 'No stored quote data were available; no signals were generated.',
       started_at: started,
       finished_at: new Date().toISOString(),
@@ -1799,7 +1903,7 @@ Deno.serve(async (req) => {
       signals: signalCount,
       updates: 0,
       run_id: runId,
-      engine_version: 'tradecycle-5.4.0',
+      engine_version: 'tradecycle-5.5.0',
       note: signalCount ? 'Signals generated using all currently available evidence categories.' : 'No stored quote data available.',
     });
   } catch (e) {
