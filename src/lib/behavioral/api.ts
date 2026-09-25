@@ -256,6 +256,109 @@ function brokerageActivitiesToTrades(rows: SnapActivityRow[], userId: string): T
   return out;
 }
 
+export async function fetchBrokerageTradeRecords(userId: string | null): Promise<TradeRecord[]> {
+  if (!userId) return [];
+
+  const { data: episodeRows, error: episodeError } = await db
+    .from('snaptrade_trade_episodes')
+    .select('*')
+    .eq('user_id', userId)
+    .order('opened_at', { ascending: false })
+    .limit(2000);
+
+  let brokerage: TradeRecord[] = episodeError
+    ? []
+    : list<Record<string, any>>(episodeRows).map<TradeRecord>((row) => {
+        const quantity = Number(row.quantity);
+        const entry = row.average_entry_price === null ? null : Number(row.average_entry_price);
+        const multiplier = row.asset_type === 'option' ? 100 : 1;
+        const positionSize = Number.isFinite(quantity) && entry !== null && Number.isFinite(entry)
+          ? quantity * entry * multiplier
+          : null;
+
+        return {
+          id: -Math.abs(Number(row.id)),
+          user_id: row.user_id ?? userId,
+          signal_id: null,
+          symbol: String(row.symbol ?? '').toUpperCase(),
+          direction: row.direction ?? null,
+          strategy: row.asset_type === 'option'
+            ? `Brokerage ${String(row.option_type ?? 'option')}`
+            : 'Brokerage equity',
+          setup: null,
+          option_type: row.option_type ?? null,
+          strike: row.strike === null ? null : Number(row.strike),
+          expiration: row.expiration ?? null,
+          option_symbol: row.option_symbol ?? null,
+          asset_type: row.asset_type ?? null,
+          broker: 'SnapTrade',
+          account_label: row.account_id ?? null,
+          contracts: row.asset_type === 'option' && Number.isFinite(quantity) ? quantity : null,
+          position_size: positionSize,
+          entry_at: row.opened_at ?? null,
+          entry_price: entry,
+          exit_at: row.closed_at ?? null,
+          exit_price: row.average_exit_price === null ? null : Number(row.average_exit_price),
+          fees: row.raw_summary?.fees === undefined ? null : Number(row.raw_summary.fees),
+          realized_pl: row.realized_pl === null ? null : Number(row.realized_pl),
+          unrealized_pl: null,
+          origin: 'OTHER',
+          regime: null,
+          opportunity_score: null,
+          confidence_score: null,
+          risk_level: null,
+          thesis_id: null,
+          trade_plan_id: null,
+          intended_invalidation: null,
+          intended_target: null,
+          max_favorable_excursion: null,
+          max_adverse_excursion: null,
+          return_pct: row.realized_return_pct === null ? null : Number(row.realized_return_pct),
+          result: row.status === 'closed'
+            ? Number(row.realized_pl) > 0 ? 'win' : Number(row.realized_pl) < 0 ? 'loss' : 'scratch'
+            : 'open',
+          closed_at: row.closed_at ?? null,
+          session_date: row.session_date ?? null,
+          was_planned: null,
+          process_adherence: null,
+          is_synthetic: false,
+          synthetic_profile: null,
+          is_demo: false,
+          notes: `SnapTrade brokerage episode · ${row.exposure_side ?? 'position'} · source activities ${Array.isArray(row.entry_activity_ids) ? row.entry_activity_ids.length : 0} open / ${Array.isArray(row.exit_activity_ids) ? row.exit_activity_ids.length : 0} close`,
+          thesis_mode: row.status === 'open' ? 'monitoring' : 'review',
+          inferred_thesis_direction: row.direction ?? null,
+          thesis_inference_basis: 'Brokerage position structure',
+          thesis_status: null,
+          thesis_support: null,
+          thesis_agreement: null,
+          thesis_last_checked_at: null,
+          thesis_review_status: null,
+          thesis_review_summary: null,
+          created_at: row.opened_at ?? new Date().toISOString(),
+        };
+      });
+
+  // If normalized episodes have not landed yet, reconstruct only from SnapTrade
+  // activities. This keeps trader-facing history brokerage-grounded and never
+  // falls back to analysis-generated/paper rows.
+  if (brokerage.length === 0) {
+    const { data: rawActivities, error: rawActivityError } = await db
+      .from('snaptrade_activities')
+      .select('id,user_id,account_id,symbol,option_symbol,option_type,strike,expiration,activity_type,option_action,units,price,fee,trade_date,description')
+      .eq('user_id', userId)
+      .order('trade_date', { ascending: true })
+      .limit(10000);
+
+    if (!rawActivityError) {
+      brokerage = brokerageActivitiesToTrades(list<SnapActivityRow>(rawActivities), userId);
+    }
+  }
+
+  return brokerage.sort(
+    (a, b) => +new Date(b.entry_at ?? b.created_at) - +new Date(a.entry_at ?? a.created_at),
+  );
+}
+
 export async function fetchTradeRecords(userId: string | null): Promise<TradeRecord[]> {
   let paperQuery = db.from('paper_trades').select('*').order('created_at', { ascending: false }).limit(1000);
   if (userId) paperQuery = paperQuery.eq('user_id', userId);
