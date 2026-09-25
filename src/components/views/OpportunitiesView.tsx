@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import db from '@/lib/db';
 import {
-  fetchActiveAnalyses, fetchLatestQuotes, fetchRuns, fetchTickers, fetchTodaySignals,
+  fetchActiveAnalyses, fetchLatestQuotes, fetchRuns, fetchSymbolAnalysisMemory, fetchTickers, fetchTodaySignals,
   runFreshAnalysis, track,
 } from '@/lib/api';
 import type { ActiveAnalysis, AnalysisRun, Quote, Signal, Ticker } from '@/lib/types';
@@ -246,6 +246,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
   const [runs, setRuns] = useState<AnalysisRun[]>([]);
   const [activeAnalyses, setActiveAnalyses] = useState<ActiveAnalysis[]>([]);
   const [activeSignals, setActiveSignals] = useState<Record<string, Signal>>({});
+  const [rememberedSignals, setRememberedSignals] = useState<Record<string, Signal>>({});
   const [analysisSelection, setAnalysisSelection] = useState<string[]>([]);
   const [symbolQuery, setSymbolQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -256,8 +257,13 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [latestSignals, latestQuotes, tickerRows, runRows, activeRows] = await Promise.all([
-        fetchTodaySignals(), fetchLatestQuotes(), fetchTickers(), fetchRuns(6), fetchActiveAnalyses(),
+      const [latestSignals, latestQuotes, tickerRows, runRows, activeRows, memoryRows] = await Promise.all([
+        fetchTodaySignals(),
+        fetchLatestQuotes(),
+        fetchTickers(),
+        fetchRuns(6),
+        fetchActiveAnalyses(),
+        fetchSymbolAnalysisMemory(),
       ]);
 
       setSignals(latestSignals);
@@ -275,6 +281,19 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
         setActiveSignals(map);
       } else {
         setActiveSignals({});
+      }
+
+      const memoryIds = [...new Set(memoryRows.map((item) => item.signal_id).filter(Boolean))];
+      if (memoryIds.length) {
+        const { data, error: memorySignalError } = await db.from('signals').select('*').in('id', memoryIds);
+        if (memorySignalError) throw memorySignalError;
+        const memoryMap: Record<string, Signal> = {};
+        for (const signal of (data as Signal[]) ?? []) {
+          memoryMap[String(signal.symbol).toUpperCase()] = signal;
+        }
+        setRememberedSignals(memoryMap);
+      } else {
+        setRememberedSignals({});
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -301,8 +320,8 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
   );
 
   const signalFor = useCallback(
-    (symbol: string) => activeSignals[symbol] ?? latestSignalBySymbol[symbol] ?? null,
-    [activeSignals, latestSignalBySymbol],
+    (symbol: string) => activeSignals[symbol] ?? rememberedSignals[symbol] ?? latestSignalBySymbol[symbol] ?? null,
+    [activeSignals, latestSignalBySymbol, rememberedSignals],
   );
 
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
@@ -502,7 +521,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
               </Button>
             </div>
             <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
-              Persistent across sessions. Quotes refresh automatically when you log in; full evidence analysis runs only when you request it.
+              Persistent across sessions. Your latest completed analysis stays attached to each ticker until that ticker is analyzed again; quote refreshes do not erase it.
             </p>
           </div>
 
