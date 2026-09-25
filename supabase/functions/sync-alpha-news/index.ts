@@ -125,7 +125,7 @@ Deno.serve(async (req) => {
     // news refresh independent from the optional provider_symbol_syncs migration.
     const { data: recentStoredNews, error: storedNewsError } = await db
       .from('news_items')
-      .select('symbol,retrieved_at,published_at')
+      .select('symbol,retrieved_at,published_at,url,headline')
       .in('symbol', symbols)
       .eq('source_type', 'verified_news')
       .order('retrieved_at', { ascending: false })
@@ -140,8 +140,16 @@ Deno.serve(async (req) => {
       if (!latestNewsBySymbol.has(symbol)) latestNewsBySymbol.set(symbol, ts);
     }
 
-    // Refresh one oldest/missing symbol per run to stay inside Alpha Vantage's
-    // request allowance while guaranteeing rotation across the full universe.
+    const existingArticleKeys = new Set<string>();
+    for (const row of recentStoredNews ?? []) {
+      const symbol = String((row as any).symbol ?? '').toUpperCase();
+      const identity = String((row as any).url ?? (row as any).headline ?? '').trim();
+      const publishedAt = String((row as any).published_at ?? '');
+      if (symbol && identity) existingArticleKeys.add(`${symbol}|${identity}|${publishedAt}`);
+    }
+
+    // One targeted company query per run complements a broad-market news query.
+    // This keeps request volume bounded while avoiding the old one-symbol-only bottleneck.
     const refreshSymbols = [...symbols]
       .filter((symbol) => (latestNewsBySymbol.get(symbol) ?? 0) < staleBefore)
       .sort((a, b) => (latestNewsBySymbol.get(a) ?? 0) - (latestNewsBySymbol.get(b) ?? 0))
@@ -150,6 +158,92 @@ Deno.serve(async (req) => {
     const results: any[] = [];
     let inserted = 0;
     let refreshed = 0;
+
+    // Broad market feed: one request can surface relevant stories for many symbols
+    // via Alpha Vantage ticker_sentiment. This is the primary coverage path.
+    try {
+      const attemptedAt = new Date().toISOString();
+      const broadUrl = new URL('https://www.alphavantage.co/query');
+      broadUrl.searchParams.set('function', 'NEWS_SENTIMENT');
+      broadUrl.searchParams.set('time_from', alphaTimeFrom(3));
+      broadUrl.searchParams.set('sort', 'LATEST');
+      broadUrl.searchParams.set('limit', '200');
+      broadUrl.searchParams.set('apikey', key);
+
+      const response = await fetch(broadUrl);
+      const raw = await response.text();
+      if (!response.ok) throw new Error(`Alpha Vantage returned HTTP ${response.status}`);
+
+      let payload: any;
+      try {
+        payload = JSON.parse(raw);
+      } catch {
+        throw new Error('Alpha Vantage broad news response was not valid JSON.');
+      }
+
+      const providerMessage = payload?.Note ?? payload?.Information ?? payload?.['Error Message'];
+      if (providerMessage) throw new Error(String(providerMessage));
+
+      const symbolSet = new Set(symbols);
+      const broadRows: any[] = [];
+
+      for (const item of Array.isArray(payload?.feed) ? payload.feed : []) {
+        const publishedAt = parseAlphaTime(item.time_published);
+        if (!publishedAt || !item.title) continue;
+
+        const tickerSentiment = Array.isArray(item.ticker_sentiment) ? item.ticker_sentiment : [];
+        for (const ticker of tickerSentiment) {
+          const symbol = String(ticker?.ticker ?? '').toUpperCase();
+          if (!symbolSet.has(symbol)) continue;
+
+          const relevance = n(ticker?.relevance_score);
+          if (relevance !== null && relevance < 0.15) continue;
+
+          const tickerScore = n(ticker?.ticker_sentiment_score);
+          const overallScore = n(item.overall_sentiment_score);
+          const score = tickerScore ?? overallScore;
+          const identity = String(item.url ?? item.title).trim();
+          const dedupeKey = `${symbol}|${identity}|${publishedAt}`;
+          if (existingArticleKeys.has(dedupeKey)) continue;
+          existingArticleKeys.add(dedupeKey);
+
+          broadRows.push({
+            symbol,
+            headline: String(item.title),
+            summary: item.summary ? String(item.summary) : null,
+            category: Array.isArray(item.topics) && item.topics.length
+              ? String(item.topics[0]?.topic ?? item.category_within_source ?? 'market news')
+              : String(item.category_within_source ?? 'market news'),
+            url: item.url ? String(item.url) : null,
+            source_name: item.source ? String(item.source) : 'Alpha Vantage',
+            source_type: 'verified_news',
+            sentiment: normalizeSentiment(score),
+            sentiment_score: score,
+            impact: impactFrom(score, relevance),
+            recency_weight: recencyWeight(publishedAt),
+            confidence: relevance === null ? 0.65 : Math.max(0.35, Math.min(1, relevance)),
+            published_at: publishedAt,
+            retrieved_at: attemptedAt,
+            is_demo: false,
+          });
+        }
+      }
+
+      if (broadRows.length) {
+        const { error: insertError } = await db.from('news_items').insert(broadRows);
+        if (insertError) throw insertError;
+        inserted += broadRows.length;
+      }
+
+      results.push({
+        scope: 'broad',
+        ok: true,
+        articles: broadRows.length,
+        symbols_covered: [...new Set(broadRows.map((row) => row.symbol))].length,
+      });
+    } catch (error) {
+      results.push({ scope: 'broad', ok: false, error: errorMessage(error) });
+    }
 
     for (const symbol of refreshSymbols) {
       const attemptedAt = new Date().toISOString();
@@ -209,7 +303,13 @@ Deno.serve(async (req) => {
             retrieved_at: attemptedAt,
             is_demo: false,
           };
-        }).filter(Boolean);
+        }).filter(Boolean).filter((row: any) => {
+          const identity = String(row.url ?? row.headline ?? '').trim();
+          const key = `${symbol}|${identity}|${row.published_at}`;
+          if (!identity || existingArticleKeys.has(key)) return false;
+          existingArticleKeys.add(key);
+          return true;
+        });
 
         const cutoff = new Date(Date.now() - 8 * 86400000).toISOString();
         const { error: deleteError } = await db
@@ -217,7 +317,7 @@ Deno.serve(async (req) => {
           .delete()
           .eq('symbol', symbol)
           .eq('source_type', 'verified_news')
-          .gte('published_at', cutoff);
+          .lt('published_at', cutoff);
         if (deleteError) throw deleteError;
 
         if (rows.length) {
@@ -266,7 +366,7 @@ Deno.serve(async (req) => {
       candidate_providers: ['Alpha Vantage'],
       secret_env_name: 'ALPHA_VANTAGE_API_KEY',
       docs_url: 'https://www.alphavantage.co/documentation/',
-      notes: `Ticker-targeted news with ${cacheHours}-hour per-symbol caching.`,
+      notes: `Broad market news fan-out plus one rotating ticker-targeted query; ${cacheHours}-hour targeted cache.`,
       last_sync: new Date().toISOString(),
       last_error: results.find((x) => x.ok === false)?.error ?? null,
     }, { onConflict: 'provider_key' });
@@ -277,7 +377,7 @@ Deno.serve(async (req) => {
       refreshed,
       cached: symbols.length - refreshSymbols.length,
       inserted,
-      rotation_source: 'news_items',
+      rotation_source: 'broad-feed + news_items targeted rotation',
       next_refresh_candidates: refreshSymbols,
       results,
     });
