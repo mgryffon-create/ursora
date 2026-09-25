@@ -320,7 +320,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
   );
 
   const signalFor = useCallback(
-    (symbol: string) => activeSignals[symbol] ?? rememberedSignals[symbol] ?? latestSignalBySymbol[symbol] ?? null,
+    (symbol: string) => rememberedSignals[symbol] ?? latestSignalBySymbol[symbol] ?? activeSignals[symbol] ?? null,
     [activeSignals, latestSignalBySymbol, rememberedSignals],
   );
 
@@ -400,6 +400,36 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
         symbols: selectedSymbols.join(','),
       });
       setPipelineWarnings(result.warnings);
+
+      if (result.engine_version && result.engine_version !== 'tradecycle-5.6.0') {
+        setError(
+          `Analysis service returned ${result.engine_version}; expected tradecycle-5.6.0. Supabase is still serving an older run-analysis deployment.`,
+        );
+      }
+
+      if (result.run_id) {
+        const { data: runSignals, error: runSignalError } = await db
+          .from('signals')
+          .select('*')
+          .eq('run_id', result.run_id)
+          .in('symbol', selectedSymbols)
+          .order('generated_at', { ascending: false });
+
+        if (runSignalError) throw runSignalError;
+
+        const exactRunMap: Record<string, Signal> = {};
+        for (const signal of (runSignals as Signal[] | null) ?? []) {
+          const symbol = String(signal.symbol).toUpperCase();
+          if (!exactRunMap[symbol]) exactRunMap[symbol] = signal;
+        }
+
+        setRememberedSignals((previous) => ({ ...previous, ...exactRunMap }));
+        setSignals((previous) => {
+          const replaced = previous.filter((signal) => !selectedSymbols.includes(String(signal.symbol).toUpperCase()));
+          return [...Object.values(exactRunMap), ...replaced];
+        });
+      }
+
       setAnalysisSelection([]);
       await load();
     } catch (e) {
