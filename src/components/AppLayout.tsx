@@ -294,7 +294,12 @@ export const AppLayout: React.FC = () => {
       case 'trades':
         return <TradesView />;
       case 'history':
-        return <SignalHistoryView onOpenThesis={openThesis} />;
+        return (
+          <SignalHistoryView
+            onOpenThesis={openThesis}
+            onOpenHistoricalEvidence={openHistoricalEvidence}
+          />
+        );
       case 'backtest':
         return <BacktestView initialTradeIds={historicalEvidenceTradeIds} />;
       case 'trader':
