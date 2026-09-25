@@ -481,6 +481,23 @@ export async function saveTraderProfile(profile: Omit<TraderProfile, 'user_id'> 
   if (tableError && !isMissingTraderProfileTable(tableError)) throw tableError;
 }
 
+export interface SymbolAnalysisMemory {
+  user_id: string;
+  symbol: string;
+  signal_id: number;
+  analyzed_at: string;
+  updated_at: string;
+}
+
+export async function fetchSymbolAnalysisMemory(): Promise<SymbolAnalysisMemory[]> {
+  const { data, error } = await db
+    .from('symbol_analysis_memory')
+    .select('*')
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return rows<SymbolAnalysisMemory>(data as SymbolAnalysisMemory[]);
+}
+
 export async function fetchActiveAnalyses(): Promise<ActiveAnalysis[]> {
   const { data, error } = await db
     .from('active_analyses')
