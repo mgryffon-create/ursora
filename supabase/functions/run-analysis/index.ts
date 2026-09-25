@@ -1723,6 +1723,23 @@ Deno.serve(async (req) => {
       if (error) throw error;
       signalCount = insertedSignals?.length ?? created.length;
 
+      // Persist the latest completed analysis for every analyzed symbol, including
+      // No Trade results. This is UI state memory, not suggestion eligibility.
+      const memoryRows = (insertedSignals ?? []).map((signal: AnyRow) => ({
+        user_id: user.id,
+        symbol: String(signal.symbol).toUpperCase(),
+        signal_id: signal.id,
+        analyzed_at: signal.generated_at ?? started,
+        updated_at: started,
+      }));
+
+      if (memoryRows.length) {
+        const { error: memoryError } = await db
+          .from('symbol_analysis_memory')
+          .upsert(memoryRows, { onConflict: 'user_id,symbol' });
+        if (memoryError) throw memoryError;
+      }
+
       const validUntil = new Date(nowMs + 5 * 86400000).toISOString();
       const activeRows = (insertedSignals ?? [])
         .filter((signal: AnyRow) => String(signal.strategy) !== 'No Trade')
@@ -1770,7 +1787,7 @@ Deno.serve(async (req) => {
       feed_events: 0,
       regime: snapshot?.regime ?? null,
       notes: signalCount
-        ? `TradeCycle v5.3.0 swing analysis completed for authenticated user ${user.id}; outside regular hours, price evidence is anchored to the most recent frozen session close.`
+        ? `TradeCycle v5.4.0 swing analysis completed for authenticated user ${user.id}; outside regular hours, price evidence is anchored to the most recent frozen session close.`
         : 'No stored quote data were available; no signals were generated.',
       started_at: started,
       finished_at: new Date().toISOString(),
@@ -1782,7 +1799,7 @@ Deno.serve(async (req) => {
       signals: signalCount,
       updates: 0,
       run_id: runId,
-      engine_version: 'tradecycle-5.3.0',
+      engine_version: 'tradecycle-5.4.0',
       note: signalCount ? 'Signals generated using all currently available evidence categories.' : 'No stored quote data available.',
     });
   } catch (e) {
