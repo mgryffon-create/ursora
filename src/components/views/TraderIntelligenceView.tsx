@@ -136,6 +136,24 @@ const Table: React.FC<{ head: string[]; rows: (React.ReactNode[])[]; empty?: str
   </div>
 );
 
+const SectionContext: React.FC<{ items: Array<string | null | undefined> }> = ({ items }) => {
+  const visible = items.filter((item): item is string => Boolean(item));
+  if (!visible.length) return null;
+  return (
+    <div className="mt-3 border-t border-zinc-800/70 pt-2.5">
+      <div className="font-mono text-[8px] uppercase tracking-[0.16em] text-zinc-600">Read on this sample</div>
+      <div className="mt-1.5 grid gap-1.5">
+        {visible.map((item, index) => (
+          <div key={index} className="flex items-start gap-2 text-[10px] leading-relaxed text-zinc-500">
+            <span className="mt-[6px] h-1 w-1 shrink-0 rounded-full bg-zinc-600" />
+            <span>{item}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export const TraderIntelligenceView: React.FC<{
   onOpenThesis?: (id: number) => void;
   onOpenHistoricalEvidence?: (tradeIds: number[]) => void;
@@ -229,6 +247,31 @@ export const TraderIntelligenceView: React.FC<{
   );
   const profileRowsFor = (category: ProfileContextInsight['category']) =>
     profileContext.filter((row) => row.category === category);
+
+  const segmentExtremes = <T extends { trades: number; expectancy: number | null }>(rows: T[]) => {
+    const eligible = rows.filter((row) => row.trades > 0 && row.expectancy !== null);
+    if (!eligible.length) return { best: null as T | null, worst: null as T | null };
+    const sorted = [...eligible].sort((a, b) => (b.expectancy ?? -Infinity) - (a.expectancy ?? -Infinity));
+    return { best: sorted[0], worst: sorted[sorted.length - 1] };
+  };
+  const windowRows = baseline.byWindow.filter((row) => row.trades > 0);
+  const windowExtremes = segmentExtremes(windowRows);
+  const originExtremes = segmentExtremes(baseline.byOrigin);
+  const setupExtremes = segmentExtremes(baseline.bySetup);
+  const regimeExtremes = segmentExtremes(baseline.byRegime);
+  const dayExtremes = segmentExtremes(baseline.byDayOfWeek);
+  const dteExtremes = segmentExtremes(baseline.byDte);
+  const regimeSample = baseline.byRegime.reduce((sum, row) => sum + row.trades, 0);
+  const dteSample = baseline.byDte.reduce((sum, row) => sum + row.trades, 0);
+  const originSample = baseline.byOrigin.reduce((sum, row) => sum + row.trades, 0);
+  const winnerLoserHoldGap =
+    baseline.medianHoldingWinnersMin !== null && baseline.medianHoldingLosersMin !== null
+      ? baseline.medianHoldingLosersMin - baseline.medianHoldingWinnersMin
+      : null;
+  const afterLossSizeLift =
+    baseline.afterLoss.medianNextSize !== null && baseline.afterWin.medianNextSize !== null && baseline.afterWin.medianNextSize > 0
+      ? ((baseline.afterLoss.medianNextSize / baseline.afterWin.medianNextSize) - 1) * 100
+      : null;
   const contextTone = (status: ProfileContextInsight['status']) =>
     status === 'ALIGNED'
       ? 'text-emerald-400'
@@ -592,13 +635,28 @@ export const TraderIntelligenceView: React.FC<{
                 <Stat label="Average worst move" value={baseline.avgMae?.toFixed(1) ?? 'not recorded'} />
                 <Stat label="Median session P/L" value={signedMoney(baseline.medianSessionPl) ?? '—'} />
               </div>
+              <SectionContext items={[
+                baseline.expectancy !== null && baseline.winRate !== null
+                  ? `You win ${baseline.winRate}% of closed trades, while the average closed trade is ${signedMoney(baseline.expectancy) ?? 'unavailable'}.`
+                  : null,
+                baseline.payoffRatio !== null
+                  ? `Average winner size is ${multiple(baseline.payoffRatio) ?? '—'} of average loser size. Below 1× means losses are larger than wins on average.`
+                  : null,
+                winnerLoserHoldGap !== null
+                  ? winnerLoserHoldGap > 0
+                    ? `Losing trades are held about ${minutesLabel(winnerLoserHoldGap)} longer than winning trades at the median.`
+                    : winnerLoserHoldGap < 0
+                      ? `Winning trades are held about ${minutesLabel(Math.abs(winnerLoserHoldGap))} longer than losing trades at the median.`
+                      : 'Winning and losing trades have the same median hold in this sample.'
+                  : null,
+              ]} />
               <p className="mt-2 font-mono text-[10px] text-zinc-600">
                 Confidence for this sample: <ConfidenceTag label={intel.baseline.sampleSize >= 60 ? 'HIGH-CONFIDENCE PERSONAL PATTERN' : intel.baseline.sampleSize >= 30 ? 'ESTABLISHED PERSONAL PATTERN' : intel.baseline.sampleSize >= 15 ? 'EMERGING PATTERN' : intel.baseline.sampleSize >= 6 ? 'EARLY SIGNAL' : 'INSUFFICIENT DATA'} sample={baseline.sampleSize} />
               </p>
             </Panel>
 
             <div className="grid gap-3 lg:grid-cols-2">
-              <Panel title="By time of day" subtitle="Results are grouped by time of day. Average return is calculated per closed trade.">
+              <Panel title="By time of day" subtitle="Compares when you enter, how often those entries work, and how size changes across the session.">
                 <Table
                   head={['Time period', 'Trades', 'Win %', 'Average return', 'Average size']}
                   rows={baseline.byWindow.filter((w) => w.trades > 0).map((w) => [
@@ -607,8 +665,13 @@ export const TraderIntelligenceView: React.FC<{
                   ])}
                   empty="No trades fall inside a defined session window."
                 />
+                <SectionContext items={[
+                  windowExtremes.best ? `${windowExtremes.best.label} has the strongest average result at ${signedMoney(windowExtremes.best.expectancy) ?? '—'} across ${windowExtremes.best.trades} trades.` : null,
+                  windowExtremes.worst && windowExtremes.worst !== windowExtremes.best ? `${windowExtremes.worst.label} has the weakest average result at ${signedMoney(windowExtremes.worst.expectancy) ?? '—'} across ${windowExtremes.worst.trades} trades.` : null,
+                  'A window with only a few trades is an observation to watch, not a stable personal rule.',
+                ]} />
               </Panel>
-              <Panel title="By trade origin" subtitle="External signals are never assumed superior. This measures them.">
+              <Panel title="By trade origin" subtitle="Compares results by where the trade idea came from. Unclassified trades limit how useful this comparison can be.">
                 <Table
                   head={['Trade source', 'Trades', 'Win %', 'Average return', 'Total profit/loss']}
                   rows={baseline.byOrigin.map((o) => [
@@ -616,34 +679,59 @@ export const TraderIntelligenceView: React.FC<{
                     signedMoney(o.expectancy) ?? '—', signedMoney(o.totalPl) ?? '—',
                   ])}
                 />
+                <SectionContext items={[
+                  baseline.byOrigin.length === 1 && baseline.byOrigin[0]?.segment === 'Other'
+                    ? `All ${originSample} classified trades are currently grouped as Other, so source comparison is not meaningful yet.`
+                    : originExtremes.best ? `${originExtremes.best.segment} has the strongest average result at ${signedMoney(originExtremes.best.expectancy) ?? '—'} across ${originExtremes.best.trades} trades.` : null,
+                  baseline.byOrigin.length > 1 && originExtremes.worst && originExtremes.worst !== originExtremes.best ? `${originExtremes.worst.segment} has the weakest average result at ${signedMoney(originExtremes.worst.expectancy) ?? '—'} across ${originExtremes.worst.trades} trades.` : null,
+                ]} />
               </Panel>
-              <Panel title="By strategy and setup">
+              <Panel title="By strategy and setup" subtitle="Compares the structures you actually use so you can see which trade types are helping or hurting the overall baseline.">
                 <Table
                   head={['Setup', 'Trades', 'Win %', 'Average return']}
                   rows={baseline.bySetup.slice(0, 8).map((s) => [
                     s.segment, s.trades, s.winRate === null ? '—' : `${s.winRate}%`, signedMoney(s.expectancy) ?? '—',
                   ])}
                 />
+                <SectionContext items={[
+                  setupExtremes.best ? `${setupExtremes.best.segment} has the strongest average result at ${signedMoney(setupExtremes.best.expectancy) ?? '—'} across ${setupExtremes.best.trades} trades.` : null,
+                  setupExtremes.worst && setupExtremes.worst !== setupExtremes.best ? `${setupExtremes.worst.segment} has the weakest average result at ${signedMoney(setupExtremes.worst.expectancy) ?? '—'} across ${setupExtremes.worst.trades} trades.` : null,
+                ]} />
               </Panel>
-              <Panel title="By market environment" subtitle="Results are grouped by the broader market conditions recorded when each trade was opened.">
+              <Panel title="By market environment" subtitle="Shows whether outcomes differ with the broader market regime recorded at entry, without filling missing regime data after the fact.">
                 <Table
                   head={['Market environment', 'Trades', 'Win %', 'Average return']}
                   rows={baseline.byRegime.map((s) => [
                     s.segment, s.trades, s.winRate === null ? '—' : `${s.winRate}%`, signedMoney(s.expectancy) ?? '—',
                   ])}
                 />
+                <SectionContext items={[
+                  regimeSample < baseline.sampleSize ? `Market-environment context exists for ${regimeSample} of ${baseline.sampleSize} recorded trades, so this is only a partial view.` : null,
+                  regimeExtremes.best ? `${regimeExtremes.best.segment} currently has the strongest observed average result at ${signedMoney(regimeExtremes.best.expectancy) ?? '—'} across ${regimeExtremes.best.trades} trades.` : null,
+                  baseline.byRegime.length === 1 ? 'Only one market environment is represented, so there is not yet a meaningful regime comparison.' : null,
+                ]} />
               </Panel>
-              <Panel title="By day of week">
+              <Panel title="By day of week" subtitle="Describes day-level differences in your history. Small samples are context, not a trading rule.">
                 <Table head={['Day', 'Trades', 'Win %', 'Average return']}
                   rows={baseline.byDayOfWeek.map((s) => [s.segment, s.trades, s.winRate === null ? '—' : `${s.winRate}%`, signedMoney(s.expectancy) ?? '—'])} />
+                <SectionContext items={[
+                  dayExtremes.best ? `${dayExtremes.best.segment} has the strongest average result at ${signedMoney(dayExtremes.best.expectancy) ?? '—'} across ${dayExtremes.best.trades} trades.` : null,
+                  dayExtremes.worst && dayExtremes.worst !== dayExtremes.best ? `${dayExtremes.worst.segment} has the weakest average result at ${signedMoney(dayExtremes.worst.expectancy) ?? '—'} across ${dayExtremes.worst.trades} trades.` : null,
+                  'Weekday differences are descriptive; they do not establish that the day caused the result.',
+                ]} />
               </Panel>
-              <Panel title="By days to expiration">
+              <Panel title="By days to expiration" subtitle="Separates same-day options from longer-dated contracts so 0DTE behavior does not get blended into swing behavior.">
                 <Table head={['Days to expiration', 'Trades', 'Win %', 'Average return']}
                   rows={baseline.byDte.map((s) => [s.segment, s.trades, s.winRate === null ? '—' : `${s.winRate}%`, signedMoney(s.expectancy) ?? '—'])} />
+                <SectionContext items={[
+                  dteSample < baseline.sampleSize ? `DTE context exists for ${dteSample} of ${baseline.sampleSize} recorded trades.` : null,
+                  dteExtremes.best ? `${dteExtremes.best.segment} has the strongest average result at ${signedMoney(dteExtremes.best.expectancy) ?? '—'} across ${dteExtremes.best.trades} trades.` : null,
+                  dteExtremes.worst && dteExtremes.worst !== dteExtremes.best ? `${dteExtremes.worst.segment} has the weakest average result at ${signedMoney(dteExtremes.worst.expectancy) ?? '—'} across ${dteExtremes.worst.trades} trades.` : null,
+                ]} />
               </Panel>
             </div>
 
-            <Panel title="Sequence behaviour" subtitle="What your next trade looks like after a win and after a loss. Phrased as observed behaviour only.">
+            <Panel title="Sequence behaviour" subtitle="Compares what happens after a win versus after a loss: next size, re-entry timing, and next-trade outcome. No motive or emotion is inferred.">
               <Table
                 head={['Sequence', 'Trade pairs', 'Typical next size', 'Typical time between trades', 'Next-trade average return', 'Next win %']}
                 rows={[baseline.afterWin, baseline.afterLoss].map((s) => [
@@ -652,6 +740,19 @@ export const TraderIntelligenceView: React.FC<{
                   s.nextWinRate === null ? '—' : `${s.nextWinRate}%`,
                 ])}
               />
+              <SectionContext items={[
+                afterLossSizeLift !== null
+                  ? afterLossSizeLift > 0
+                    ? `Your typical next position after a loss is ${afterLossSizeLift.toFixed(0)}% larger than after a win.`
+                    : `Your typical next position after a loss is ${Math.abs(afterLossSizeLift).toFixed(0)}% smaller than after a win.`
+                  : null,
+                baseline.afterLoss.nextExpectancy !== null && baseline.afterWin.nextExpectancy !== null
+                  ? `The next trade averages ${signedMoney(baseline.afterLoss.nextExpectancy) ?? '—'} after a loss versus ${signedMoney(baseline.afterWin.nextExpectancy) ?? '—'} after a win.`
+                  : null,
+                baseline.afterLoss.medianMinutesToNext !== null && baseline.afterWin.medianMinutesToNext !== null
+                  ? `Typical re-entry timing is ${minutesLabel(baseline.afterLoss.medianMinutesToNext)} after a loss versus ${minutesLabel(baseline.afterWin.medianMinutesToNext)} after a win.`
+                  : null,
+              ]} />
             </Panel>
               </>
             )}
