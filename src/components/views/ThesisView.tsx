@@ -146,6 +146,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const tacticalLookback = Number.isFinite(Number(rawAnalysis.tactical_lookback_sessions)) ? Number(rawAnalysis.tactical_lookback_sessions) : null;
   const tacticalTargetBasis = typeof rawAnalysis.tactical_target_basis === 'string' ? rawAnalysis.tactical_target_basis : null;
   const tacticalInvalidationBasis = typeof rawAnalysis.tactical_invalidation_basis === 'string' ? rawAnalysis.tactical_invalidation_basis : null;
+  const localMoveUnit = Number.isFinite(Number(rawAnalysis.local_move_unit)) ? Number(rawAnalysis.local_move_unit) : null;
+  const recentMedianRange5 = Number.isFinite(Number(rawAnalysis.recent_median_range_5)) ? Number(rawAnalysis.recent_median_range_5) : null;
+  const recentMedianCloseMove5 = Number.isFinite(Number(rawAnalysis.recent_median_abs_close_move_5)) ? Number(rawAnalysis.recent_median_abs_close_move_5) : null;
   const balanced = useMemo(() => candidates.find((c) => c.profile === 'Balanced') ?? candidates[0] ?? null, [candidates]);
   const retail = sentiment.find((s) => s.cohort === 'retail');
   const professional = sentiment.find((s) => s.cohort === 'professional');
@@ -709,8 +712,8 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           <Panel
             title="Price movement with tactical swing levels"
             subtitle={tacticalLookback
-              ? `TradeCycle levels use the nearest structure from the last ${tacticalLookback} daily sessions plus ATR reachability bounds. Longer-range support and resistance remain context only.`
-              : 'TradeCycle levels prioritize recent swing structure and ATR reachability for the 1–5 day holding period.'}
+              ? `TradeCycle levels use the nearest reachable structure from the last ${tacticalLookback} daily sessions and a 5-session realized-move profile. ATR is a ceiling/fallback; longer-range support and resistance remain context only.`
+              : 'TradeCycle levels prioritize recent realized movement and nearby swing structure for the 1–5 day holding period; ATR is a ceiling/fallback.'}
             right={quote?.is_demo
               ? <DemoBadge />
               : <DataBadge kind={quoteIsDelayed ? 'delayed' : 'observed'} label={quoteIsDelayed ? 'MASSIVE MARKET DATA · SESSION CLOSE' : 'MASSIVE MARKET DATA'} />}
@@ -739,6 +742,11 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                   {tacticalInvalidationBasis ?? 'Recent swing structure with ATR noise buffer.'}
                 </div>
               </div>
+            </div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <Metric label="Local move unit" value={num(localMoveUnit)} />
+              <Metric label="Median 5-session range" value={num(recentMedianRange5)} />
+              <Metric label="Median 5-session close move" value={num(recentMedianCloseMove5)} />
             </div>
           </Panel>
           <Panel
