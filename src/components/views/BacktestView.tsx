@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Clock3, History, Loader2 } from 'lucide-react';
 import { fetchHistoricalPlayback, type HistoricalPlaybackResponse } from '@/lib/api';
-import { fetchTradeRecords } from '@/lib/behavioral/api';
+import { fetchBrokerageTradeRecords } from '@/lib/behavioral/api';
 import type { TradeRecord } from '@/lib/behavioral/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { SessionPlaybackChart } from '@/components/charts/PriceChart';
@@ -51,11 +51,18 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initial
       setLoading(true);
       setError(null);
       try {
-        const rows = user ? await fetchTradeRecords(user.id) : [];
+        const rows = user ? await fetchBrokerageTradeRecords(user.id) : [];
         if (!active) return;
         setTrades(rows);
       } catch (loadError) {
-        if (active) setError(loadError instanceof Error ? loadError.message : String(loadError));
+        if (active) {
+          const message = loadError instanceof Error
+            ? loadError.message
+            : typeof loadError === 'string'
+              ? loadError
+              : (() => { try { return JSON.stringify(loadError); } catch { return 'Historical Evidence could not load brokerage history.'; } })();
+          setError(message);
+        }
       } finally {
         if (active) setLoading(false);
       }
@@ -65,11 +72,15 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initial
   }, [user]);
 
   const visibleTrades = useMemo(() => {
+    const closedBrokerageTrades = trades
+      .filter((trade) => trade.broker === 'SnapTrade' && Boolean(trade.exit_at ?? trade.closed_at))
+      .sort((a, b) => +new Date(b.exit_at ?? b.closed_at ?? b.entry_at ?? b.created_at) - +new Date(a.exit_at ?? a.closed_at ?? a.entry_at ?? a.created_at));
+
     if (initialTradeIds.length) {
       const wanted = new Set(initialTradeIds);
-      return trades.filter((trade) => wanted.has(trade.id));
+      return closedBrokerageTrades.filter((trade) => wanted.has(trade.id));
     }
-    return trades.filter((trade) => trade.id < 0);
+    return closedBrokerageTrades;
   }, [initialTradeIds, trades]);
 
   useEffect(() => {
@@ -104,7 +115,12 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initial
       .catch((playbackError) => {
         if (active) {
           setPlayback(null);
-          setError(playbackError instanceof Error ? playbackError.message : String(playbackError));
+          const message = playbackError instanceof Error
+            ? playbackError.message
+            : typeof playbackError === 'string'
+              ? playbackError
+              : (() => { try { return JSON.stringify(playbackError); } catch { return 'Historical playback could not be loaded.'; } })();
+          setError(message);
         }
       })
       .finally(() => {
@@ -138,10 +154,10 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initial
         />
       ) : visibleTrades.length === 0 ? (
         <EmptyState
-          title={initialTradeIds.length ? 'Those evidence episodes are not available yet' : 'No normalized brokerage trades yet'}
+          title={initialTradeIds.length ? 'No closed brokerage trades match this evidence set' : 'No closed brokerage trades available yet'}
           body={initialTradeIds.length
-            ? 'The selected pattern has no brokerage episode that Historical Evidence can replay yet.'
-            : 'Your SnapTrade connection can already provide activity history. Run Sync accounts in MyURSORA after deploying the trade-episode normalizer so URSORA can reconstruct entries and exits from those activities.'}
+            ? 'The selected pattern currently points to records that are not closed SnapTrade trade episodes. Historical Evidence will not substitute analysis runs or paper records.'
+            : 'Historical Evidence only uses closed trades from your SnapTrade brokerage history. Analysis-generated and simulated records are excluded.'}
         />
       ) : (
         <div className="grid gap-3 xl:grid-cols-[330px_minmax(0,1fr)]">
