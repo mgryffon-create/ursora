@@ -487,6 +487,8 @@ export interface AnalysisRun {
   finished_at: string | null;
 }
 
+export type ChartHorizon = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y';
+
 export interface Bar {
   bar_time: string;
   open: number;
