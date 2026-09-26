@@ -98,37 +98,115 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     let active = true;
+    let initialized = false;
 
-    (async () => {
-      const remember = typeof window === 'undefined'
+    const rememberEnabled = () =>
+      typeof window === 'undefined'
         ? true
         : window.localStorage.getItem('ursora_remember_login') !== 'false';
+
+    const sessionExpiresSoon = (value: Session | null, withinSeconds = 300) => {
+      if (!value?.expires_at) return false;
+      return value.expires_at * 1000 - Date.now() <= withinSeconds * 1000;
+    };
+
+    const applySession = async (next: Session | null) => {
+      if (!active) return;
+      setSession(next);
+      setUser(next?.user ?? null);
+      await loadUserData(next?.user?.id ?? null);
+      if (active) {
+        initialized = true;
+        setLoading(false);
+      }
+    };
+
+    const restoreSession = async () => {
+      const remember = rememberEnabled();
       const sessionOnlyActive = typeof window !== 'undefined'
         && window.sessionStorage.getItem('ursora_session_only_active') === 'true';
 
-      // Supabase always uses its durable localStorage session. When the user explicitly
-      // opts out of Remember me, the session is valid only while this browser session
-      // marker exists. A remembered login never passes through this sign-out path.
+      // Session-only mode is the only path that clears a persisted Supabase session
+      // after a browser restart. Remembered sessions are never proactively signed out.
       if (!remember && !sessionOnlyActive) {
         await db.auth.signOut({ scope: 'local' });
+        await applySession(null);
+        return;
       }
 
-      const { data } = await db.auth.getSession();
-      if (!active) return;
-      setSession(data.session ?? null);
-      setUser(data.session?.user ?? null);
-      await loadUserData(data.session?.user?.id ?? null);
-      if (active) setLoading(false);
-    })();
+      const { data, error } = await db.auth.getSession();
+      if (error) {
+        // A storage/read problem should not silently become an explicit sign-out.
+        // Leave auth state unresolved until Supabase emits its next auth event.
+        if (active) setLoading(false);
+        return;
+      }
 
-    const { data: sub } = db.auth.onAuthStateChange((_event, next) => {
+      let restored = data.session ?? null;
+
+      // Browser closures commonly span the one-hour access-token lifetime. When
+      // Remember me is enabled, proactively rotate the persisted refresh token on
+      // startup so the next session is durable before the rest of the app loads.
+      if (remember && restored?.refresh_token) {
+        const { data: refreshed, error: refreshError } = await db.auth.refreshSession({
+          refresh_token: restored.refresh_token,
+        });
+
+        if (!refreshError && refreshed.session) {
+          restored = refreshed.session;
+        } else if (sessionExpiresSoon(restored, 0)) {
+          // Do not present an expired access token as an authenticated session.
+          restored = null;
+        }
+      }
+
+      await applySession(restored);
+    };
+
+    void restoreSession();
+
+    const { data: sub } = db.auth.onAuthStateChange((event, next) => {
+      // INITIAL_SESSION can race the explicit startup restore. Ignore its transient
+      // null value until restoreSession has had a chance to recover/refresh storage.
+      if (!initialized && event === 'INITIAL_SESSION' && !next) return;
+
       setSession(next ?? null);
       setUser(next?.user ?? null);
       void loadUserData(next?.user?.id ?? null);
+      if (!initialized) {
+        initialized = true;
+        setLoading(false);
+      }
     });
+
+    const refreshOnResume = () => {
+      if (typeof document === 'undefined' || document.visibilityState !== 'visible') return;
+      if (!rememberEnabled()) return;
+
+      void db.auth.getSession().then(async ({ data }) => {
+        const current = data.session ?? null;
+        if (!current?.refresh_token || !sessionExpiresSoon(current, 300)) return;
+
+        const { data: refreshed, error } = await db.auth.refreshSession({
+          refresh_token: current.refresh_token,
+        });
+        if (!error && refreshed.session && active) {
+          setSession(refreshed.session);
+          setUser(refreshed.session.user);
+        }
+      });
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', refreshOnResume);
+    }
+
     return () => {
       active = false;
       sub.subscription.unsubscribe();
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', refreshOnResume);
+      }
     };
   }, [loadUserData]);
 
