@@ -1,7 +1,7 @@
 import db from '@/lib/db';
 import { APP_CONFIG } from '@/lib/config';
 import type {
-  ActiveAnalysis, AnalysisRun, Bar, ContractCandidate, EarningsEvent, EconomicEvent, FeedEvent, Filing, TraderProfile,
+  ActiveAnalysis, AnalysisRun, Bar, ChartHorizon, ContractCandidate, EarningsEvent, EconomicEvent, FeedEvent, Filing, TraderProfile,
   MarketMover, MarketSnapshot, NewsItem, PaperTrade, ProviderConfig, Quote,
   RiskAssessment, SentimentReading, Signal, SignalUpdate, SnapTradeAccount, Ticker, TranscriptStatement,
 } from '@/lib/types';
@@ -637,8 +637,6 @@ export async function fetchSignalUpdates(symbol?: string, limit = 40): Promise<S
   return rows<SignalUpdate>(data as SignalUpdate[]);
 }
 
-
-export type ChartHorizon = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y';
 
 export interface ChartBarsResponse {
   success: boolean;
