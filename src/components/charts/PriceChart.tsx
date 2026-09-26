@@ -116,7 +116,7 @@ export const PriceChart: React.FC<{ bars: Bar[]; levels?: KeyLevel[]; height?: n
             {l.label}
           </span>
         ))}
-        <span>{bars.length} daily bars, modelled by the simulation adapter</span>
+        <span>{bars.length} daily bars</span>
       </div>
     </div>
   );
