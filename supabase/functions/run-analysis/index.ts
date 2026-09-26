@@ -1186,6 +1186,57 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Cross-factor agreement only considers independent directional factors with meaningful strength.
+      const directionalEvidence = [priceEvidence, momentumEvidence, participationEvidence, marketEvidence, optionsEvidence, newsEvidence]
+        .filter((v): v is number => v !== null && Math.abs(v) >= 45);
+      const supportingCount = directionalEvidence.filter((v) => v > 0).length;
+      const opposingCount = directionalEvidence.filter((v) => v < 0).length;
+      const agreement = directionalEvidence.length >= 3
+        ? Math.round((Math.max(supportingCount, opposingCount) / directionalEvidence.length) * 100)
+        : null;
+      const agreementForConfidence = agreement ?? 50;
+
+      const nextEarnings = (earningsBySymbol.get(symbol) ?? [])[0] ?? null;
+      const hoursToEarnings = nextEarnings?.report_time
+        ? (new Date(nextEarnings.report_time).getTime() - nowMs) / 3600000
+        : null;
+      const eventInsideHoldingWindow =
+        hoursToEarnings !== null &&
+        hoursToEarnings >= 0 &&
+        hoursToEarnings <= 5 * 24;
+
+      const quoteFreshness = freshnessFrom(q.retrieved_at ?? q.as_of, 18, nowMs);
+      const quoteConfidence = clamp(n(q.confidence) ?? 0.78, 0.35, 1);
+      const marketFreshness =
+        avg([spy, qqq].map((row) => row ? freshnessFrom(row.retrieved_at ?? row.as_of, 18, nowMs) : null)) ?? 0.45;
+      const optionFreshness = symbolOptions.length
+        ? avg(symbolOptions.slice(0, 50).map((row) => freshnessFrom(row.retrieved_at, 12, nowMs))) ?? 0.5
+        : 0;
+      const newsFreshness = symbolNews.length
+        ? avg(symbolNews.slice(0, 12).map((row) => freshnessFrom(row.published_at, 24, nowMs))) ?? 0.5
+        : 0;
+
+      const priceProvenance: EvidenceProvenance = priceEvidence === null ? 'unavailable' : 'derived';
+      const momentumProvenance: EvidenceProvenance = momentumEvidence === null ? 'unavailable' : 'derived';
+      const participationProvenance: EvidenceProvenance = participationEvidence === null ? 'unavailable' : 'derived';
+      const marketProvenance: EvidenceProvenance = marketEvidence === null ? 'unavailable' : 'observed';
+      const optionsProvenance: EvidenceProvenance = optionsEvidence === null
+        ? 'unavailable'
+        : symbolOptions.length ? 'observed' : 'imputed';
+      const newsProvenance: EvidenceProvenance = newsEvidence === null ? 'unavailable' : 'observed';
+      const liquidityProvenance: EvidenceProvenance = liquidityEvidence === null ? 'unavailable' : 'observed';
+      const riskRewardProvenance: EvidenceProvenance = riskRewardEvidence === null ? 'unavailable' : 'derived';
+
+      // Redundancy penalties keep correlated evidence from being counted as independent confirmation.
+      const priceIndependence = 1.0;
+      const momentumIndependence = priceEvidence !== null ? 0.68 : 1.0;
+      const participationIndependence = priceEvidence !== null ? 0.78 : 1.0;
+      const marketIndependence = 0.88;
+      const optionsIndependence = 0.95;
+      const newsIndependence = 1.0;
+      const liquidityIndependence = optionsEvidence !== null ? 0.82 : 1.0;
+      const riskRewardIndependence = priceEvidence !== null ? 0.78 : 1.0;
+
       const factorSpecs: FactorSpec[] = [
         {
           factor: 'price_trend',
