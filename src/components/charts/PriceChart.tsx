@@ -3,7 +3,7 @@ import {
   Area, AreaChart, CartesianGrid, Line, LineChart, ReferenceDot, ReferenceLine, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from 'recharts';
-import type { Bar } from '@/lib/types';
+import type { Bar, ChartHorizon } from '@/lib/types';
 import { isMissing } from '@/lib/format';
 import { Unavailable } from '@/components/common/Primitives';
 
@@ -16,12 +16,22 @@ export interface KeyLevel {
 
 const axisStyle = { fill: '#71717a', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' };
 
-const TooltipBox: React.FC<{ active?: boolean; payload?: { payload: Bar }[] }> = ({ active, payload }) => {
+const TooltipBox: React.FC<{ active?: boolean; payload?: { payload: Bar }[]; horizon?: ChartHorizon }> = ({ active, payload, horizon = '1M' }) => {
   if (!active || !payload?.length) return null;
   const b = payload[0].payload;
   return (
     <div className="rounded-sm border border-zinc-700 bg-[#0b0d10]/95 p-2 font-mono text-[10px] text-zinc-300 shadow-xl">
-      <div className="text-zinc-400">{new Date(b.bar_time).toISOString().slice(0, 10)}</div>
+      <div className="text-zinc-400">
+        {horizon === '1D' || horizon === '1W'
+          ? new Intl.DateTimeFormat('en-US', {
+              timeZone: 'America/New_York',
+              month: 'short',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+            }).format(new Date(b.bar_time))
+          : new Date(b.bar_time).toISOString().slice(0, 10)}
+      </div>
       <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 tabular-nums">
         <span className="text-zinc-500">O</span><span>{b.open}</span>
         <span className="text-zinc-500">H</span><span className="text-emerald-400">{b.high}</span>
@@ -33,8 +43,14 @@ const TooltipBox: React.FC<{ active?: boolean; payload?: { payload: Bar }[] }> =
   );
 };
 
-export const PriceChart: React.FC<{ bars: Bar[]; levels?: KeyLevel[]; height?: number }> = ({
-  bars, levels = [], height = 280,
+export const PriceChart: React.FC<{
+  bars: Bar[];
+  levels?: KeyLevel[];
+  height?: number;
+  horizon?: ChartHorizon;
+  barLabel?: string;
+}> = ({
+  bars, levels = [], height = 280, horizon = '1M', barLabel,
 }) => {
   if (!bars.length) {
     return (
@@ -69,7 +85,24 @@ export const PriceChart: React.FC<{ bars: Bar[]; levels?: KeyLevel[]; height?: n
               tickLine={false}
               axisLine={{ stroke: '#1c2027' }}
               minTickGap={48}
-              tickFormatter={(v: string) => new Date(v).toISOString().slice(5, 10)}
+              tickFormatter={(v: string) => {
+                const date = new Date(v);
+                if (horizon === '1D') {
+                  return new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'America/New_York',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  }).format(date);
+                }
+                if (horizon === '1W') {
+                  return new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'America/New_York',
+                    weekday: 'short',
+                    hour: 'numeric',
+                  }).format(date);
+                }
+                return date.toISOString().slice(5, 10);
+              }}
             />
             <YAxis
               orientation="right"
@@ -80,7 +113,7 @@ export const PriceChart: React.FC<{ bars: Bar[]; levels?: KeyLevel[]; height?: n
               width={54}
               tickFormatter={(v: number) => v.toFixed(v > 100 ? 0 : 1)}
             />
-            <Tooltip content={<TooltipBox />} />
+            <Tooltip content={<TooltipBox horizon={horizon} />} />
             <Area
               type="monotone"
               dataKey="close"
@@ -116,7 +149,7 @@ export const PriceChart: React.FC<{ bars: Bar[]; levels?: KeyLevel[]; height?: n
             {l.label}
           </span>
         ))}
-        <span>{bars.length} daily bars</span>
+        <span>{bars.length} {barLabel ?? (horizon === '1D' ? '5-minute bars' : horizon === '1W' ? '30-minute bars' : 'daily bars')} · {horizon}</span>
       </div>
     </div>
   );
