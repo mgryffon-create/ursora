@@ -401,9 +401,9 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
       });
       setPipelineWarnings(result.warnings);
 
-      if (result.engine_version && result.engine_version !== 'tradecycle-5.6.0') {
+      if (result.engine_version && result.engine_version !== 'tradecycle-5.7.0') {
         setError(
-          `Analysis service returned ${result.engine_version}; expected tradecycle-5.6.0. Supabase is still serving an older run-analysis deployment.`,
+          `Analysis service returned ${result.engine_version}; expected tradecycle-5.7.0. Supabase is still serving an older run-analysis deployment.`,
         );
       }
 
