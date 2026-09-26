@@ -1072,9 +1072,14 @@ Deno.serve(async (req) => {
       const volumeMedian = median(relevantOptions.map((r) => n(r.volume)));
 
       let liquidityEvidence: number | null = null;
+      let liquidityConfidence = 0;
+      let liquiditySourceQuality = 0;
+      let liquidityAssessment = 'unavailable';
+
       if (relevantOptions.length) {
         let score = 0;
         let pieces = 0;
+
         if (spreadMedian !== null) {
           score += spreadMedian <= 5 ? 85 : spreadMedian <= 10 ? 55 : spreadMedian <= 20 ? 10 : -70;
           pieces++;
@@ -1087,7 +1092,28 @@ Deno.serve(async (req) => {
           score += volumeMedian >= 100 ? 70 : volumeMedian >= 20 ? 40 : volumeMedian >= 5 ? 10 : -30;
           pieces++;
         }
-        liquidityEvidence = pieces ? clamp(score / pieces) : null;
+
+        if (pieces) {
+          const rawLiquidity = clamp(score / pieces);
+
+          if (spreadMedian === null) {
+            // OI and volume can tell us a contract is active, but without bid/ask
+            // spread we cannot claim favorable execution quality. Cap the score in
+            // the Adequate/limited range and lower confidence accordingly.
+            const depthPieces = [oiMedian, volumeMedian].filter((value) => value !== null).length;
+            liquidityEvidence = Math.min(rawLiquidity, depthPieces >= 2 ? 35 : 20);
+            liquidityConfidence = depthPieces >= 2 ? 0.62 : 0.48;
+            liquiditySourceQuality = depthPieces >= 2 ? 0.72 : 0.58;
+            liquidityAssessment = depthPieces >= 2
+              ? 'depth observed; spread unavailable'
+              : 'partial depth observed; spread unavailable';
+          } else {
+            liquidityEvidence = rawLiquidity;
+            liquidityConfidence = 0.90;
+            liquiditySourceQuality = 0.90;
+            liquidityAssessment = 'spread and depth observed';
+          }
+        }
       }
 
       // Tactical 1–5 day structure.
@@ -1357,14 +1383,16 @@ Deno.serve(async (req) => {
           signedScore: liquidityEvidence,
           directional: false,
           provenance: liquidityProvenance,
-          confidence: liquidityEvidence === null ? 0 : 0.90,
+          confidence: liquidityEvidence === null ? 0 : liquidityConfidence,
           freshness: liquidityEvidence === null ? 0 : optionFreshness,
-          sourceQuality: liquidityEvidence === null ? 0 : 0.90,
+          sourceQuality: liquidityEvidence === null ? 0 : liquiditySourceQuality,
           imputationConfidence: 1,
           independence: liquidityIndependence,
           explanation: liquidityEvidence === null
-            ? 'Option bid/ask, volume, and open-interest data are not available.'
-            : `Available ${desiredOptionType.toLowerCase()} contracts show a median spread of ${spreadMedian?.toFixed(1) ?? 'unavailable'}%, median open interest of ${oiMedian?.toFixed(0) ?? 'unavailable'}, and median daily volume of ${volumeMedian?.toFixed(0) ?? 'unavailable'}.`,
+            ? 'Option execution quality cannot be evaluated from the available bid/ask, volume, and open-interest data.'
+            : spreadMedian === null
+              ? `Available ${desiredOptionType.toLowerCase()} contracts show median open interest of ${oiMedian?.toFixed(0) ?? 'unavailable'} and median daily volume of ${volumeMedian?.toFixed(0) ?? 'unavailable'}, but bid/ask spread is unavailable. Activity/depth can be described, but favorable execution quality is not inferred without spread data.`
+              : `Available ${desiredOptionType.toLowerCase()} contracts show a median spread of ${spreadMedian.toFixed(1)}%, median open interest of ${oiMedian?.toFixed(0) ?? 'unavailable'}, and median daily volume of ${volumeMedian?.toFixed(0) ?? 'unavailable'}.`,
         },
         {
           factor: 'risk_reward',
@@ -1830,6 +1858,11 @@ Deno.serve(async (req) => {
             recent_median_abs_close_move_5: recentMove.median_abs_close_move_5,
             current_session_range: recentMove.current_session_range,
             local_move_unit: recentMove.local_move_unit,
+            liquidity_spread_median: spreadMedian,
+            liquidity_oi_median: oiMedian,
+            liquidity_volume_median: volumeMedian,
+            liquidity_assessment: liquidityAssessment,
+            liquidity_confidence: liquidityConfidence,
             tactical_target: tacticalTarget,
             tactical_target_basis: tacticalTargetBasis,
             tactical_invalidation: tacticalInvalidation,
@@ -1901,6 +1934,11 @@ Deno.serve(async (req) => {
             direction === 'neutral'
               ? 'Tactical target/invalidation are not produced without an established direction.'
               : `1–5 day tactical structure uses ${tacticalStructure.lookback_sessions} recent daily sessions, a 5-session realized-move profile, and nearest reachable pivots. ATR is a ceiling/fallback rather than the primary width generator. Target basis: ${tacticalTargetBasis}. Invalidation basis: ${tacticalInvalidationBasis}.`,
+            liquidityEvidence === null
+              ? 'Option liquidity: insufficient execution-quality data.'
+              : spreadMedian === null
+                ? `Option liquidity: ${liquidityAssessment}. OI/volume can describe activity, but liquidity quality is capped because bid/ask spread is unavailable.`
+                : `Option liquidity: ${liquidityAssessment}; median spread ${spreadMedian.toFixed(1)}%.`,
             thesisBlockers.length ? `Thesis constraints: ${thesisBlockers.join(' ')}` : 'No thesis-level directional constraints were identified.',
             tradeBlockers.length ? `Trade constraints: ${tradeBlockers.join(' ')}` : 'No hard trade constraints were identified from the data currently available.',
             suggestionEligible
@@ -1911,7 +1949,7 @@ Deno.serve(async (req) => {
         },
         regime: snapshot?.regime ?? 'Mixed',
         regime_explanation: snapshot?.regime_note ?? 'Broader market conditions derived from the latest stored market data.',
-        engine_version: 'tradecycle-5.6.0',
+        engine_version: 'tradecycle-5.7.0',
         is_demo: Boolean(q.is_demo ?? true),
         generated_at: started,
       });
@@ -1990,7 +2028,7 @@ Deno.serve(async (req) => {
       feed_events: 0,
       regime: snapshot?.regime ?? null,
       notes: signalCount
-        ? `TradeCycle v5.6.0 swing analysis completed for authenticated user ${user.id}; outside regular hours, price evidence is anchored to the most recent frozen session close.`
+        ? `TradeCycle v5.7.0 swing analysis completed for authenticated user ${user.id}; outside regular hours, price evidence is anchored to the most recent frozen session close.`
         : 'No stored quote data were available; no signals were generated.',
       started_at: started,
       finished_at: new Date().toISOString(),
@@ -2002,7 +2040,7 @@ Deno.serve(async (req) => {
       signals: signalCount,
       updates: 0,
       run_id: runId,
-      engine_version: 'tradecycle-5.6.0',
+      engine_version: 'tradecycle-5.7.0',
       note: signalCount ? 'Signals generated using all currently available evidence categories.' : 'No stored quote data available.',
     });
   } catch (e) {
