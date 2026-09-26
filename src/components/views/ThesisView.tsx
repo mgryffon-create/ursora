@@ -156,6 +156,8 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   };
   const tacticalSupport = rawNumber(rawAnalysis.tactical_support);
   const tacticalResistance = rawNumber(rawAnalysis.tactical_resistance);
+  const contextSupport = rawNumber(rawAnalysis.context_support);
+  const contextResistance = rawNumber(rawAnalysis.context_resistance);
   const tacticalLookback = rawNumber(rawAnalysis.tactical_lookback_sessions);
   const tacticalTargetBasis = typeof rawAnalysis.tactical_target_basis === 'string' ? rawAnalysis.tactical_target_basis : null;
   const tacticalInvalidationBasis = typeof rawAnalysis.tactical_invalidation_basis === 'string' ? rawAnalysis.tactical_invalidation_basis : null;
@@ -163,23 +165,35 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const recentMedianRange5 = rawNumber(rawAnalysis.recent_median_range_5);
   const recentMedianCloseMove5 = rawNumber(rawAnalysis.recent_median_abs_close_move_5);
   const chartBars = chartBarsByHorizon[chartHorizon] ?? bars.slice(-23);
-  const chartLevels = chartHorizon === '3M' || chartHorizon === '6M' || chartHorizon === '1Y'
-    ? [
-        { value: quote?.vwap, label: 'VWAP', color: '#38bdf8' },
-        { value: signal?.target_price, label: '1–5 day target', color: '#34d399', dash: '6 3' },
-        { value: signal?.invalidation_level, label: '1–5 day invalidation', color: '#fbbf24', dash: '2 2' },
-        { value: quote?.resistance, label: 'Broader resistance', color: '#34d399', dash: '2 5' },
-        { value: quote?.support, label: 'Broader support', color: '#f87171', dash: '2 5' },
-        { value: signal?.suggested_strike, label: 'Strike', color: '#a78bfa', dash: '6 3' },
-      ]
-    : [
-        { value: quote?.vwap, label: 'VWAP', color: '#38bdf8' },
-        { value: tacticalResistance, label: 'Recent swing resistance', color: '#34d399' },
-        { value: tacticalSupport, label: 'Recent swing support', color: '#f87171' },
-        { value: signal?.target_price, label: '1–5 day target', color: '#34d399', dash: '6 3' },
-        { value: signal?.invalidation_level, label: '1–5 day invalidation', color: '#fbbf24', dash: '2 2' },
-        { value: signal?.suggested_strike, label: 'Strike', color: '#a78bfa', dash: '6 3' },
-      ];
+  const analysisPrice = rawNumber(signal?.stock_price_at_generation);
+
+  const tradeFrameLevels = [
+    { value: analysisPrice, label: 'Analysis price', color: '#60a5fa', dash: '3 3' },
+    { value: signal?.target_price, label: '1–5 day target', color: '#34d399', dash: '6 3' },
+    { value: signal?.invalidation_level, label: '1–5 day invalidation', color: '#fbbf24', dash: '2 2' },
+  ];
+
+  const chartLevels = chartHorizon === '1D'
+    ? tradeFrameLevels
+    : chartHorizon === '1W'
+      ? [
+          ...tradeFrameLevels,
+          { value: tacticalResistance, label: 'Reachable resistance', color: '#34d399' },
+          { value: tacticalSupport, label: 'Reachable support', color: '#f87171' },
+        ]
+      : chartHorizon === '1M'
+        ? [
+            ...tradeFrameLevels,
+            { value: tacticalResistance, label: 'Reachable resistance', color: '#34d399' },
+            { value: tacticalSupport, label: 'Reachable support', color: '#f87171' },
+            { value: contextResistance, label: 'Daily pivot resistance', color: '#10b981', dash: '2 5' },
+            { value: contextSupport, label: 'Daily pivot support', color: '#fb7185', dash: '2 5' },
+          ]
+        : [
+            ...tradeFrameLevels,
+            { value: quote?.resistance, label: 'Broader resistance', color: '#34d399', dash: '2 5' },
+            { value: quote?.support, label: 'Broader support', color: '#f87171', dash: '2 5' },
+          ];
 
   const selectChartHorizon = async (horizon: ChartHorizon) => {
     setChartHorizon(horizon);
@@ -761,8 +775,8 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           <Panel
             title="Price movement with tactical swing levels"
             subtitle={tacticalLookback
-              ? `TradeCycle levels use the nearest reachable structure from the last ${tacticalLookback} daily sessions and a 5-session realized-move profile. ATR is a ceiling/fallback; longer-range support and resistance remain context only.`
-              : 'TradeCycle levels prioritize recent realized movement and nearby swing structure for the 1–5 day holding period; ATR is a ceiling/fallback.'}
+              ? `The chart separates the 1–5 day trade frame from longer-horizon structure. TradeCycle uses ${tacticalLookback} recent daily sessions plus a 5-session realized-move profile; only reachable pivots become tactical levels.`
+              : 'The chart separates the 1–5 day trade frame from longer-horizon structure; only reachable pivots become tactical levels.'}
             right={quote?.is_demo
               ? <DemoBadge />
               : <DataBadge kind={quoteIsDelayed ? 'delayed' : 'observed'} label={quoteIsDelayed ? 'MASSIVE MARKET DATA · SESSION CLOSE' : 'MASSIVE MARKET DATA'} />}
@@ -825,6 +839,12 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               <Metric label="Local move unit" value={num(localMoveUnit)} />
               <Metric label="Median 5-session range" value={num(recentMedianRange5)} />
               <Metric label="Median 5-session close move" value={num(recentMedianCloseMove5)} />
+            </div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <Metric label="Reachable support" value={num(tacticalSupport)} valueClass="text-red-300" />
+              <Metric label="Reachable resistance" value={num(tacticalResistance)} valueClass="text-emerald-300" />
+              <Metric label="Nearest daily pivot support" value={num(contextSupport)} valueClass="text-zinc-400" />
+              <Metric label="Nearest daily pivot resistance" value={num(contextResistance)} valueClass="text-zinc-400" />
             </div>
           </Panel>
           <Panel
