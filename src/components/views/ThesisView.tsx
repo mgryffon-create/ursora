@@ -4,12 +4,12 @@ import {
   Newspaper, ShieldAlert, Sparkles, Users, X,
 } from 'lucide-react';
 import {
-  fetchBars, fetchCandidates, fetchEarnings, fetchEconomicEvents, fetchFilings, fetchNews, fetchQuote, fetchRisk,
+  fetchBars, fetchCandidates, fetchChartBars, fetchEarnings, fetchEconomicEvents, fetchFilings, fetchNews, fetchQuote, fetchRisk,
   fetchSentiment, fetchSignal, fetchSnapshot, fetchTickers, fetchTranscripts,
   track,
 } from '@/lib/api';
 import type {
-  Bar, ContractCandidate, EarningsEvent, EconomicEvent, Filing, MarketSnapshot, NewsItem, Quote, RiskAssessment,
+  Bar, ChartHorizon, ContractCandidate, EarningsEvent, EconomicEvent, Filing, MarketSnapshot, NewsItem, Quote, RiskAssessment,
   SentimentReading, Signal, Ticker, TranscriptStatement,
 } from '@/lib/types';
 import {
@@ -81,6 +81,10 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const [transcripts, setTranscripts] = useState<TranscriptStatement[]>([]);
   const [sentiment, setSentiment] = useState<SentimentReading[]>([]);
   const [bars, setBars] = useState<Bar[]>([]);
+  const [chartHorizon, setChartHorizon] = useState<ChartHorizon>('1M');
+  const [chartBarsByHorizon, setChartBarsByHorizon] = useState<Partial<Record<ChartHorizon, Bar[]>>>({});
+  const [chartLoading, setChartLoading] = useState(false);
+  const [chartError, setChartError] = useState<string | null>(null);
   const [econ, setEcon] = useState<EconomicEvent[]>([]);
   const [earnings, setEarnings] = useState<EarningsEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,6 +96,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
     let active = true;
     setLoading(true);
     setShowAllNews(false);
+    setChartHorizon('1M');
+    setChartBarsByHorizon({});
+    setChartError(null);
     (async () => {
       const sig = await fetchSignal(signalId);
       if (!active) return;
@@ -116,6 +123,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
       setTranscripts(tr);
       setSentiment(se);
       setBars(bs);
+      setChartBarsByHorizon({ '1M': bs.slice(-23) });
       setEcon(ec.filter((e) => e.affected_symbols.includes(sig.symbol)));
       setEarnings(ea.filter((e) => e.symbol === sig.symbol));
       setLoading(false);
@@ -154,7 +162,42 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const localMoveUnit = rawNumber(rawAnalysis.local_move_unit);
   const recentMedianRange5 = rawNumber(rawAnalysis.recent_median_range_5);
   const recentMedianCloseMove5 = rawNumber(rawAnalysis.recent_median_abs_close_move_5);
-  const tacticalChartBars = bars.slice(-20);
+  const chartBars = chartBarsByHorizon[chartHorizon] ?? bars.slice(-23);
+  const chartLevels = chartHorizon === '3M' || chartHorizon === '6M' || chartHorizon === '1Y'
+    ? [
+        { value: quote?.vwap, label: 'VWAP', color: '#38bdf8' },
+        { value: signal?.target_price, label: '1–5 day target', color: '#34d399', dash: '6 3' },
+        { value: signal?.invalidation_level, label: '1–5 day invalidation', color: '#fbbf24', dash: '2 2' },
+        { value: quote?.resistance, label: 'Broader resistance', color: '#34d399', dash: '2 5' },
+        { value: quote?.support, label: 'Broader support', color: '#f87171', dash: '2 5' },
+        { value: signal?.suggested_strike, label: 'Strike', color: '#a78bfa', dash: '6 3' },
+      ]
+    : [
+        { value: quote?.vwap, label: 'VWAP', color: '#38bdf8' },
+        { value: tacticalResistance, label: 'Recent swing resistance', color: '#34d399' },
+        { value: tacticalSupport, label: 'Recent swing support', color: '#f87171' },
+        { value: signal?.target_price, label: '1–5 day target', color: '#34d399', dash: '6 3' },
+        { value: signal?.invalidation_level, label: '1–5 day invalidation', color: '#fbbf24', dash: '2 2' },
+        { value: signal?.suggested_strike, label: 'Strike', color: '#a78bfa', dash: '6 3' },
+      ];
+
+  const selectChartHorizon = async (horizon: ChartHorizon) => {
+    setChartHorizon(horizon);
+    setChartError(null);
+
+    if (chartBarsByHorizon[horizon]?.length || !signal?.symbol) return;
+
+    setChartLoading(true);
+    try {
+      const result = await fetchChartBars(signal.symbol, horizon);
+      setChartBarsByHorizon((current) => ({ ...current, [horizon]: result.bars }));
+    } catch (chartLoadError) {
+      setChartError(chartLoadError instanceof Error ? chartLoadError.message : String(chartLoadError));
+    } finally {
+      setChartLoading(false);
+    }
+  };
+
   const balanced = useMemo(() => candidates.find((c) => c.profile === 'Balanced') ?? candidates[0] ?? null, [candidates]);
   const retail = sentiment.find((s) => s.cohort === 'retail');
   const professional = sentiment.find((s) => s.cohort === 'professional');
@@ -724,17 +767,46 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               ? <DemoBadge />
               : <DataBadge kind={quoteIsDelayed ? 'delayed' : 'observed'} label={quoteIsDelayed ? 'MASSIVE MARKET DATA · SESSION CLOSE' : 'MASSIVE MARKET DATA'} />}
           >
-            <PriceChart
-              bars={tacticalChartBars}
-              levels={[
-                { value: quote?.vwap, label: 'VWAP', color: '#38bdf8' },
-                { value: tacticalResistance, label: 'Recent swing resistance', color: '#34d399' },
-                { value: tacticalSupport, label: 'Recent swing support', color: '#f87171' },
-                { value: signal.target_price, label: '1–5 day target', color: '#34d399', dash: '6 3' },
-                { value: signal.invalidation_level, label: '1–5 day invalidation', color: '#fbbf24', dash: '2 2' },
-                { value: signal.suggested_strike, label: 'Strike', color: '#a78bfa', dash: '6 3' },
-              ]}
-            />
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap gap-1.5">
+                {(['1D', '1W', '1M', '3M', '6M', '1Y'] as ChartHorizon[]).map((horizon) => (
+                  <button
+                    key={horizon}
+                    type="button"
+                    onClick={() => { void selectChartHorizon(horizon); }}
+                    className={cn(
+                      'rounded-sm border px-2 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors',
+                      chartHorizon === horizon
+                        ? 'border-sky-500/60 bg-sky-500/[0.10] text-sky-300'
+                        : 'border-zinc-800 bg-black/20 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300',
+                    )}
+                  >
+                    {horizon}
+                  </button>
+                ))}
+              </div>
+              <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">
+                view only · TradeCycle remains 1–5 days
+              </div>
+            </div>
+
+            {chartError && (
+              <div className="mb-3 rounded-sm border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-[10px] text-amber-200">
+                {chartError}
+              </div>
+            )}
+
+            {chartLoading && !chartBarsByHorizon[chartHorizon]?.length ? (
+              <div className="flex h-56 items-center justify-center rounded-sm border border-dashed border-zinc-800 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                loading {chartHorizon} market bars
+              </div>
+            ) : (
+              <PriceChart
+                bars={chartBars}
+                horizon={chartHorizon}
+                levels={chartLevels}
+              />
+            )}
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               <div className="rounded-sm border border-zinc-800 bg-black/20 p-2.5">
                 <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">Target basis</div>
