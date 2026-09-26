@@ -33,6 +33,7 @@ export const EDGE_FUNCTIONS = {
   alphaEarningsSync: 'sync-alpha-earnings',
   marketContextSync: 'sync-market-context',
   historicalPlayback: 'historical-session-playback',
+  chartBars: 'sync-chart-bars',
   snapTradeRegister: 'snaptrade-register-user-v2',
   snapTradePortal: 'snaptrade-connection-portal-v2',
   snapTradeSync: 'sync-snaptrade-accounts-v2',
@@ -636,6 +637,25 @@ export async function fetchSignalUpdates(symbol?: string, limit = 40): Promise<S
   return rows<SignalUpdate>(data as SignalUpdate[]);
 }
 
+
+export type ChartHorizon = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y';
+
+export interface ChartBarsResponse {
+  success: boolean;
+  symbol: string;
+  horizon: ChartHorizon;
+  timeframe: string;
+  source: string;
+  bars: Bar[];
+  retrieved_at: string;
+}
+
+export async function fetchChartBars(symbol: string, horizon: ChartHorizon): Promise<ChartBarsResponse> {
+  return callEdge<ChartBarsResponse>(EDGE_FUNCTIONS.chartBars, {
+    symbol: String(symbol).trim().toUpperCase(),
+    horizon,
+  });
+}
 
 export async function fetchBars(symbol: string, limit = 90): Promise<Bar[]> {
   const { data, error } = await db
