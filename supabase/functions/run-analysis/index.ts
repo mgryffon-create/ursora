@@ -781,7 +781,7 @@ Deno.serve(async (req) => {
       const support = quoteSupport ?? derivedStructure.support;
       const resistance = quoteResistance ?? derivedStructure.resistance;
       const atr = quoteAtr ?? derivedStructure.atr;
-      const tacticalStructure = deriveTacticalSwingLevels(barsBySymbol.get(symbol) ?? [], price);
+      const contextualStructure = deriveTacticalSwingLevels(barsBySymbol.get(symbol) ?? [], price);
       const recentMove = deriveRecentMoveProfile(barsBySymbol.get(symbol) ?? [], sessionHigh, sessionLow);
 
       // ----- v5 directional evidence families (-100 bearish, +100 bullish) -----
@@ -1124,6 +1124,8 @@ Deno.serve(async (req) => {
       let estimatedRatio: number | null = null;
       let tacticalTarget: number | null = null;
       let tacticalInvalidation: number | null = null;
+      let tacticalSupport: number | null = null;
+      let tacticalResistance: number | null = null;
       let tacticalTargetBasis = 'unavailable';
       let tacticalInvalidationBasis = 'unavailable';
 
@@ -1141,25 +1143,30 @@ Deno.serve(async (req) => {
           const pivotBuffer = localUnit * 0.12;
 
           if (direction === 'bullish') {
-            const structuralTarget =
-              tacticalStructure.resistance !== null &&
-              tacticalStructure.resistance > price &&
-              tacticalStructure.resistance - price <= targetReach
-                ? tacticalStructure.resistance
+            tacticalResistance =
+              contextualStructure.resistance !== null &&
+              contextualStructure.resistance > price &&
+              contextualStructure.resistance - price <= targetReach
+                ? contextualStructure.resistance
                 : null;
 
+            const structuralTarget = tacticalResistance;
             tacticalTarget = structuralTarget ?? price + localUnit * 1.15;
             if (tacticalTarget - price > targetReach) tacticalTarget = price + targetReach;
             tacticalTargetBasis = structuralTarget !== null
-              ? `${tacticalStructure.resistance_source} inside recent realized-move envelope`
+              ? `${contextualStructure.resistance_source} inside recent realized-move envelope`
               : 'recent 5-session realized move; ATR used only as a ceiling';
 
-            const structuralInvalidation =
-              tacticalStructure.support !== null &&
-              tacticalStructure.support < price &&
-              price - tacticalStructure.support <= maxRiskDistance
-                ? tacticalStructure.support - pivotBuffer
+            tacticalSupport =
+              contextualStructure.support !== null &&
+              contextualStructure.support < price &&
+              price - contextualStructure.support <= maxRiskDistance
+                ? contextualStructure.support
                 : null;
+
+            const structuralInvalidation = tacticalSupport !== null
+              ? tacticalSupport - pivotBuffer
+              : null;
 
             const rawInvalidation = structuralInvalidation ?? price - localUnit * 0.72;
             const riskDistance = Math.min(
@@ -1168,28 +1175,33 @@ Deno.serve(async (req) => {
             );
             tacticalInvalidation = price - riskDistance;
             tacticalInvalidationBasis = structuralInvalidation !== null
-              ? `${tacticalStructure.support_source} + local-volatility buffer`
+              ? `${contextualStructure.support_source} + local-volatility buffer`
               : 'recent 5-session realized move; ATR used only as a ceiling';
           } else {
-            const structuralTarget =
-              tacticalStructure.support !== null &&
-              tacticalStructure.support < price &&
-              price - tacticalStructure.support <= targetReach
-                ? tacticalStructure.support
+            tacticalSupport =
+              contextualStructure.support !== null &&
+              contextualStructure.support < price &&
+              price - contextualStructure.support <= targetReach
+                ? contextualStructure.support
                 : null;
 
+            const structuralTarget = tacticalSupport;
             tacticalTarget = structuralTarget ?? price - localUnit * 1.15;
             if (price - tacticalTarget > targetReach) tacticalTarget = price - targetReach;
             tacticalTargetBasis = structuralTarget !== null
-              ? `${tacticalStructure.support_source} inside recent realized-move envelope`
+              ? `${contextualStructure.support_source} inside recent realized-move envelope`
               : 'recent 5-session realized move; ATR used only as a ceiling';
 
-            const structuralInvalidation =
-              tacticalStructure.resistance !== null &&
-              tacticalStructure.resistance > price &&
-              tacticalStructure.resistance - price <= maxRiskDistance
-                ? tacticalStructure.resistance + pivotBuffer
+            tacticalResistance =
+              contextualStructure.resistance !== null &&
+              contextualStructure.resistance > price &&
+              contextualStructure.resistance - price <= maxRiskDistance
+                ? contextualStructure.resistance
                 : null;
+
+            const structuralInvalidation = tacticalResistance !== null
+              ? tacticalResistance + pivotBuffer
+              : null;
 
             const rawInvalidation = structuralInvalidation ?? price + localUnit * 0.72;
             const riskDistance = Math.min(
@@ -1198,7 +1210,7 @@ Deno.serve(async (req) => {
             );
             tacticalInvalidation = price + riskDistance;
             tacticalInvalidationBasis = structuralInvalidation !== null
-              ? `${tacticalStructure.resistance_source} + local-volatility buffer`
+              ? `${contextualStructure.resistance_source} + local-volatility buffer`
               : 'recent 5-session realized move; ATR used only as a ceiling';
           }
 
@@ -1848,11 +1860,15 @@ Deno.serve(async (req) => {
             reward_risk_ratio: estimatedRatio,
             structural_support: support,
             structural_resistance: resistance,
-            tactical_support: tacticalStructure.support,
-            tactical_resistance: tacticalStructure.resistance,
-            tactical_lookback_sessions: tacticalStructure.lookback_sessions,
-            tactical_support_source: tacticalStructure.support_source,
-            tactical_resistance_source: tacticalStructure.resistance_source,
+            context_support: contextualStructure.support,
+            context_resistance: contextualStructure.resistance,
+            context_support_source: contextualStructure.support_source,
+            context_resistance_source: contextualStructure.resistance_source,
+            tactical_support: tacticalSupport,
+            tactical_resistance: tacticalResistance,
+            tactical_lookback_sessions: contextualStructure.lookback_sessions,
+            tactical_support_source: tacticalSupport !== null ? contextualStructure.support_source : 'no reachable tactical support',
+            tactical_resistance_source: tacticalResistance !== null ? contextualStructure.resistance_source : 'no reachable tactical resistance',
             recent_median_range_5: recentMove.median_range_5,
             recent_median_true_range_5: recentMove.median_true_range_5,
             recent_median_abs_close_move_5: recentMove.median_abs_close_move_5,
@@ -1933,7 +1949,7 @@ Deno.serve(async (req) => {
             `AHP consistency ratio: ${(ahp.consistency_ratio * 100).toFixed(2)}%.`,
             direction === 'neutral'
               ? 'Tactical target/invalidation are not produced without an established direction.'
-              : `1–5 day tactical structure uses ${tacticalStructure.lookback_sessions} recent daily sessions, a 5-session realized-move profile, and nearest reachable pivots. ATR is a ceiling/fallback rather than the primary width generator. Target basis: ${tacticalTargetBasis}. Invalidation basis: ${tacticalInvalidationBasis}.`,
+              : `1–5 day trade framing uses ${contextualStructure.lookback_sessions} recent daily sessions plus a 5-session realized-move profile. Daily pivots are stored as context, but only pivots inside the current reach envelope are promoted to tactical support/resistance. ATR is a ceiling/fallback. Target basis: ${tacticalTargetBasis}. Invalidation basis: ${tacticalInvalidationBasis}.`,
             liquidityEvidence === null
               ? 'Option liquidity: insufficient execution-quality data.'
               : spreadMedian === null
@@ -1949,7 +1965,7 @@ Deno.serve(async (req) => {
         },
         regime: snapshot?.regime ?? 'Mixed',
         regime_explanation: snapshot?.regime_note ?? 'Broader market conditions derived from the latest stored market data.',
-        engine_version: 'tradecycle-5.7.0',
+        engine_version: 'tradecycle-5.8.0',
         is_demo: Boolean(q.is_demo ?? true),
         generated_at: started,
       });
@@ -2028,7 +2044,7 @@ Deno.serve(async (req) => {
       feed_events: 0,
       regime: snapshot?.regime ?? null,
       notes: signalCount
-        ? `TradeCycle v5.7.0 swing analysis completed for authenticated user ${user.id}; outside regular hours, price evidence is anchored to the most recent frozen session close.`
+        ? `TradeCycle v5.8.0 swing analysis completed for authenticated user ${user.id}; outside regular hours, price evidence is anchored to the most recent frozen session close.`
         : 'No stored quote data were available; no signals were generated.',
       started_at: started,
       finished_at: new Date().toISOString(),
@@ -2040,7 +2056,7 @@ Deno.serve(async (req) => {
       signals: signalCount,
       updates: 0,
       run_id: runId,
-      engine_version: 'tradecycle-5.7.0',
+      engine_version: 'tradecycle-5.8.0',
       note: signalCount ? 'Signals generated using all currently available evidence categories.' : 'No stored quote data available.',
     });
   } catch (e) {
