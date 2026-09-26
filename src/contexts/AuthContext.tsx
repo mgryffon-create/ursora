@@ -262,7 +262,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOut = useCallback(async () => {
     if (typeof window !== 'undefined') {
-      if (user?.id) window.sessionStorage.removeItem(`ursora_login_market_refresh_${user.id}`);
+      if (user?.id) {
+        window.sessionStorage.removeItem(`ursora_login_market_refresh_${user.id}`);
+        window.sessionStorage.removeItem(`ursora_login_watchlist_analysis_${user.id}`);
+      }
       window.sessionStorage.removeItem('ursora_session_only_active');
     }
     await db.auth.signOut();
