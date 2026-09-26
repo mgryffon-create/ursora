@@ -3,7 +3,7 @@ import {
   Brain, ChevronDown, CircleHelp, FlaskConical, LineChart,
   ListChecks, LogOut, Menu, Radar, ScrollText, UserRound, X,
 } from 'lucide-react';
-import { fetchSnapshot, fetchTickers, refreshMarketSymbols } from '@/lib/api';
+import { fetchSnapshot, fetchTickers, refreshMarketSymbols, runFreshAnalysis } from '@/lib/api';
 import db from '@/lib/db';
 import type { MarketSnapshot } from '@/lib/types';
 import { changeColor, marketStatus, num, pct, stampET } from '@/lib/format';
@@ -162,11 +162,13 @@ export const AppLayout: React.FC = () => {
   useEffect(() => {
     if (!user || loading) return;
 
-    const loginKey = `ursora_login_market_refresh_${user.id}`;
+    const loginRefreshKey = `ursora_login_market_refresh_${user.id}`;
+    const loginAnalysisKey = `ursora_login_watchlist_analysis_${user.id}`;
     const today = new Date().toISOString().slice(0, 10);
     const dailyDiscoveryKey = 'ursora_daily_discovery_refresh';
 
-    const loginAlreadyRefreshed = window.sessionStorage.getItem(loginKey) === 'done';
+    const loginAlreadyRefreshed = window.sessionStorage.getItem(loginRefreshKey) === 'done';
+    const loginAlreadyAnalyzed = window.sessionStorage.getItem(loginAnalysisKey) === 'done';
     const discoveryFreshToday = window.localStorage.getItem(dailyDiscoveryKey) === today;
 
     const run = async () => {
@@ -184,19 +186,38 @@ export const AppLayout: React.FC = () => {
           window.localStorage.setItem(dailyDiscoveryKey, today);
         }
 
-        // Favorites get an additional lightweight quote refresh once per login.
-        // This does not invoke options/news/full thesis analysis.
-        if (!loginAlreadyRefreshed) {
-          const loginSymbols = [...new Set([...favorites, ...coreIndexes])];
-          if (loginSymbols.length) await refreshMarketSymbols(loginSymbols, true);
-          window.sessionStorage.setItem(loginKey, 'done');
+        // A browser login/session now gets a real watchlist evidence refresh, not just
+        // quotes. Full analysis remains capped at six symbols so every selected ticker
+        // receives the complete provider pipeline.
+        if (!loginAlreadyAnalyzed && favorites.length) {
+          const watchlistSymbols = [...new Set(
+            favorites.map((symbol) => String(symbol).toUpperCase()).filter(Boolean),
+          )].slice(0, 6);
+
+          if (watchlistSymbols.length) {
+            const result = await runFreshAnalysis({
+              kind: 'login-watchlist',
+              symbols: watchlistSymbols,
+            });
+
+            if (result.warnings.length) {
+              console.warn('URSORA login watchlist analysis completed with warnings:', result.warnings);
+            }
+          }
+
+          window.sessionStorage.setItem(loginAnalysisKey, 'done');
+          window.sessionStorage.setItem(loginRefreshKey, 'done');
+        } else if (!loginAlreadyRefreshed) {
+          // Accounts without favorites still refresh core market context once per login.
+          await refreshMarketSymbols(coreIndexes, true);
+          window.sessionStorage.setItem(loginRefreshKey, 'done');
         }
 
         const nextSnapshot = await fetchSnapshot();
         setSnapshot(nextSnapshot);
         window.dispatchEvent(new CustomEvent('ursora-market-refreshed'));
       } catch (error) {
-        console.warn('URSORA automatic market refresh did not complete:', error);
+        console.warn('URSORA automatic market/watchlist refresh did not complete:', error);
       }
     };
 
