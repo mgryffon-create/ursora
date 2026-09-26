@@ -141,14 +141,20 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const thesisBlockers = signal?.score_breakdown?.thesis_blockers ?? signal?.score_breakdown?.blockers ?? [];
   const tradeBlockers = signal?.score_breakdown?.trade_blockers ?? [];
   const rawAnalysis = signal?.score_breakdown?.raw ?? {};
-  const tacticalSupport = Number.isFinite(Number(rawAnalysis.tactical_support)) ? Number(rawAnalysis.tactical_support) : null;
-  const tacticalResistance = Number.isFinite(Number(rawAnalysis.tactical_resistance)) ? Number(rawAnalysis.tactical_resistance) : null;
-  const tacticalLookback = Number.isFinite(Number(rawAnalysis.tactical_lookback_sessions)) ? Number(rawAnalysis.tactical_lookback_sessions) : null;
+  const rawNumber = (value: unknown): number | null => {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const tacticalSupport = rawNumber(rawAnalysis.tactical_support);
+  const tacticalResistance = rawNumber(rawAnalysis.tactical_resistance);
+  const tacticalLookback = rawNumber(rawAnalysis.tactical_lookback_sessions);
   const tacticalTargetBasis = typeof rawAnalysis.tactical_target_basis === 'string' ? rawAnalysis.tactical_target_basis : null;
   const tacticalInvalidationBasis = typeof rawAnalysis.tactical_invalidation_basis === 'string' ? rawAnalysis.tactical_invalidation_basis : null;
-  const localMoveUnit = Number.isFinite(Number(rawAnalysis.local_move_unit)) ? Number(rawAnalysis.local_move_unit) : null;
-  const recentMedianRange5 = Number.isFinite(Number(rawAnalysis.recent_median_range_5)) ? Number(rawAnalysis.recent_median_range_5) : null;
-  const recentMedianCloseMove5 = Number.isFinite(Number(rawAnalysis.recent_median_abs_close_move_5)) ? Number(rawAnalysis.recent_median_abs_close_move_5) : null;
+  const localMoveUnit = rawNumber(rawAnalysis.local_move_unit);
+  const recentMedianRange5 = rawNumber(rawAnalysis.recent_median_range_5);
+  const recentMedianCloseMove5 = rawNumber(rawAnalysis.recent_median_abs_close_move_5);
+  const tacticalChartBars = bars.slice(-20);
   const balanced = useMemo(() => candidates.find((c) => c.profile === 'Balanced') ?? candidates[0] ?? null, [candidates]);
   const retail = sentiment.find((s) => s.cohort === 'retail');
   const professional = sentiment.find((s) => s.cohort === 'professional');
@@ -719,7 +725,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               : <DataBadge kind={quoteIsDelayed ? 'delayed' : 'observed'} label={quoteIsDelayed ? 'MASSIVE MARKET DATA · SESSION CLOSE' : 'MASSIVE MARKET DATA'} />}
           >
             <PriceChart
-              bars={bars}
+              bars={tacticalChartBars}
               levels={[
                 { value: quote?.vwap, label: 'VWAP', color: '#38bdf8' },
                 { value: tacticalResistance, label: 'Recent swing resistance', color: '#34d399' },
