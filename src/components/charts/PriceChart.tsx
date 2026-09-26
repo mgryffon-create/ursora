@@ -60,12 +60,35 @@ export const PriceChart: React.FC<{
     );
   }
   const drawn = levels.filter((l) => !isMissing(l.value));
-  const lows = bars.map((b) => b.low);
-  const highs = bars.map((b) => b.high);
-  const levelValues = drawn.map((l) => Number(l.value));
-  const min = Math.min(...lows, ...levelValues);
-  const max = Math.max(...highs, ...levelValues);
-  const pad = (max - min) * 0.08 || 1;
+  const lows = bars.map((b) => Number(b.low)).filter(Number.isFinite);
+  const highs = bars.map((b) => Number(b.high)).filter(Number.isFinite);
+
+  // The selected horizon owns the chart scale. Tactical/broader reference levels
+  // must never stretch the Y axis and flatten the actual price movement.
+  const barMin = Math.min(...lows);
+  const barMax = Math.max(...highs);
+  const barRange = Math.max(0, barMax - barMin);
+  const midpoint = (barMin + barMax) / 2;
+  const minimumPad = Math.max(Math.abs(midpoint) * 0.0025, 0.25);
+  const pad = Math.max(barRange * (horizon === '1D' ? 0.16 : horizon === '1W' ? 0.12 : 0.10), minimumPad);
+  const visibleMin = barMin - pad;
+  const visibleMax = barMax + pad;
+
+  const visibleLevels = drawn.filter((level) => {
+    const value = Number(level.value);
+    return value >= visibleMin && value <= visibleMax;
+  });
+
+  const offscreenLevels = drawn.filter((level) => {
+    const value = Number(level.value);
+    return value < visibleMin || value > visibleMax;
+  });
+
+  const shortLabel = (label: string) =>
+    label
+      .replace(/^1–5 day /i, '')
+      .replace(/^Broader /i, 'Broad ')
+      .replace(/^Recent swing /i, 'Swing ');
 
   return (
     <div>
@@ -106,7 +129,7 @@ export const PriceChart: React.FC<{
             />
             <YAxis
               orientation="right"
-              domain={[min - pad, max + pad]}
+              domain={[visibleMin, visibleMax]}
               tick={axisStyle}
               tickLine={false}
               axisLine={{ stroke: '#1c2027' }}
@@ -123,7 +146,7 @@ export const PriceChart: React.FC<{
               dot={false}
               animationDuration={800}
             />
-            {drawn.map((l) => (
+            {visibleLevels.map((l) => (
               <ReferenceLine
                 key={l.label}
                 y={Number(l.value)}
@@ -131,7 +154,7 @@ export const PriceChart: React.FC<{
                 strokeDasharray={l.dash ?? '4 3'}
                 strokeWidth={1}
                 label={{
-                  value: `${l.label} ${l.value}`,
+                  value: `${shortLabel(l.label)} ${Number(l.value).toFixed(2)}`,
                   position: 'insideTopRight',
                   fill: l.color,
                   fontSize: 9,
@@ -143,14 +166,34 @@ export const PriceChart: React.FC<{
         </ResponsiveContainer>
       </div>
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px] text-zinc-500">
-        {drawn.map((l) => (
+        {visibleLevels.map((l) => (
           <span key={l.label} className="inline-flex items-center gap-1.5">
             <span className="inline-block h-[2px] w-4" style={{ backgroundColor: l.color }} />
-            {l.label}
+            {shortLabel(l.label)} {Number(l.value).toFixed(2)}
           </span>
         ))}
         <span>{bars.length} {barLabel ?? (horizon === '1D' ? '5-minute bars' : horizon === '1W' ? '30-minute bars' : 'daily bars')} · {horizon}</span>
       </div>
+
+      {offscreenLevels.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {offscreenLevels.map((l) => {
+            const value = Number(l.value);
+            const direction = value > visibleMax ? 'above view' : 'below view';
+            return (
+              <span
+                key={`${l.label}-offscreen`}
+                className="inline-flex items-center gap-1.5 rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[9px] uppercase tracking-wider"
+                style={{ color: l.color }}
+              >
+                <span>{value > visibleMax ? '↑' : '↓'}</span>
+                <span>{shortLabel(l.label)} {value.toFixed(2)}</span>
+                <span className="text-zinc-600">· {direction}</span>
+              </span>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
