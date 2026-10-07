@@ -198,6 +198,7 @@ Deno.serve(async (req) => {
     let symbols: string[] = Array.isArray(body.symbols)
       ? body.symbols.map((value: unknown) => String(value).trim().toUpperCase()).filter(Boolean)
       : [];
+    const explicitlyRequestedSymbols = new Set(symbols);
 
     if (!symbols.length) {
       stage = 'load prioritized ticker list';
@@ -309,7 +310,10 @@ Deno.serve(async (req) => {
       let bars = cachedBarsBySymbol.get(symbol) ?? [];
       let historySource = 'cached';
 
-      if (bars.length < 50 && historyRequestsUsed < 4) {
+      // Explicit analysis refreshes must refresh recent daily history even when an
+      // older cache already contains 50+ rows. Otherwise current quotes can be
+      // analyzed against stale structural bars from a materially different price regime.
+      if ((bars.length < 50 || explicitlyRequestedSymbols.has(symbol)) && historyRequestsUsed < 4) {
         stage = `request Massive daily aggregates for ${symbol}`;
         const payload = await massiveGet(
           `/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/1/day/${isoDate(from)}/${isoDate(to)}`,
