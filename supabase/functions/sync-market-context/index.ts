@@ -105,21 +105,28 @@ function deriveRegime(spyChange: number | null, qqqChange: number | null, vix: n
   const directional = [spyChange, qqqChange].filter((v): v is number => v !== null);
   const avg = directional.length ? directional.reduce((a, b) => a + b, 0) / directional.length : 0;
 
+  const volatilityObserved = vix !== null || vixChange !== null;
   if (avg > 0.35 && (vix === null || vix < 22) && (vixChange === null || vixChange < 4)) {
     return {
       regime: 'Risk-On',
-      note: 'Broad equity indexes are advancing while volatility is not materially elevated.',
+      note: volatilityObserved
+        ? 'Broad equity indexes are advancing while observed volatility is not materially elevated.'
+        : 'Broad equity indexes are advancing. This is an equity-only risk-on classification because volatility and cross-asset macro feeds are not connected.',
     };
   }
   if (avg < -0.35 || (vix !== null && vix >= 25) || (vixChange !== null && vixChange >= 8)) {
     return {
       regime: 'Risk-Off',
-      note: 'Broad equity pressure and/or elevated volatility indicate a defensive market environment.',
+      note: volatilityObserved
+        ? 'Broad equity pressure and/or elevated observed volatility indicate a defensive market environment.'
+        : 'Broad equity indexes are under pressure. This is an equity-only risk-off classification because volatility and cross-asset macro feeds are not connected.',
     };
   }
   return {
     regime: 'Mixed',
-    note: 'Index direction and volatility are not aligned strongly enough to classify the environment as clearly risk-on or risk-off.',
+    note: volatilityObserved
+      ? 'Index direction and observed volatility are not aligned strongly enough to classify the environment as clearly risk-on or risk-off.'
+      : 'Broad equity direction is mixed. This is an equity-only classification because volatility and cross-asset macro feeds are not connected.',
   };
 }
 
@@ -259,7 +266,7 @@ Deno.serve(async (req) => {
       macro_note: macroBits.length
         ? `Connected market context: ${macroBits.join(' · ')}.`
         : 'Core index and breadth context are available; volatility, rates, dollar and commodity feeds are not connected yet.',
-      market_status: 'tracked universe',
+      market_status: macroBits.length ? 'cross-asset context' : 'equity-only context',
       retrieved_at: now,
       is_demo: Boolean(spy?.is_demo || qqq?.is_demo || iwm?.is_demo),
     };
