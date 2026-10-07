@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  Area, AreaChart, CartesianGrid, Line, LineChart, ReferenceDot, ReferenceLine, ResponsiveContainer,
+  Area, AreaChart, Bar, CartesianGrid, Cell, ComposedChart, Line, LineChart, ReferenceDot, ReferenceLine, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from 'recharts';
 import type { Bar, ChartHorizon } from '@/lib/types';
@@ -62,6 +62,11 @@ export const PriceChart: React.FC<{
   const drawn = levels.filter((l) => !isMissing(l.value));
   const lows = bars.map((b) => Number(b.low)).filter(Number.isFinite);
   const highs = bars.map((b) => Number(b.high)).filter(Number.isFinite);
+  const plotBars = bars.map((b) => ({
+    ...b,
+    lowBase: Number(b.low),
+    highLowRange: Math.max(0, Number(b.high) - Number(b.low)),
+  }));
 
   // The selected horizon owns the chart scale. Tactical/broader reference levels
   // must never stretch the Y axis and flatten the actual price movement.
@@ -94,13 +99,7 @@ export const PriceChart: React.FC<{
     <div>
       <div style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={bars} margin={{ top: 8, right: 56, bottom: 0, left: 0 }}>
-            <defs>
-              <linearGradient id="sfPrice" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.35} />
-                <stop offset="100%" stopColor="#38bdf8" stopOpacity={0} />
-              </linearGradient>
-            </defs>
+          <ComposedChart data={plotBars} margin={{ top: 8, right: 56, bottom: 0, left: 0 }}>
             <CartesianGrid stroke="#1c2027" strokeDasharray="2 4" vertical={false} />
             <XAxis
               dataKey="bar_time"
@@ -137,15 +136,27 @@ export const PriceChart: React.FC<{
               tickFormatter={(v: number) => v.toFixed(v > 100 ? 0 : 1)}
             />
             <Tooltip content={<TooltipBox horizon={horizon} />} />
-            <Area
-              type="monotone"
-              dataKey="close"
-              stroke="#38bdf8"
-              strokeWidth={1.6}
-              fill="url(#sfPrice)"
-              dot={false}
-              animationDuration={800}
+            <Bar
+              dataKey="lowBase"
+              stackId="price-range"
+              fill="transparent"
+              stroke="transparent"
+              isAnimationActive={false}
             />
+            <Bar
+              dataKey="highLowRange"
+              stackId="price-range"
+              barSize={horizon === '1D' ? 4 : horizon === '1W' ? 5 : 6}
+              isAnimationActive={false}
+            >
+              {plotBars.map((bar, index) => (
+                <Cell
+                  key={`price-bar-${bar.bar_time}-${index}`}
+                  fill={Number(bar.close) >= Number(bar.open) ? '#34d399' : '#f87171'}
+                  fillOpacity={0.78}
+                />
+              ))}
+            </Bar>
             {visibleLevels.map((l) => (
               <ReferenceLine
                 key={l.label}
@@ -162,7 +173,7 @@ export const PriceChart: React.FC<{
                 }}
               />
             ))}
-          </AreaChart>
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px] text-zinc-500">
