@@ -66,6 +66,17 @@ function easternDateKey(value: Date): string {
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
+function easternMinutes(value: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(value);
+  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+  return get('hour') * 60 + get('minute');
+}
+
 function horizonCutoff(anchor: Date, horizon: Horizon): Date | null {
   const cutoff = new Date(anchor);
   if (horizon === '1D') return null;
@@ -135,7 +146,7 @@ Deno.serve(async (req) => {
 
     const payload = await massiveGet(
       `/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/${config.multiplier}/${config.timespan}/${isoDate(from)}/${isoDate(to)}`,
-      { adjusted: true, sort: 'asc', limit: 5000 },
+      { adjusted: false, sort: 'asc', limit: 5000 },
     );
 
     let results = Array.isArray(payload?.results) ? payload.results : [];
@@ -145,7 +156,11 @@ Deno.serve(async (req) => {
     // available market bar. The selected timeframe must own the visible history.
     if (config.latestSessionOnly && results.length) {
       const latestSession = easternDateKey(new Date(Number(results.at(-1)?.t)));
-      results = results.filter((bar: any) => easternDateKey(new Date(Number(bar.t))) === latestSession);
+      results = results.filter((bar: any) => {
+        const at = new Date(Number(bar.t));
+        const minutes = easternMinutes(at);
+        return easternDateKey(at) === latestSession && minutes >= 570 && minutes < 960;
+      });
     } else if (results.length) {
       const anchor = new Date(Number(results.at(-1)?.t));
       const cutoff = horizonCutoff(anchor, horizon);
