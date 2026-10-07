@@ -16,6 +16,45 @@ export interface KeyLevel {
 
 const axisStyle = { fill: '#71717a', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' };
 
+const CandleShape = (props: any) => {
+  const { x, y, width, height, payload } = props;
+  const high = Number(payload?.high);
+  const low = Number(payload?.low);
+  const open = Number(payload?.open);
+  const close = Number(payload?.close);
+  if (![high, low, open, close].every(Number.isFinite) || high <= low) return null;
+
+  const center = Number(x) + Number(width) / 2;
+  const pxPerPrice = Number(height) / (high - low);
+  const bodyTop = Number(y) + (high - Math.max(open, close)) * pxPerPrice;
+  const bodyBottom = Number(y) + (high - Math.min(open, close)) * pxPerPrice;
+  const bodyHeight = Math.max(1.5, bodyBottom - bodyTop);
+  const bodyWidth = Math.max(2, Math.min(Number(width) * 0.72, 8));
+  const color = close >= open ? '#34d399' : '#f87171';
+
+  return (
+    <g>
+      <line
+        x1={center}
+        x2={center}
+        y1={Number(y)}
+        y2={Number(y) + Number(height)}
+        stroke={color}
+        strokeWidth={1}
+      />
+      <rect
+        x={center - bodyWidth / 2}
+        y={bodyTop}
+        width={bodyWidth}
+        height={bodyHeight}
+        fill={color}
+        stroke={color}
+        strokeWidth={0.8}
+      />
+    </g>
+  );
+};
+
 const TooltipBox: React.FC<{ active?: boolean; payload?: { payload: Bar }[]; horizon?: ChartHorizon }> = ({ active, payload, horizon = '1M' }) => {
   if (!active || !payload?.length) return null;
   const b = payload[0].payload;
@@ -25,6 +64,7 @@ const TooltipBox: React.FC<{ active?: boolean; payload?: { payload: Bar }[]; hor
         {horizon === '1D' || horizon === '1W'
           ? new Intl.DateTimeFormat('en-US', {
               timeZone: 'America/New_York',
+              year: 'numeric',
               month: 'short',
               day: 'numeric',
               hour: 'numeric',
@@ -146,17 +186,10 @@ export const PriceChart: React.FC<{
             <Bar
               dataKey="highLowRange"
               stackId="price-range"
-              barSize={horizon === '1D' ? 4 : horizon === '1W' ? 5 : 6}
+              barSize={horizon === '1D' ? 7 : horizon === '1W' ? 7 : horizon === '1M' ? 8 : 5}
+              shape={<CandleShape />}
               isAnimationActive={false}
-            >
-              {plotBars.map((bar, index) => (
-                <Cell
-                  key={`price-bar-${bar.bar_time}-${index}`}
-                  fill={Number(bar.close) >= Number(bar.open) ? '#34d399' : '#f87171'}
-                  fillOpacity={0.78}
-                />
-              ))}
-            </Bar>
+            />
             {visibleLevels.map((l) => (
               <ReferenceLine
                 key={l.label}
