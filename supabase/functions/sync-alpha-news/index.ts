@@ -279,10 +279,18 @@ Deno.serve(async (req) => {
           const tickerSentiment = Array.isArray(item.ticker_sentiment)
             ? item.ticker_sentiment.find((x: any) => String(x.ticker).toUpperCase() === symbol)
             : null;
+
+          // A targeted provider response is not itself proof that every returned
+          // article belongs to the requested ticker. Require an explicit provider
+          // association and enough relevance to make the item useful as symbol-level
+          // evidence. This prevents unrelated company filings from being stored as TSLA.
+          if (!tickerSentiment) return null;
+          const relevance = n(tickerSentiment?.relevance_score);
+          if (relevance === null || relevance < 0.15) return null;
+
           const tickerScore = n(tickerSentiment?.ticker_sentiment_score);
           const overallScore = n(item.overall_sentiment_score);
           const score = tickerScore ?? overallScore;
-          const relevance = n(tickerSentiment?.relevance_score);
 
           return {
             symbol,
@@ -298,7 +306,7 @@ Deno.serve(async (req) => {
             sentiment_score: score,
             impact: impactFrom(score, relevance),
             recency_weight: recencyWeight(publishedAt),
-            confidence: relevance === null ? 0.65 : Math.max(0.35, Math.min(1, relevance)),
+            confidence: Math.max(0.35, Math.min(1, relevance)),
             published_at: publishedAt,
             retrieved_at: attemptedAt,
             is_demo: false,
@@ -312,13 +320,25 @@ Deno.serve(async (req) => {
         });
 
         const cutoff = new Date(Date.now() - 8 * 86400000).toISOString();
-        const { error: deleteError } = await db
+
+        // Replace the targeted symbol's recent verified-news cache with only the
+        // newly validated rows. This purges legacy false-positive associations that
+        // were created by the old targeted-query behavior.
+        const { error: deleteRecentError } = await db
+          .from('news_items')
+          .delete()
+          .eq('symbol', symbol)
+          .eq('source_type', 'verified_news')
+          .gte('published_at', cutoff);
+        if (deleteRecentError) throw deleteRecentError;
+
+        const { error: deleteOldError } = await db
           .from('news_items')
           .delete()
           .eq('symbol', symbol)
           .eq('source_type', 'verified_news')
           .lt('published_at', cutoff);
-        if (deleteError) throw deleteError;
+        if (deleteOldError) throw deleteOldError;
 
         if (rows.length) {
           const { error: insertError } = await db.from('news_items').insert(rows);
