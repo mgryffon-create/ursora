@@ -139,10 +139,10 @@ export async function runFreshAnalysis(
     ? [...new Set(body.symbols.map((value) => String(value).trim().toUpperCase()).filter(Boolean))]
     : [];
   const selectedPayload = selectedSymbols.length ? { symbols: selectedSymbols } : {};
-  const marketSymbols = selectedSymbols.length
-    ? [...new Set([...selectedSymbols, 'SPY', 'QQQ', 'IWM'])]
-    : [];
-  const marketPayload = marketSymbols.length ? { symbols: marketSymbols } : {};
+  // Refresh only the symbols the user explicitly selected. SPY/QQQ/IWM market
+  // context is derived from their already-stored quote rows by sync-market-context;
+  // refetching their daily history here wastes Massive requests and can trigger 429s.
+  const marketPayload = selectedSymbols.length ? { symbols: selectedSymbols } : {};
 
   const stages: Array<{ label: string; slug: EdgeFunctionSlug; payload: Record<string, unknown> }> = [
     { label: 'Massive market quotes and historical data', slug: EDGE_FUNCTIONS.marketSync, payload: marketPayload },
