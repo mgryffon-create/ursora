@@ -20,11 +20,7 @@ function json(body: unknown, status = 200): Response {
 function errorDetail(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return String(error);
-  }
+  try { return JSON.stringify(error); } catch { return String(error); }
 }
 
 function n(value: unknown): number | null {
@@ -146,7 +142,6 @@ function swingFrame(signal: AnyRow, raw: AnyRow, direction: 'bullish' | 'bearish
 
   const localUnit = n(raw.local_move_unit);
   if (localUnit === null || localUnit <= 0) return { target: null, invalidation: null, ratio: null, valid: false };
-
   const target = direction === 'bullish' ? price + localUnit * 1.15 : price - localUnit * 1.15;
   const invalidation = direction === 'bullish' ? price - localUnit * 0.72 : price + localUnit * 0.72;
   const reward = Math.abs(target - price);
@@ -196,6 +191,39 @@ async function executableContractCount(db: any, symbol: string, optionType: stri
   }).length;
 }
 
+function cloneSignalRow(source: AnyRow, runId: string, overrides: AnyRow): AnyRow {
+  return {
+    run_id: runId,
+    symbol: source.symbol,
+    trading_day: source.trading_day,
+    direction: source.direction,
+    strategy: source.strategy,
+    confidence_score: source.confidence_score,
+    opportunity_score: source.opportunity_score,
+    risk_level: source.risk_level,
+    holding_period: source.holding_period,
+    catalyst_summary: source.catalyst_summary,
+    no_trade_reason: source.no_trade_reason,
+    stock_price_at_generation: source.stock_price_at_generation,
+    suggested_expiration: source.suggested_expiration,
+    suggested_strike: source.suggested_strike,
+    break_even: source.break_even,
+    est_premium: source.est_premium,
+    max_defined_loss: source.max_defined_loss,
+    target_price: source.target_price,
+    invalidation_level: source.invalidation_level,
+    expected_move_pct: source.expected_move_pct,
+    score_breakdown: source.score_breakdown,
+    weights: source.weights,
+    regime: source.regime,
+    regime_explanation: source.regime_explanation,
+    engine_version: ENGINE_VERSION,
+    is_demo: source.is_demo,
+    generated_at: source.generated_at,
+    ...overrides,
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: 'POST required' }, 405);
@@ -206,14 +234,13 @@ Deno.serve(async (req) => {
     const requestedRunId = typeof body.run_id === 'string' && body.run_id.trim() ? body.run_id.trim() : null;
     const reclassifyOnly = requestedRunId !== null || body.mode === 'reclassify';
 
-    let runId = requestedRunId;
+    let sourceRunId = requestedRunId;
     let upstreamResult: AnyRow = {};
 
-    if (!runId) {
+    if (!sourceRunId) {
       const baseUrl = Deno.env.get('SUPABASE_URL');
       const apikey = req.headers.get('apikey') ?? Deno.env.get('SUPABASE_ANON_KEY') ?? '';
       if (!baseUrl) throw new Error('SUPABASE_URL is unavailable.');
-
       const upstream = await fetch(`${baseUrl.replace(/\/$/, '')}/functions/v1/run-analysis`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: auth, apikey },
@@ -222,25 +249,25 @@ Deno.serve(async (req) => {
       const upstreamText = await upstream.text();
       try { upstreamResult = upstreamText ? JSON.parse(upstreamText) : {}; } catch { upstreamResult = {}; }
       if (!upstream.ok) return json({ error: upstreamResult.error ?? upstreamText }, upstream.status);
-      runId = String(upstreamResult.run_id ?? '');
-    } else {
-      upstreamResult = { run_id: runId, signals: 0, updates: 0 };
+      sourceRunId = String(upstreamResult.run_id ?? '');
     }
 
-    if (!runId) return json({ ...upstreamResult, engine_version: ENGINE_VERSION });
+    if (!sourceRunId) return json({ error: 'No source analysis run was available.' }, 404);
 
-    const { data: signals, error: signalError } = await db
+    const { data: sourceSignals, error: signalError } = await db
       .from('signals')
       .select('*')
-      .eq('run_id', runId);
+      .eq('run_id', sourceRunId);
     if (signalError) throw signalError;
-    if (!signals?.length) return json({ error: `No stored signals were found for run ${runId}.` }, 404);
+    if (!sourceSignals?.length) return json({ error: `No stored signals were found for run ${sourceRunId}.` }, 404);
 
-    let updatedCount = 0;
+    const derivedRunId = crypto.randomUUID();
+    const signalMap: Array<{ source_id: number; derived_id: number; symbol: string }> = [];
+    let supportedCount = 0;
 
-    for (const signal of signals) {
-      const score: AnyRow = signal.score_breakdown && typeof signal.score_breakdown === 'object'
-        ? structuredClone(signal.score_breakdown)
+    for (const source of sourceSignals) {
+      const score: AnyRow = source.score_breakdown && typeof source.score_breakdown === 'object'
+        ? structuredClone(source.score_breakdown)
         : {};
       const raw: AnyRow = score.raw && typeof score.raw === 'object' ? score.raw : {};
 
@@ -257,42 +284,21 @@ Deno.serve(async (req) => {
         (momentumBand === 'Moderate' || momentumBand === 'Strong') &&
         Math.sign(momentumOrientation) === -Math.sign(priceOrientation);
 
-      if (direction === 'neutral') {
-        score.thesis_state = 'Insufficient Evidence';
-        score.trade_eligible = false;
-        score.suggestion_eligible = false;
-        score.contract_selection_ready = false;
-        score.contract_selection_state = 'not_applicable';
-        score.swing_setup = 'unclassified';
-        score.historical_evidence_policy = {
-          holding_period: '1–5 days',
-          setup_class: 'unclassified',
-          core_evidence: ['short_term_price_direction', 'momentum_alignment', 'tactical_target_invalidation'],
-          calibration_status: 'setup_tagged; brokerage-history replay classification pending',
-        };
-        const { error } = await db.from('signals').update({
-          strategy: 'No Trade',
-          no_trade_reason: 'Short-horizon price action has not established a usable directional swing lean.',
-          score_breakdown: score,
-          engine_version: ENGINE_VERSION,
-        }).eq('id', signal.id);
-        if (error) throw error;
-        updatedCount++;
-        continue;
-      }
-
-      const frame = swingFrame(signal, raw, direction);
-      const setup = setupClass(raw, direction);
+      const frame = direction === 'neutral'
+        ? { target: null, invalidation: null, ratio: null, valid: false }
+        : swingFrame(source, raw, direction);
+      const setup = direction === 'neutral' ? 'unclassified' : setupClass(raw, direction);
       const participation = factorByKey(score, 'participation');
       const participationStrongOppose = participation?.strength_band === 'Strong' && participation?.thesis_vote === 'OPPOSE';
-
       const existingTradeBlockers = Array.isArray(score.trade_blockers) ? score.trade_blockers.map(String) : [];
       const tradeBlockers = existingTradeBlockers.filter((message: string) => !/liquidity|spread/i.test(message));
       if (frame.ratio !== null && frame.ratio < 0.72 && !tradeBlockers.some((x: string) => /reward/i.test(x))) {
         tradeBlockers.push('The current tactical reward does not adequately compensate for the estimated risk.');
       }
 
-      const supported = priceDirectional && momentumAgrees && frame.valid && !participationStrongOppose && tradeBlockers.length === 0;
+      const supported = direction !== 'neutral' && priceDirectional && momentumAgrees && frame.valid && !participationStrongOppose && tradeBlockers.length === 0;
+      if (supported) supportedCount++;
+
       const contextSupportCount = [
         factorByKey(score, 'participation'),
         factorByKey(score, 'market_alignment'),
@@ -302,7 +308,7 @@ Deno.serve(async (req) => {
       const thesisState = strong ? 'Strongly Supported' : supported ? 'Supported' : momentumOpposes ? (momentumBand === 'Strong' ? 'Rejected' : 'Opposed') : 'Insufficient Evidence';
 
       const executable = supported
-        ? await executableContractCount(db, String(signal.symbol).toUpperCase(), direction === 'bearish' ? 'PUT' : 'CALL')
+        ? await executableContractCount(db, String(source.symbol).toUpperCase(), direction === 'bearish' ? 'PUT' : 'CALL')
         : 0;
       const liquidity = factorByKey(score, 'liquidity');
       const executionBlockers: string[] = [];
@@ -317,11 +323,11 @@ Deno.serve(async (req) => {
       const contextAdjustment = Math.min(6, contextSupportCount * 2);
       const swingConfidence = supported
         ? Math.round(clamp(priceScore * 0.35 + momentumScore * 0.45 + rrScore * 0.20 + contextAdjustment, 50, 92))
-        : Number(signal.confidence_score ?? 0);
+        : Number(source.confidence_score ?? 0);
 
       const noTradeReason = supported
         ? null
-        : !priceDirectional
+        : direction === 'neutral' || !priceDirectional
           ? 'Short-horizon price action has not established a usable directional swing lean.'
           : momentumOpposes
             ? `Momentum is ${momentumBand.toLowerCase()} and opposes the ${direction} price direction.`
@@ -336,20 +342,20 @@ Deno.serve(async (req) => {
       const factors = Array.isArray(score.factors) ? score.factors : [];
       for (const factor of factors) {
         if (factor.factor === 'price_trend') {
-          factor.signed_score = Math.abs(priceOrientation);
+          factor.signed_score = direction === 'neutral' ? 0 : Math.abs(priceOrientation);
           factor.raw_score = Math.abs(priceOrientation);
           factor.strength_band = priceBand;
-          factor.thesis_vote = priceBand === 'Moderate' || priceBand === 'Strong' ? 'SUPPORT' : 'ABSTAIN';
+          factor.thesis_vote = direction !== 'neutral' && (priceBand === 'Moderate' || priceBand === 'Strong') ? 'SUPPORT' : 'ABSTAIN';
         }
         if (factor.factor === 'momentum') {
-          const relative = Math.sign(momentumOrientation) === Math.sign(priceOrientation)
+          const relative = direction === 'neutral' ? 0 : Math.sign(momentumOrientation) === Math.sign(priceOrientation)
             ? Math.abs(momentumOrientation)
             : -Math.abs(momentumOrientation);
           factor.signed_score = relative;
           factor.raw_score = Math.abs(relative);
           factor.strength_band = momentumBand;
           factor.thesis_vote = momentumBand === 'Moderate' || momentumBand === 'Strong'
-            ? relative > 0 ? 'SUPPORT' : 'OPPOSE'
+            ? relative > 0 ? 'SUPPORT' : relative < 0 ? 'OPPOSE' : 'ABSTAIN'
             : 'ABSTAIN';
         }
       }
@@ -382,6 +388,9 @@ Deno.serve(async (req) => {
       };
       score.v59_decision = {
         mode: reclassifyOnly ? 'reclassify_stored_evidence' : 'fresh_evidence_then_classify',
+        source_run_id: sourceRunId,
+        source_signal_id: source.id,
+        classified_at: new Date().toISOString(),
         price_direction: direction,
         price_band: priceBand,
         momentum_band: momentumBand,
@@ -389,10 +398,10 @@ Deno.serve(async (req) => {
         tactical_frame_valid: frame.valid,
         context_confirmation_count: contextSupportCount,
         executable_contracts: executable,
-        note: 'Participation, market, options and news are context/confirmation families for the 1–5 day lane. Missing context does not veto a valid price+momentum swing.',
+        note: '5.9 is append-only: source evidence remains immutable and this row is a derived swing classification.',
       };
 
-      const { error: updateError } = await db.from('signals').update({
+      const row = cloneSignalRow(source, derivedRunId, {
         direction,
         strategy: supported ? 'directional option' : 'No Trade',
         confidence_score: swingConfidence,
@@ -400,48 +409,81 @@ Deno.serve(async (req) => {
         invalidation_level: frame.invalidation,
         no_trade_reason: noTradeReason,
         score_breakdown: score,
-        engine_version: ENGINE_VERSION,
-      }).eq('id', signal.id);
-      if (updateError) throw updateError;
-      updatedCount++;
+      });
+
+      const { data: inserted, error: insertError } = await db
+        .from('signals')
+        .insert(row)
+        .select('id,symbol,generated_at')
+        .single();
+      if (insertError) throw insertError;
+
+      signalMap.push({ source_id: Number(source.id), derived_id: Number(inserted.id), symbol: String(source.symbol) });
+
+      const { error: memoryError } = await db.from('symbol_analysis_memory').upsert({
+        user_id: user.id,
+        symbol: String(source.symbol).toUpperCase(),
+        signal_id: inserted.id,
+        analyzed_at: source.generated_at ?? new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id,symbol' });
+      if (memoryError) throw memoryError;
 
       if (supported) {
         const { error: activeError } = await db.from('active_analyses').upsert({
           user_id: user.id,
-          symbol: String(signal.symbol).toUpperCase(),
-          signal_id: signal.id,
+          symbol: String(source.symbol).toUpperCase(),
+          signal_id: inserted.id,
           status: 'active',
           direction,
           holding_period: '1–5 days',
-          analyzed_at: signal.generated_at ?? new Date().toISOString(),
+          analyzed_at: source.generated_at ?? new Date().toISOString(),
           valid_until: new Date(Date.now() + 5 * 86400000).toISOString(),
-          suggested_expiration: signal.suggested_expiration ?? null,
+          suggested_expiration: source.suggested_expiration ?? null,
           target_price: frame.target,
           invalidation_level: frame.invalidation,
-          opportunity_score: signal.opportunity_score,
+          opportunity_score: source.opportunity_score,
           confidence_score: swingConfidence,
           updated_at: new Date().toISOString(),
         }, { onConflict: 'user_id,symbol' });
         if (activeError) throw activeError;
       } else {
-        await db.from('active_analyses')
+        const { error: expireError } = await db.from('active_analyses')
           .update({ status: 'expired', updated_at: new Date().toISOString() })
           .eq('user_id', user.id)
-          .eq('symbol', String(signal.symbol).toUpperCase())
-          .eq('signal_id', signal.id);
+          .eq('symbol', String(source.symbol).toUpperCase());
+        if (expireError) throw expireError;
       }
     }
 
+    const now = new Date().toISOString();
+    const { error: runError } = await db.from('analysis_runs').insert({
+      run_id: derivedRunId,
+      kind: reclassifyOnly ? 'v5.9-reclassify' : String(body.kind ?? 'v5.9-fresh'),
+      trading_day: now.slice(0, 10),
+      signals_generated: signalMap.length,
+      updates_emitted: 0,
+      feed_events: 0,
+      regime: sourceSignals[0]?.regime ?? null,
+      notes: `TradeCycle 5.9 derived ${signalMap.length} immutable signal classifications from source run ${sourceRunId}; ${supportedCount} supported swing setups.`,
+      started_at: now,
+      finished_at: now,
+    });
+    if (runError) throw runError;
+
     return json({
-      ...upstreamResult,
-      run_id: runId,
-      signals: upstreamResult.signals ?? signals.length,
-      updates: updatedCount,
+      success: true,
+      source_run_id: sourceRunId,
+      run_id: derivedRunId,
+      signals: signalMap.length,
+      updates: signalMap.length,
+      supported: supportedCount,
+      signal_map: signalMap,
       engine_version: ENGINE_VERSION,
       mode: reclassifyOnly ? 'reclassify' : 'fresh',
       note: reclassifyOnly
-        ? 'Stored evidence was reclassified with TradeCycle 5.9. No market, news, or options provider refresh was run.'
-        : 'Fresh evidence was produced by the established evidence engine and classified with the TradeCycle 5.9 swing gate.',
+        ? 'Stored immutable evidence was reclassified into new TradeCycle 5.9 signal rows. No provider refresh was run.'
+        : 'Fresh 5.8 evidence was preserved, then new immutable TradeCycle 5.9 signal rows were derived from it.',
     });
   } catch (error) {
     return json({ error: errorDetail(error) }, 500);
