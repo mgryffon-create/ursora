@@ -158,6 +158,7 @@ Deno.serve(async (req) => {
     const results: any[] = [];
     let inserted = 0;
     let refreshed = 0;
+    const syncStartedAt = new Date().toISOString();
 
     // Broad market feed: one request can surface relevant stories for many symbols
     // via Alpha Vantage ticker_sentiment. This is the primary coverage path.
@@ -321,24 +322,15 @@ Deno.serve(async (req) => {
 
         const cutoff = new Date(Date.now() - 8 * 86400000).toISOString();
 
-        // Replace the targeted symbol's recent verified-news cache with only the
-        // newly validated rows. This purges legacy false-positive associations that
-        // were created by the old targeted-query behavior.
-        const { error: deleteRecentError } = await db
+        // Purge legacy rows created before this sync. Broad-feed rows validated
+        // earlier in the current run have retrieved_at >= syncStartedAt and remain.
+        const { error: deleteLegacyError } = await db
           .from('news_items')
           .delete()
           .eq('symbol', symbol)
           .eq('source_type', 'verified_news')
-          .gte('published_at', cutoff);
-        if (deleteRecentError) throw deleteRecentError;
-
-        const { error: deleteOldError } = await db
-          .from('news_items')
-          .delete()
-          .eq('symbol', symbol)
-          .eq('source_type', 'verified_news')
-          .lt('published_at', cutoff);
-        if (deleteOldError) throw deleteOldError;
+          .lt('retrieved_at', syncStartedAt);
+        if (deleteLegacyError) throw deleteLegacyError;
 
         if (rows.length) {
           const { error: insertError } = await db.from('news_items').insert(rows);
