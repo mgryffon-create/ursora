@@ -317,7 +317,7 @@ Deno.serve(async (req) => {
         stage = `request Massive daily aggregates for ${symbol}`;
         const payload = await massiveGet(
           `/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/1/day/${isoDate(from)}/${isoDate(to)}`,
-          { adjusted: true, sort: 'asc', limit: 500 },
+          { adjusted: false, sort: 'asc', limit: 500 },
         );
         const fetchedBars = Array.isArray(payload?.results) ? payload.results : [];
         if (fetchedBars.length) {
