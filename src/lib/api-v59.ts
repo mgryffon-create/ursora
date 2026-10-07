@@ -11,6 +11,15 @@ import type { Signal } from './types';
 
 const ENGINE_VERSION = 'tradecycle-5.9.0';
 
+type ReclassifyResult = {
+  run_id?: string;
+  source_run_id?: string;
+  updates?: number;
+  engine_version?: string;
+  mode?: string;
+  signal_map?: Array<{ source_id: number; derived_id: number; symbol: string }>;
+};
+
 const describe = (error: unknown): string => {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
@@ -23,27 +32,20 @@ const warning = (label: string, error: unknown) => {
 };
 
 /**
- * Re-apply the current swing decision layer to a stored analysis without refreshing
- * Massive, Alpha Vantage, market context, or options data. This is used when an old
- * 5.8 signal is opened after the 5.9 decision model has been deployed.
+ * Re-apply the current swing decision layer to stored immutable evidence.
+ * 5.9 creates new derived signal rows rather than mutating the source signals.
  */
-export async function reclassifyStoredAnalysis(runId: string): Promise<{
-  run_id?: string;
-  updates?: number;
-  engine_version?: string;
-  mode?: string;
-}> {
-  return callEdge('run-analysis-v5-9' as EdgeFunctionSlug, {
+export async function reclassifyStoredAnalysis(runId: string): Promise<ReclassifyResult> {
+  return callEdge<ReclassifyResult>('run-analysis-v5-9' as EdgeFunctionSlug, {
     run_id: runId,
     mode: 'reclassify',
   });
 }
 
 /**
- * Preserve the normal fetchSignal API, but migrate stale stored analyses through the
- * current 5.9 decision layer the first time they are read. The second read returns
- * the updated row. A reclassification failure does not make the historical signal
- * unreadable; the original row is returned and the UI can still display it.
+ * Old signal IDs remain valid historical evidence. When one is opened, derive its
+ * current 5.9 classification and follow the source->derived signal mapping returned
+ * by the edge function instead of attempting to mutate the original row.
  */
 export async function fetchSignal(id: number): Promise<Signal | null> {
   const signal = await fetchSignalBase(id);
@@ -54,8 +56,12 @@ export async function fetchSignal(id: number): Promise<Signal | null> {
   if (engineVersion === ENGINE_VERSION || !runId) return signal;
 
   try {
-    await reclassifyStoredAnalysis(runId);
-    return (await fetchSignalBase(id)) ?? signal;
+    const result = await reclassifyStoredAnalysis(runId);
+    const mapped = result.signal_map?.find((entry) => Number(entry.source_id) === Number(id));
+    if (mapped?.derived_id) {
+      return (await fetchSignalBase(mapped.derived_id)) ?? signal;
+    }
+    return signal;
   } catch (error) {
     console.warn('URSORA stored-analysis reclassification did not complete:', error);
     return signal;
@@ -63,9 +69,9 @@ export async function fetchSignal(id: number): Promise<Signal | null> {
 }
 
 /**
- * Fresh analysis still performs the full evidence-enrichment pipeline. The final
- * decision stage is always run-analysis-v5-9. That function delegates evidence
- * production to the established engine, then applies the 1–5 day swing gate.
+ * Fresh analysis refreshes evidence first. run-analysis-v5-9 then asks the existing
+ * evidence engine for its immutable evidence run and appends a separate 5.9 decision
+ * run derived from that evidence. Contract selection receives the 5.9 run ID.
  */
 export async function runFreshAnalysis(
   body: Record<string, unknown> = { kind: 'manual' },
