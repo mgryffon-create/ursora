@@ -259,6 +259,17 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         })
         .slice(0, contractNewsCount !== null && contractNewsCount >= 0 ? contractNewsCount : undefined);
 
+  const scopedMarketRegime = snapshot?.regime
+    ? snapshot.market_status === 'equity-only context'
+      ? `Equity ${snapshot.regime}`
+      : snapshot.regime
+    : null;
+  const analysisRegimeLabel = signal.regime
+    ? snapshot?.market_status === 'equity-only context'
+      ? `Equity ${signal.regime}`
+      : signal.regime
+    : 'not available';
+
   const tacticalFrameValid = Boolean(v59Decision?.tactical_frame_valid);
   const runRiskScenarios = tacticalFrameValid
     ? {
@@ -808,7 +819,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             </div>
           </Panel>
 
-          <Panel title="Factor weighting rationale" subtitle={"Market environment used for this analysis: " + (signal.regime ?? 'not available')}>
+          <Panel title="Factor weighting rationale" subtitle={"Market environment used for this analysis: " + analysisRegimeLabel}>
             <div
               className={cn(
                 'grid gap-2',
@@ -881,7 +892,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             right={snapshot?.is_demo ? <DemoBadge /> : <DataBadge kind="derived" label="DERIVED MARKET CONTEXT" />}
           >
             <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
-              <Metric label="Market environment" value={snapshot?.regime} mono={false} />
+              <Metric label="Market environment" value={scopedMarketRegime} mono={false} />
               <Metric label="SPY" value={num(snapshot?.spy_price)} hint={pct(snapshot?.spy_change_pct) ?? undefined} valueClass={changeColor(snapshot?.spy_change_pct)} />
               <Metric label="QQQ" value={num(snapshot?.qqq_price)} hint={pct(snapshot?.qqq_change_pct) ?? undefined} valueClass={changeColor(snapshot?.qqq_change_pct)} />
               <Metric label="IWM" value={num(snapshot?.iwm_price)} hint={pct(snapshot?.iwm_change_pct) ?? undefined} valueClass={changeColor(snapshot?.iwm_change_pct)} />
