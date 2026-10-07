@@ -107,10 +107,10 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         setLoading(false);
         return;
       }
-      const [q, tks, snap, cands, rk, nw, fl, tr, se, bs, ec, ea] = await Promise.all([
+      const [q, tks, snap, cands, rk, nw, fl, tr, se, bs, initialChart, ec, ea] = await Promise.all([
         fetchQuote(sig.symbol), fetchTickers(), fetchSnapshot(), fetchCandidates(sig.id), fetchRisk(sig.id),
         fetchNews(sig.symbol, 14), fetchFilings(sig.symbol), fetchTranscripts(sig.symbol), fetchSentiment(sig.symbol),
-        fetchBars(sig.symbol, 80), fetchEconomicEvents(), fetchEarnings(),
+        fetchBars(sig.symbol, 80), fetchChartBars(sig.symbol, '1M'), fetchEconomicEvents(), fetchEarnings(),
       ]);
       if (!active) return;
       setQuote(q);
@@ -123,7 +123,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
       setTranscripts(tr);
       setSentiment(se);
       setBars(bs);
-      setChartBarsByHorizon({ '1M': bs.slice(-23) });
+      setChartBarsByHorizon({ '1M': initialChart.bars });
       setEcon(ec.filter((e) => e.affected_symbols.includes(sig.symbol)));
       setEarnings(ea.filter((e) => e.symbol === sig.symbol));
       setLoading(false);
