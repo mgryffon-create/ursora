@@ -66,6 +66,18 @@ function easternDateKey(value: Date): string {
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
+function horizonCutoff(anchor: Date, horizon: Horizon): Date | null {
+  const cutoff = new Date(anchor);
+  if (horizon === '1D') return null;
+  if (horizon === '1W') {
+    cutoff.setUTCDate(cutoff.getUTCDate() - 7);
+    return cutoff;
+  }
+  const months = horizon === '1M' ? 1 : horizon === '3M' ? 3 : horizon === '6M' ? 6 : 12;
+  cutoff.setUTCMonth(cutoff.getUTCMonth() - months);
+  return cutoff;
+}
+
 type Horizon = '1D' | '1W' | '1M' | '3M' | '6M' | '1Y';
 
 const HORIZONS: Record<Horizon, {
@@ -128,10 +140,18 @@ Deno.serve(async (req) => {
 
     let results = Array.isArray(payload?.results) ? payload.results : [];
 
-    // 1D means the latest actual trading session, not an arbitrary 24-hour slice.
+    // Fetch a padded provider window so weekends and market holidays do not leave
+    // the chart short, then trim to the exact UI horizon anchored to the latest
+    // available market bar. The selected timeframe must own the visible history.
     if (config.latestSessionOnly && results.length) {
       const latestSession = easternDateKey(new Date(Number(results.at(-1)?.t)));
       results = results.filter((bar: any) => easternDateKey(new Date(Number(bar.t))) === latestSession);
+    } else if (results.length) {
+      const anchor = new Date(Number(results.at(-1)?.t));
+      const cutoff = horizonCutoff(anchor, horizon);
+      if (cutoff) {
+        results = results.filter((bar: any) => Number(bar.t) >= cutoff.getTime());
+      }
     }
 
     const retrievedAt = new Date().toISOString();
