@@ -4,7 +4,7 @@ import {
   Newspaper, ShieldAlert, Sparkles, Users, X,
 } from 'lucide-react';
 import {
-  fetchBars, fetchCandidates, fetchChartBars, fetchEarnings, fetchEconomicEvents, fetchFilings, fetchNews, fetchQuote, fetchRisk,
+  fetchBars, fetchCandidates, fetchChartBars, fetchEarnings, fetchEconomicEvents, fetchFilings, fetchNews, fetchOptionMarketSummary, fetchQuote, fetchRisk,
   fetchSentiment, fetchSignal, fetchSnapshot, fetchTickers, fetchTranscripts,
   track,
 } from '@/lib/api';
@@ -76,6 +76,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null);
   const [candidates, setCandidates] = useState<ContractCandidate[]>([]);
   const [risk, setRisk] = useState<RiskAssessment | null>(null);
+  const [optionSummary, setOptionSummary] = useState<Awaited<ReturnType<typeof fetchOptionMarketSummary>>>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [filings, setFilings] = useState<Filing[]>([]);
   const [transcripts, setTranscripts] = useState<TranscriptStatement[]>([]);
@@ -125,6 +126,13 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         setRisk(rk);
         setBars(bs);
         setChartBarsByHorizon({ '1M': bs.slice(-23) });
+        void fetchOptionMarketSummary(sig.symbol, q?.price ?? null)
+          .then((summary) => {
+            if (active) setOptionSummary(summary);
+          })
+          .catch((optionError) => {
+            console.warn('URSORA option summary did not finish loading:', optionError);
+          });
         setLoading(false);
         track('thesis_viewed', { symbol: sig.symbol, opportunity: sig.opportunity_score });
 
@@ -280,13 +288,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
 
   const isNoTrade = signal.strategy === 'No Trade';
   const analysisHasInferred = factors.some((factor) => factor.provenance === 'imputed');
-  const optionsObserved = [
-    quote?.call_volume,
-    quote?.put_volume,
-    quote?.put_call_ratio,
-    quote?.total_oi,
-    quote?.iv,
-  ].some((value) => value !== null && value !== undefined);
+  const optionsObserved = Boolean(optionSummary?.contract_count);
   const quoteIsDelayed = Boolean(
     quote?.source_name?.includes('Frozen Session Close') ||
     quote?.source_name?.includes('Daily Aggregates'),
@@ -1021,12 +1023,12 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               : undefined}
           >
             <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
-              <Metric label="Call volume" value={compact(quote?.call_volume)} />
-              <Metric label="Put volume" value={compact(quote?.put_volume)} />
-              <Metric label="Put/call ratio" value={num(quote?.put_call_ratio)} />
-              <Metric label="Total open interest" value={compact(quote?.total_oi)} />
-              <Metric label="Unusual volume screen" value={quote?.unusual_options_volume ? 'TRIGGERED' : 'not triggered'} mono={false} valueClass={quote?.unusual_options_volume ? 'text-amber-300' : undefined} />
-              <Metric label="Implied volatility" value={ivPct(quote?.iv)} />
+              <Metric label="Call volume" value={compact(optionSummary?.call_volume)} />
+              <Metric label="Put volume" value={compact(optionSummary?.put_volume)} />
+              <Metric label="Put/call ratio" value={num(optionSummary?.put_call_ratio)} />
+              <Metric label="Total open interest" value={compact(optionSummary?.total_oi)} />
+              <Metric label="Unusual volume screen" value={optionSummary ? (optionSummary.unusual_options_volume ? 'TRIGGERED' : 'not triggered') : null} mono={false} valueClass={optionSummary?.unusual_options_volume ? 'text-amber-300' : undefined} />
+              <Metric label="Implied volatility" value={ivPct(optionSummary?.iv)} />
               <Metric label="IV change" value={pct(quote?.iv_change ? Number(quote.iv_change) * 100 : null)} />
               <Metric label="IV rank" value={quote?.iv_rank} />
               <Metric label="IV percentile" value={quote?.iv_percentile} />
@@ -1045,7 +1047,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                 <li>
                   Opening versus closing: volume above open interest suggests opening activity, but it does not prove
                   it. Here volume is{' '}
-                  <Val value={quote?.call_volume && quote?.total_oi ? `${((Number(quote.call_volume) + Number(quote.put_volume ?? 0)) / Number(quote.total_oi)).toFixed(2)}x` : null} />{' '}
+                  <Val value={optionSummary?.call_volume && optionSummary?.total_oi ? `${((Number(optionSummary.call_volume) + Number(optionSummary.put_volume ?? 0)) / Number(optionSummary.total_oi)).toFixed(2)}x` : null} />{' '}
                   of total open interest.
                 </li>
                 <li>
@@ -1073,8 +1075,8 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               <Provenance
                 sourceName={optionsObserved ? 'Massive Options Starter · 15m delayed' : 'Options data unavailable'}
                 sourceType="Market Data"
-                publishedAt={quote.as_of}
-                retrievedAt={quote.retrieved_at}
+                publishedAt={optionSummary?.retrieved_at ?? quote.as_of}
+                retrievedAt={optionSummary?.retrieved_at ?? quote.retrieved_at}
                 confidence={optionsObserved ? 0.86 : null}
               />
             )}
