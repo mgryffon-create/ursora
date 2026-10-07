@@ -551,6 +551,86 @@ export async function fetchSignalHistory(symbol?: string, limit = 120): Promise<
   return rows<Signal>(data as Signal[]);
 }
 
+export interface OptionMarketSummary {
+  retrieved_at: string | null;
+  source_name: string | null;
+  call_volume: number | null;
+  put_volume: number | null;
+  put_call_ratio: number | null;
+  total_oi: number | null;
+  iv: number | null;
+  unusual_options_volume: boolean | null;
+  contract_count: number;
+}
+
+export async function fetchOptionMarketSummary(
+  symbol: string,
+  underlyingPrice?: number | null,
+): Promise<OptionMarketSummary | null> {
+  const normalized = String(symbol).trim().toUpperCase();
+  const { data, error } = await db
+    .from('option_market_snapshots')
+    .select('option_type,strike,volume,open_interest,implied_volatility,retrieved_at,source_name')
+    .eq('underlying_symbol', normalized)
+    .order('retrieved_at', { ascending: false })
+    .limit(500);
+  if (error) throw error;
+
+  const all = rows<any>(data as any[]);
+  if (!all.length) return null;
+
+  const latestAt = String(all[0]?.retrieved_at ?? '');
+  const batch = all.filter((row) => String(row.retrieved_at ?? '') === latestAt);
+  if (!batch.length) return null;
+
+  const numeric = (value: unknown): number | null => {
+    const parsed = Number(value);
+    return value === null || value === undefined || value === '' || !Number.isFinite(parsed) ? null : parsed;
+  };
+
+  const calls = batch.filter((row) => String(row.option_type).toUpperCase() === 'CALL');
+  const puts = batch.filter((row) => String(row.option_type).toUpperCase() === 'PUT');
+  const sumField = (items: any[], key: string): number | null => {
+    const values = items.map((row) => numeric(row[key])).filter((value): value is number => value !== null);
+    return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
+  };
+
+  const callVolume = sumField(calls, 'volume');
+  const putVolume = sumField(puts, 'volume');
+  const totalOi = sumField(batch, 'open_interest');
+
+  const price = numeric(underlyingPrice);
+  const ivRows = [...batch]
+    .filter((row) => numeric(row.implied_volatility) !== null)
+    .sort((a, b) => {
+      if (price === null) return 0;
+      return Math.abs((numeric(a.strike) ?? price) - price) - Math.abs((numeric(b.strike) ?? price) - price);
+    })
+    .slice(0, 8);
+  const ivValues = ivRows
+    .map((row) => numeric(row.implied_volatility))
+    .filter((value): value is number => value !== null);
+  const iv = ivValues.length ? ivValues.reduce((sum, value) => sum + value, 0) / ivValues.length : null;
+
+  const unusual = batch.some((row) => {
+    const volume = numeric(row.volume);
+    const oi = numeric(row.open_interest);
+    return volume !== null && oi !== null && volume >= 100 && volume > oi;
+  });
+
+  return {
+    retrieved_at: latestAt || null,
+    source_name: String(batch[0]?.source_name ?? '') || null,
+    call_volume: callVolume,
+    put_volume: putVolume,
+    put_call_ratio: callVolume !== null && callVolume > 0 && putVolume !== null ? putVolume / callVolume : null,
+    total_oi: totalOi,
+    iv,
+    unusual_options_volume: unusual,
+    contract_count: batch.length,
+  };
+}
+
 export async function fetchCandidates(signalId: number): Promise<ContractCandidate[]> {
   const { data, error } = await db
     .from('contract_candidates')
