@@ -199,6 +199,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const thesisBlockers = signal?.score_breakdown?.thesis_blockers ?? signal?.score_breakdown?.blockers ?? [];
   const tradeBlockers = signal?.score_breakdown?.trade_blockers ?? [];
   const rawAnalysis = signal?.score_breakdown?.raw ?? {};
+  const evidenceContract = signal?.score_breakdown?.evidence_contract ?? null;
   const scoreMeta = (signal?.score_breakdown ?? {}) as Record<string, unknown>;
   const rawNumber = (value: unknown): number | null => {
     if (value === null || value === undefined || value === '') return null;
@@ -231,6 +232,20 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
     ? scoreMeta.v59_decision as Record<string, unknown>
     : null;
   const contextConfirmationCount = rawNumber(v59Decision?.context_confirmation_count);
+  const momentumContract = evidenceContract?.families?.momentum ?? null;
+  const priceContract = evidenceContract?.families?.price_trend ?? null;
+  const contractPointNumber = (key: string): number | null => {
+    const point = evidenceContract?.points?.[key];
+    if (!point || point.value === null || point.value === undefined || point.value === '') return null;
+    const parsed = Number(point.value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const optionCallVolume = evidenceContract ? contractPointNumber('options_call_volume') : optionSummary?.call_volume ?? null;
+  const optionPutVolume = evidenceContract ? contractPointNumber('options_put_volume') : optionSummary?.put_volume ?? null;
+  const optionPutCallRatio = evidenceContract ? contractPointNumber('options_put_call_ratio') : optionSummary?.put_call_ratio ?? null;
+  const optionTotalOi = evidenceContract ? contractPointNumber('options_total_open_interest') : optionSummary?.total_oi ?? null;
+  const optionIv = evidenceContract ? contractPointNumber('options_iv_median') : optionSummary?.iv ?? null;
+  const optionEvidencePoint = evidenceContract?.points?.options_put_call_ratio ?? null;
 
   const tradeFrameLevels = [
     { value: analysisPrice, label: 'Analysis price', color: '#60a5fa', dash: '3 3' },
@@ -288,7 +303,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
 
   const isNoTrade = signal.strategy === 'No Trade';
   const analysisHasInferred = factors.some((factor) => factor.provenance === 'imputed');
-  const optionsObserved = Boolean(optionSummary?.contract_count);
+  const optionsObserved = evidenceContract
+    ? optionEvidencePoint?.status === 'observed' || optionEvidencePoint?.status === 'no_meaningful_evidence'
+    : Boolean(optionSummary?.contract_count);
   const quoteIsDelayed = Boolean(
     quote?.source_name?.includes('Frozen Session Close') ||
     quote?.source_name?.includes('Daily Aggregates'),
@@ -462,10 +479,14 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                   <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
                     <div className="text-[10px] uppercase tracking-wider text-zinc-500">Core swing evidence</div>
                     <div className="mt-1 text-sm font-semibold text-zinc-200">
-                      Price {swingPriceBand} · Momentum {swingMomentumBand}
+                      Price {priceContract?.strength_band ?? swingPriceBand} · Momentum {momentumContract?.strength_band ?? swingMomentumBand}
                     </div>
                     <div className="mt-0.5 text-[10px] text-zinc-600">
-                      Momentum {swingMomentumConfirmed ? 'confirms' : 'does not yet confirm'} the {signal.direction} price direction
+                      {momentumContract
+                        ? momentumContract.thesis_vote === 'ABSTAIN'
+                          ? momentumContract.vote_reason
+                          : `Momentum ${momentumContract.thesis_vote === 'SUPPORT' ? 'confirms' : 'opposes'} the ${signal.direction} price direction.`
+                        : `Momentum ${swingMomentumConfirmed ? 'confirms' : 'does not yet confirm'} the ${signal.direction} price direction`}
                     </div>
                   </div>
                 ) : (
@@ -646,7 +667,11 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               )}>
               {factors.map((f) => {
                 const importance = Math.round(f.effective_weight * 100);
-                const raw = Number(f.raw_score);
+                const contractFamily = evidenceContract?.families?.[f.factor] ?? null;
+                const absoluteContractScore = contractFamily?.absolute_score;
+                const raw = absoluteContractScore !== null && absoluteContractScore !== undefined
+                  ? Math.abs(Number(absoluteContractScore))
+                  : Number(f.raw_score);
                 const isTradeQuality = f.factor === 'liquidity' || f.factor === 'risk_reward';
 
                 const signed = Number(f.signed_score ?? 0);
@@ -673,9 +698,11 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                     ? `${strength} supporting evidence`
                     : engineVote === 'OPPOSE'
                       ? `${strength} opposing evidence`
-                      : strength === 'Weak'
-                        ? signed > 0 ? 'Weak bullish lean · no thesis vote' : signed < 0 ? 'Weak bearish lean · no thesis vote' : 'Weak evidence · no thesis vote'
-                        : 'Insufficient evidence · no thesis vote';
+                      : contractFamily && (strength === 'Moderate' || strength === 'Strong')
+                        ? `${strength} standalone evidence · no thesis vote`
+                        : strength === 'Weak'
+                          ? signed > 0 ? 'Weak bullish lean · no thesis vote' : signed < 0 ? 'Weak bearish lean · no thesis vote' : 'Weak evidence · no thesis vote'
+                          : 'Insufficient evidence · no thesis vote';
 
                 const effectLabel = isTradeQuality ? 'Trade-quality effect' : 'Thesis effect';
                 const effectValue = isTradeQuality
@@ -1023,12 +1050,12 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               : undefined}
           >
             <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
-              <Metric label="Call volume" value={compact(optionSummary?.call_volume)} />
-              <Metric label="Put volume" value={compact(optionSummary?.put_volume)} />
-              <Metric label="Put/call ratio" value={num(optionSummary?.put_call_ratio)} />
-              <Metric label="Total open interest" value={compact(optionSummary?.total_oi)} />
+              <Metric label="Call volume" value={compact(optionCallVolume)} />
+              <Metric label="Put volume" value={compact(optionPutVolume)} />
+              <Metric label="Put/call ratio" value={num(optionPutCallRatio)} />
+              <Metric label="Total open interest" value={compact(optionTotalOi)} />
               <Metric label="Unusual volume screen" value={optionSummary ? (optionSummary.unusual_options_volume ? 'TRIGGERED' : 'not triggered') : null} mono={false} valueClass={optionSummary?.unusual_options_volume ? 'text-amber-300' : undefined} />
-              <Metric label="Implied volatility" value={ivPct(optionSummary?.iv)} />
+              <Metric label="Implied volatility" value={ivPct(optionIv)} />
               <Metric label="IV change" value={pct(quote?.iv_change ? Number(quote.iv_change) * 100 : null)} />
               <Metric label="IV rank" value={quote?.iv_rank} />
               <Metric label="IV percentile" value={quote?.iv_percentile} />
@@ -1047,7 +1074,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                 <li>
                   Opening versus closing: volume above open interest suggests opening activity, but it does not prove
                   it. Here volume is{' '}
-                  <Val value={optionSummary?.call_volume && optionSummary?.total_oi ? `${((Number(optionSummary.call_volume) + Number(optionSummary.put_volume ?? 0)) / Number(optionSummary.total_oi)).toFixed(2)}x` : null} />{' '}
+                  <Val value={optionCallVolume && optionTotalOi ? `${((Number(optionCallVolume) + Number(optionPutVolume ?? 0)) / Number(optionTotalOi)).toFixed(2)}x` : null} />{' '}
                   of total open interest.
                 </li>
                 <li>
