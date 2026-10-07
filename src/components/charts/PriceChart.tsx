@@ -104,8 +104,7 @@ export const PriceChart: React.FC<{
   const highs = bars.map((b) => Number(b.high)).filter(Number.isFinite);
   const plotBars = bars.map((b) => ({
     ...b,
-    lowBase: Number(b.low),
-    highLowRange: Math.max(0, Number(b.high) - Number(b.low)),
+    priceRange: [Number(b.low), Number(b.high)] as [number, number],
   }));
 
   // The selected horizon owns the chart scale. Tactical/broader reference levels
@@ -169,6 +168,7 @@ export const PriceChart: React.FC<{
             <YAxis
               orientation="right"
               domain={[visibleMin, visibleMax]}
+              allowDataOverflow
               tick={axisStyle}
               tickLine={false}
               axisLine={{ stroke: '#1c2027' }}
@@ -177,15 +177,7 @@ export const PriceChart: React.FC<{
             />
             <Tooltip content={<TooltipBox horizon={horizon} />} />
             <Bar
-              dataKey="lowBase"
-              stackId="price-range"
-              fill="transparent"
-              stroke="transparent"
-              isAnimationActive={false}
-            />
-            <Bar
-              dataKey="highLowRange"
-              stackId="price-range"
+              dataKey="priceRange"
               barSize={horizon === '1D' ? 7 : horizon === '1W' ? 7 : horizon === '1M' ? 8 : 5}
               shape={<CandleShape />}
               isAnimationActive={false}
