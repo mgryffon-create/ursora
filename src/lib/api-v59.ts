@@ -31,6 +31,63 @@ const warning = (label: string, error: unknown) => {
   return `${label}: refresh did not complete${detail ? ` — ${detail}` : '.'}`;
 };
 
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' ? value as Record<string, unknown> : {};
+
+function normalizeV59Signal(signal: Signal): Signal {
+  const engineVersion = String((signal as Signal & { engine_version?: string }).engine_version ?? '');
+  if (engineVersion !== ENGINE_VERSION) return signal;
+
+  const typed = signal as Signal & {
+    strategy?: string;
+    direction?: string;
+    score_breakdown?: Record<string, unknown>;
+    weights?: Record<string, unknown>;
+  };
+  const score = asRecord(typed.score_breakdown);
+  const raw = asRecord(score.raw);
+  const decision = asRecord(score.v59_decision);
+
+  const thesisState = String(score.thesis_state ?? 'Insufficient Evidence');
+  const contractState = String(score.contract_selection_state ?? 'not_applicable');
+  const supported = thesisState === 'Supported' || thesisState === 'Strongly Supported';
+  const strategy = supported
+    ? contractState === 'available' ? 'Directional Option' : 'Supported Swing'
+    : typed.strategy ?? 'No Trade';
+
+  const setup = String(raw.swing_setup ?? score.swing_setup ?? 'unclassified').replaceAll('_', ' ');
+  const priceBand = String(raw.swing_price_band ?? decision.price_band ?? 'Insufficient');
+  const momentumBand = String(raw.swing_momentum_band ?? decision.momentum_band ?? 'Insufficient');
+  const direction = String(decision.price_direction ?? typed.direction ?? 'neutral');
+  const momentumAgrees = raw.swing_momentum_confirmed === true || decision.momentum_agrees === true;
+  const frameValid = raw.swing_tactical_frame_valid === true || decision.tactical_frame_valid === true;
+  const rrRaw = Number(raw.swing_reward_risk_ratio);
+  const rr = Number.isFinite(rrRaw) ? rrRaw : null;
+  const contextRaw = Number(decision.context_confirmation_count);
+  const contextCount = Number.isFinite(contextRaw) ? contextRaw : 0;
+
+  const decisions = [
+    `TradeCycle 5.9 thesis classification: ${thesisState}.`,
+    `Swing setup: ${setup}; price ${priceBand.toLowerCase()} ${direction}; momentum ${momentumBand.toLowerCase()}${momentumAgrees ? ' and aligned' : ' and not yet aligned at the required strength'}.`,
+    `1–5 day tactical frame: ${frameValid ? 'usable' : 'not currently usable'}${rr !== null ? ` · ${rr.toFixed(2)} R:R` : ''}.`,
+    `Secondary context confirmations: ${contextCount}. Participation, broader market, options context and verified catalysts can change conviction, but they do not create the swing thesis.`,
+    contractState === 'available'
+      ? 'Contract selection: executable option pricing is available for position construction.'
+      : contractState === 'pending_live_execution_data'
+        ? 'Contract selection: pending live execution data. The supported underlying swing thesis remains separate from contract availability.'
+        : 'Contract selection: not applicable until the underlying swing setup is supported.',
+  ];
+
+  return {
+    ...signal,
+    strategy,
+    weights: {
+      ...asRecord(typed.weights),
+      decisions,
+    },
+  } as Signal;
+}
+
 /**
  * Re-apply the current swing decision layer to stored immutable evidence.
  * 5.9 creates new derived signal rows rather than mutating the source signals.
@@ -53,13 +110,14 @@ export async function fetchSignal(id: number): Promise<Signal | null> {
 
   const engineVersion = String((signal as Signal & { engine_version?: string }).engine_version ?? '');
   const runId = String((signal as Signal & { run_id?: string }).run_id ?? '').trim();
-  if (engineVersion === ENGINE_VERSION || !runId) return signal;
+  if (engineVersion === ENGINE_VERSION || !runId) return normalizeV59Signal(signal);
 
   try {
     const result = await reclassifyStoredAnalysis(runId);
     const mapped = result.signal_map?.find((entry) => Number(entry.source_id) === Number(id));
     if (mapped?.derived_id) {
-      return (await fetchSignalBase(mapped.derived_id)) ?? signal;
+      const derived = (await fetchSignalBase(mapped.derived_id)) ?? signal;
+      return normalizeV59Signal(derived);
     }
     return signal;
   } catch (error) {
