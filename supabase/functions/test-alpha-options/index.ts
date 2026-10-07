@@ -86,6 +86,12 @@ Deno.serve(async (req) => {
           ? payload.options
           : [];
 
+    const looksLikeDemo = rows.length > 0 && rows.every((row: any) => {
+      const contract = String(row.contractID ?? row.contract ?? row.symbol ?? '');
+      const expiration = String(row.expiration ?? '');
+      return /^XXYYZZ/i.test(contract) || expiration === '2099-99-99';
+    });
+
     const sample = rows.slice(0, 5).map((row: any) => ({
       contract: stringValue(row.contractID ?? row.contract ?? row.symbol),
       type: stringValue(row.type),
@@ -118,14 +124,14 @@ Deno.serve(async (req) => {
     };
 
     return json({
-      success: rows.length > 0,
+      success: rows.length > 0 && !looksLikeDemo,
       symbol,
       http_status: response.status,
       elapsed_ms: elapsedMs,
-      entitlement: rows.length > 0 ? 'available' : 'no_rows',
+      entitlement: looksLikeDemo ? 'demo_only' : rows.length > 0 ? 'available' : 'no_rows',
       endpoint: 'REALTIME_OPTIONS',
       require_greeks: true,
-      provider_message: null,
+      provider_message: looksLikeDemo ? 'Alpha Vantage returned its synthetic realtime-options demo payload rather than live symbol data.' : null,
       metadata: payload?.endpoint ?? payload?.message ?? payload?.metadata ?? null,
       coverage: fieldCoverage,
       sample,
