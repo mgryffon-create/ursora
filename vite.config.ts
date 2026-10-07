@@ -9,17 +9,7 @@ export default defineConfig(({ mode }) => ({
     port: 8080,
   },
   plugins: [
-    react(),
-    {
-      name: 'ursora-tradecycle-5-9',
-      enforce: 'pre',
-      transform(code, id) {
-        if (id.endsWith('OpportunitiesView.tsx') || id.endsWith('ThesisView.tsx')) {
-          return code.replaceAll('tradecycle-5.8.0', 'tradecycle-5.9.0');
-        }
-        return null;
-      },
-    },
+    react()
   ].filter(Boolean),
   resolve: {
     alias: {
