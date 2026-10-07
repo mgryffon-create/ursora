@@ -1016,6 +1016,10 @@ Deno.serve(async (req) => {
         .reduce((sum, row) => sum + Number(row.volume ?? 0), 0);
       const putVolume = symbolOptions.filter((row) => String(row.option_type).toUpperCase() === 'PUT')
         .reduce((sum, row) => sum + Number(row.volume ?? 0), 0);
+      const totalOpenInterest = symbolOptions.reduce((sum, row) => sum + Number(row.open_interest ?? 0), 0);
+      const optionIvMedian = median(symbolOptions.map((row) => n(row.implied_volatility)));
+      const optionSnapshotRetrievedAt = latestOptionBatchByUnderlying.get(symbol) ?? null;
+      const optionSourceName = symbolOptions.length ? String(symbolOptions[0]?.source_name ?? 'Massive Options') : null;
       const putCallRatio = callVolume > 0 ? putVolume / callVolume : n(q.put_call_ratio);
 
       // Aggregate put/call volume is ambiguous because it does not reveal trade side,
@@ -1857,6 +1861,12 @@ Deno.serve(async (req) => {
             momentum_score: momentum,
             composite_orientation: compositeOrientation,
             put_call_ratio: putCallRatio,
+            call_volume: symbolOptions.length ? callVolume : null,
+            put_volume: symbolOptions.length ? putVolume : null,
+            total_open_interest: symbolOptions.length ? totalOpenInterest : null,
+            option_iv_median: optionIvMedian,
+            option_snapshot_retrieved_at: optionSnapshotRetrievedAt,
+            option_source_name: optionSourceName,
             relative_volume: computedRelVolume,
             rsi_14: rsi,
             macd_line: macd?.line ?? null,
