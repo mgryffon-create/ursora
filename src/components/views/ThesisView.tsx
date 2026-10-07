@@ -149,6 +149,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const thesisBlockers = signal?.score_breakdown?.thesis_blockers ?? signal?.score_breakdown?.blockers ?? [];
   const tradeBlockers = signal?.score_breakdown?.trade_blockers ?? [];
   const rawAnalysis = signal?.score_breakdown?.raw ?? {};
+  const scoreMeta = (signal?.score_breakdown ?? {}) as Record<string, unknown>;
   const rawNumber = (value: unknown): number | null => {
     if (value === null || value === undefined || value === '') return null;
     const parsed = Number(value);
@@ -166,6 +167,20 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const recentMedianCloseMove5 = rawNumber(rawAnalysis.recent_median_abs_close_move_5);
   const chartBars = chartBarsByHorizon[chartHorizon] ?? bars.slice(-23);
   const analysisPrice = rawNumber(signal?.stock_price_at_generation);
+  const isV59 = signal?.engine_version === 'tradecycle-5.9.0';
+  const swingSetup = typeof rawAnalysis.swing_setup === 'string' ? rawAnalysis.swing_setup : 'unclassified';
+  const swingPriceBand = typeof rawAnalysis.swing_price_band === 'string' ? rawAnalysis.swing_price_band : 'Insufficient';
+  const swingMomentumBand = typeof rawAnalysis.swing_momentum_band === 'string' ? rawAnalysis.swing_momentum_band : 'Insufficient';
+  const swingMomentumConfirmed = rawAnalysis.swing_momentum_confirmed === true;
+  const swingFrameValid = rawAnalysis.swing_tactical_frame_valid === true;
+  const swingRewardRisk = rawNumber(rawAnalysis.swing_reward_risk_ratio);
+  const contractSelectionState = typeof scoreMeta.contract_selection_state === 'string'
+    ? scoreMeta.contract_selection_state
+    : 'not_applicable';
+  const v59Decision = scoreMeta.v59_decision && typeof scoreMeta.v59_decision === 'object'
+    ? scoreMeta.v59_decision as Record<string, unknown>
+    : null;
+  const contextConfirmationCount = rawNumber(v59Decision?.context_confirmation_count);
 
   const tradeFrameLevels = [
     { value: analysisPrice, label: 'Analysis price', color: '#60a5fa', dash: '3 3' },
@@ -237,7 +252,6 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
 
   return (
     <div className="space-y-4">
-      {/* HEADER */}
       <div className="rounded-md border border-zinc-800 bg-[#14171c]">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-800 p-3">
           <div className="min-w-0">
@@ -299,7 +313,6 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                 <Bot className="h-3.5 w-3.5" aria-hidden="true" />
                 Ask the analyst
               </Button>
-
             </div>
           </div>
         </div>
@@ -336,7 +349,6 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         <div className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-[12px] text-red-200">{error}</div>
       )}
 
-      {/* EVIDENCE TABS */}
       <Tabs defaultValue="score" className="w-full">
         <TabsList className="flex h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto bg-[#14171c] p-1">
           {[
@@ -357,11 +369,12 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           ))}
         </TabsList>
 
-        {/* SCORE BREAKDOWN */}
         <TabsContent value="score" className="mt-3 space-y-3">
           <Panel
             title="Opportunity score rationale"
-            subtitle="An interpretation of the evidence included in this run, its relative importance, and whether it affects thesis direction or trade quality. The score summarizes available evidence; it is not a probability of profit."
+            subtitle={isV59
+              ? 'TradeCycle 5.9 evaluates a 1–5 day swing setup using short-horizon price direction, aligned momentum and a usable tactical frame. Secondary evidence changes conviction and execution quality; it does not manufacture direction.'
+              : 'An interpretation of the evidence included in this run, its relative importance, and whether it affects thesis direction or trade quality. The score summarizes available evidence; it is not a probability of profit.'}
             right={signal.is_demo
               ? <DemoBadge />
               : analysisHasInferred
@@ -401,26 +414,79 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                     </div>
                   )}
                 </div>
-                <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
-                  <div className="text-[10px] uppercase tracking-wider text-zinc-500">Qualifying evidence alignment</div>
-                  <div className="mt-1 text-sm font-semibold text-zinc-200">
-                    {supportShare === null ? 'Insufficient evidence' : `${supportShare}%`}
-                  </div>
-                  {agreementFamilyCount !== null && (
-                    <div className="mt-0.5 text-[10px] text-zinc-600">
-                      {agreementFamilyCount} Moderate/Strong directional families qualify to vote
+                {isV59 ? (
+                  <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
+                    <div className="text-[10px] uppercase tracking-wider text-zinc-500">Core swing evidence</div>
+                    <div className="mt-1 text-sm font-semibold text-zinc-200">
+                      Price {swingPriceBand} · Momentum {swingMomentumBand}
                     </div>
-                  )}
-                </div>
+                    <div className="mt-0.5 text-[10px] text-zinc-600">
+                      Momentum {swingMomentumConfirmed ? 'confirms' : 'does not yet confirm'} the {signal.direction} price direction
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
+                    <div className="text-[10px] uppercase tracking-wider text-zinc-500">Qualifying evidence alignment</div>
+                    <div className="mt-1 text-sm font-semibold text-zinc-200">
+                      {supportShare === null ? 'Insufficient evidence' : `${supportShare}%`}
+                    </div>
+                    {agreementFamilyCount !== null && (
+                      <div className="mt-0.5 text-[10px] text-zinc-600">
+                        {agreementFamilyCount} Moderate/Strong directional families qualify to vote
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
                   <div className="text-[10px] uppercase tracking-wider text-zinc-500">Classification rule</div>
                   <div className="mt-1 text-[11px] leading-relaxed text-zinc-400">
-                    Price/structure establishes the directional thesis. Momentum and participation confirm or contradict it; market, sector, and catalysts provide context. Only Moderate and Strong evidence can vote. Weak and Insufficient evidence abstain.
+                    {isV59
+                      ? 'A 1–5 day swing requires usable short-horizon direction, Moderate-or-Strong momentum in the same direction, a valid tactical target/invalidation frame, and no Strong short-horizon contradiction. Participation, broader market, options and news are supporting context rather than mandatory votes.'
+                      : 'Price/structure establishes the directional thesis. Momentum and participation confirm or contradict it; market, sector, and catalysts provide context. Only Moderate and Strong evidence can vote. Weak and Insufficient evidence abstain.'}
                   </div>
                 </div>
               </div>
 
-              {thesisHierarchy && (
+              {isV59 ? (
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
+                    <div className="text-[9px] uppercase tracking-wider text-zinc-600">Swing setup</div>
+                    <div className="mt-1 text-[12px] font-semibold text-zinc-200">{swingSetup.replaceAll('_', ' ')}</div>
+                    <div className="mt-0.5 text-[10px] text-zinc-500">Holding frame · 1–5 days</div>
+                  </div>
+                  <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
+                    <div className="text-[9px] uppercase tracking-wider text-zinc-600">Price direction</div>
+                    <div className="mt-1 text-[12px] font-semibold text-zinc-200">{swingPriceBand} · {signal.direction}</div>
+                    <div className="mt-0.5 text-[10px] text-zinc-500">Establishes the short-horizon lean</div>
+                  </div>
+                  <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
+                    <div className="text-[9px] uppercase tracking-wider text-zinc-600">Momentum confirmation</div>
+                    <div className={cn('mt-1 text-[12px] font-semibold', swingMomentumConfirmed ? 'text-emerald-300' : 'text-amber-300')}>
+                      {swingMomentumBand} · {swingMomentumConfirmed ? 'confirmed' : 'not confirmed'}
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-zinc-500">Moderate/Strong alignment is required</div>
+                  </div>
+                  <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
+                    <div className="text-[9px] uppercase tracking-wider text-zinc-600">Tactical frame</div>
+                    <div className={cn('mt-1 text-[12px] font-semibold', swingFrameValid ? 'text-emerald-300' : 'text-amber-300')}>
+                      {swingFrameValid ? 'usable' : 'not usable'}{swingRewardRisk !== null ? ` · ${swingRewardRisk.toFixed(2)} R:R` : ''}
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-zinc-500">Target and invalidation must fit the 1–5 day lane</div>
+                  </div>
+                  <div className="rounded-md border border-zinc-800 bg-black/20 p-3 md:col-span-1 xl:col-span-2">
+                    <div className="text-[9px] uppercase tracking-wider text-zinc-600">Secondary confirmation</div>
+                    <div className="mt-1 text-[12px] font-semibold text-zinc-200">
+                      {contextConfirmationCount === null ? 'Not quantified' : `${contextConfirmationCount} Moderate/Strong context confirmations`}
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-zinc-500">Participation, broader market and verified catalysts can raise conviction but do not create the thesis.</div>
+                  </div>
+                  <div className="rounded-md border border-zinc-800 bg-black/20 p-3 md:col-span-1 xl:col-span-2">
+                    <div className="text-[9px] uppercase tracking-wider text-zinc-600">Contract selection</div>
+                    <div className="mt-1 text-[12px] font-semibold text-zinc-200">{contractSelectionState.replaceAll('_', ' ')}</div>
+                    <div className="mt-0.5 text-[10px] text-zinc-500">Execution readiness is separate from whether the underlying swing setup is supported.</div>
+                  </div>
+                </div>
+              ) : thesisHierarchy ? (
                 <div className="grid gap-2 md:grid-cols-3">
                   <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
                     <div className="text-[9px] uppercase tracking-wider text-zinc-600">Primary structure</div>
@@ -458,7 +524,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                     <div className="mt-0.5 text-[10px] text-zinc-500">Market/sector + verified catalysts</div>
                   </div>
                 </div>
-              )}
+              ) : null}
 
               {interactionFlags.length > 0 && (
                 <Panel
@@ -634,7 +700,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                   {signal.opportunity_score}/100
                 </div>
                 <p className="mt-1 text-[12px] leading-relaxed text-zinc-400">
-                  The opportunity score summarizes the strength of the evidence that is currently available. Thesis status and evidence completeness determine whether that score is sufficient to support a trade analysis.
+                  {isV59
+                    ? 'The opportunity score summarizes the available evidence. TradeCycle 5.9 does not use that number alone as the swing gate: price direction, aligned momentum and a usable 1–5 day frame determine setup support, while secondary evidence changes conviction.'
+                    : 'The opportunity score summarizes the strength of the evidence that is currently available. Thesis status and evidence completeness determine whether that score is sufficient to support a trade analysis.'}
                 </p>
               </div>
             </div>
@@ -706,7 +774,6 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           </Panel>
         </TabsContent>
 
-        {/* MARKET CONTEXT */}
         <TabsContent value="market" className="mt-3 space-y-3">
           <Panel
             title="Market conditions"
@@ -770,7 +837,6 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           </Panel>
         </TabsContent>
 
-        {/* PRICE ACTION */}
         <TabsContent value="price" className="mt-3 space-y-3">
           <Panel
             title="Price movement with tactical swing levels"
@@ -905,7 +971,6 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           </Panel>
         </TabsContent>
 
-        {/* OPTIONS MARKET */}
         <TabsContent value="options" className="mt-3 space-y-3">
           <Panel
             title="Options data"
@@ -974,7 +1039,6 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           </Panel>
         </TabsContent>
 
-        {/* NEWS */}
         <TabsContent value="news" className="mt-3 space-y-3">
           <Panel
             title="News & market events"
@@ -1111,7 +1175,6 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           </div>
         </TabsContent>
 
-        {/* EXEC INTELLIGENCE */}
         <TabsContent value="exec" className="mt-3">
           <Panel
             title="Executive and company statements"
@@ -1161,7 +1224,6 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           </Panel>
         </TabsContent>
 
-        {/* SENTIMENT */}
         <TabsContent value="sentiment" className="mt-3">
           <Panel
             title="Investor sentiment"
@@ -1181,7 +1243,6 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           </Panel>
         </TabsContent>
 
-        {/* RISK */}
         <TabsContent value="risk" className="mt-3 space-y-3">
           <div className="grid gap-3 lg:grid-cols-3">
             {[
@@ -1258,7 +1319,6 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           </Panel>
         </TabsContent>
 
-        {/* CONTRACTS */}
         <TabsContent value="contracts" className="mt-3 space-y-3">
           <Panel
             title="Option contract candidates"
@@ -1270,7 +1330,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             {candidates.length === 0 ? (
               <EmptyState
                 title="No contract named"
-                body="This signal did not clear the engine's thresholds, so no contract is suggested. A direction without a tradeable contract is not a trade."
+                body={isV59 && thesisState === 'Supported'
+                  ? 'The underlying swing setup is supported, but URSORA does not currently have executable contract pricing that clears the contract-selection layer.'
+                  : 'This signal did not clear the swing setup gate, so no contract is suggested.'}
               />
             ) : (
               <div className="grid gap-3 lg:grid-cols-3">
@@ -1328,14 +1390,12 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             <p className="mt-3 border-t border-zinc-800 pt-3 text-[11px] leading-relaxed text-zinc-500">
               Model confidence is derived from contract delta and the evidence score. It is a modelled estimate of the
               analysis remaining valid through expiration — not a probability of profit, and not a guarantee of execution at these
-              prices. All chain values are Black-Scholes modelled by the simulation adapter and stored at low confidence.
+              prices. Contract values shown here come from the stored options snapshot used by URSORA; if required pricing fields are unavailable, no executable contract is named.
             </p>
           </Panel>
         </TabsContent>
-
       </Tabs>
 
-      {/* SLIDE-OVER ANALYST */}
       {chatOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/70 animate-fade-in" role="dialog" aria-label="AI analyst panel">
           <div className="h-full w-full max-w-xl border-l border-zinc-800 bg-[#0b0d10] p-3">
