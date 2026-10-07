@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  Area, AreaChart, Bar, CartesianGrid, Cell, ComposedChart, Line, LineChart, ReferenceDot, ReferenceLine, ResponsiveContainer,
+  Area, AreaChart, Bar, CartesianGrid, ComposedChart, Line, LineChart, ReferenceDot, ReferenceLine, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from 'recharts';
 import type { Bar, ChartHorizon } from '@/lib/types';
