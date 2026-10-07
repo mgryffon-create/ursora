@@ -334,7 +334,7 @@ Deno.serve(async (req) => {
               high: n(bar.h),
               low: n(bar.l),
               close: n(bar.c),
-              volume: n(bar.v),
+              volume: Math.round(n(bar.v) ?? 0),
             }))
             .filter((bar: any) =>
               bar.bar_time &&
@@ -431,7 +431,7 @@ Deno.serve(async (req) => {
         prev_close: previousClose,
         prev_day_high: freezeForSession ? (n(frozenQuote?.prev_day_high) ?? n(snapshot?.prevDay?.h) ?? n(previous?.h)) : (n(snapshot?.prevDay?.h) ?? n(previous?.h)),
         prev_day_low: freezeForSession ? (n(frozenQuote?.prev_day_low) ?? n(snapshot?.prevDay?.l) ?? n(previous?.l)) : (n(snapshot?.prevDay?.l) ?? n(previous?.l)),
-        volume: latestVolume,
+        volume: latestVolume === null ? null : Math.round(latestVolume),
         avg_volume: freezeForSession ? (n(frozenQuote?.avg_volume) ?? (averageVolume === null ? null : Math.round(averageVolume))) : (averageVolume === null ? null : Math.round(averageVolume)),
         rel_volume: freezeForSession ? (n(frozenQuote?.rel_volume) ?? (averageVolume && latestVolume ? latestVolume / averageVolume : null)) : (averageVolume && latestVolume ? latestVolume / averageVolume : null),
         vwap: freezeForSession ? (n(frozenQuote?.vwap) ?? n(snapshot?.day?.vw) ?? n(latest?.vw)) : (n(snapshot?.day?.vw) ?? n(latest?.vw)),
