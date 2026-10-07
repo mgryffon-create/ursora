@@ -139,7 +139,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         // Secondary evidence should never hold the entire trade-analysis page hostage.
         void Promise.all([
           fetchSnapshot(),
-          fetchNews(sig.symbol, 14),
+          fetchNews(sig.symbol, 3),
           fetchFilings(sig.symbol),
           fetchTranscripts(sig.symbol),
           fetchSentiment(sig.symbol),
@@ -460,13 +460,13 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                   </div>
                 </div>
                 <div className="rounded-md border border-zinc-800 bg-black/20 p-3">
-                  <div className="text-[10px] uppercase tracking-wider text-zinc-500">Data coverage</div>
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-500">Weighted evidence completeness</div>
                   <div className="mt-1 text-sm font-semibold text-zinc-200">
                     {evidenceCompleteness === null ? 'Not recorded' : `${evidenceCompleteness}%`}
                   </div>
                   {availableFamilies !== null && totalFamilies !== null && (
                     <div className="mt-0.5 text-[10px] text-zinc-600">
-                      {availableFamilies} of {totalFamilies} evidence categories have usable source data
+                      Family availability: {availableFamilies} of {totalFamilies} have usable source data
                     </div>
                   )}
                   {directionalCompleteness !== null && (
@@ -1113,7 +1113,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         <TabsContent value="news" className="mt-3 space-y-3">
           <Panel
             title="News & market events"
-            subtitle="Newer items carry more weight. The recency weight shown is the multiplier the engine applied to each item this run."
+            subtitle="Verified symbol-level news from the same 72-hour evidence window used by this analysis. Newer items carry more weight."
             right={news.length
               ? (news.some((item) => item.is_demo) ? <DemoBadge /> : <DataBadge kind="observed" label="VERIFIED NEWS" />)
               : undefined}
