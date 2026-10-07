@@ -648,9 +648,98 @@ export interface ChartBarsResponse {
   retrieved_at: string;
 }
 
+function chartTimeframe(horizon: ChartHorizon): '5m' | '30m' | '1d' {
+  return horizon === '1D' ? '5m' : horizon === '1W' ? '30m' : '1d';
+}
+
+function chartCutoff(horizon: ChartHorizon, anchor = new Date()): Date {
+  const cutoff = new Date(anchor);
+  if (horizon === '1D') {
+    cutoff.setUTCDate(cutoff.getUTCDate() - 5);
+    return cutoff;
+  }
+  if (horizon === '1W') {
+    cutoff.setUTCDate(cutoff.getUTCDate() - 8);
+    return cutoff;
+  }
+  const months = horizon === '1M' ? 1 : horizon === '3M' ? 3 : horizon === '6M' ? 6 : 12;
+  cutoff.setUTCMonth(cutoff.getUTCMonth() - months);
+  return cutoff;
+}
+
+function easternSessionKey(value: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(value));
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+async function fetchCachedChartBars(symbol: string, horizon: ChartHorizon): Promise<Bar[]> {
+  const timeframe = chartTimeframe(horizon);
+  const cutoff = chartCutoff(horizon);
+  const { data, error } = await db
+    .from('ohlcv_bars')
+    .select('bar_time, open, high, low, close, volume, retrieved_at')
+    .eq('symbol', symbol)
+    .eq('timeframe', timeframe)
+    .gte('bar_time', cutoff.toISOString())
+    .order('bar_time', { ascending: true })
+    .limit(5000);
+  if (error) throw error;
+
+  let cached = rows<any>(data as any[]);
+  if (!cached.length) return [];
+
+  const newestRetrieved = Math.max(
+    ...cached.map((bar) => new Date(bar.retrieved_at ?? bar.bar_time).getTime()).filter(Number.isFinite),
+  );
+  const maxAgeMs = 5 * 86400000;
+  if (!Number.isFinite(newestRetrieved) || Date.now() - newestRetrieved > maxAgeMs) return [];
+
+  if (horizon === '1D') {
+    const latestSession = easternSessionKey(String(cached.at(-1)?.bar_time));
+    cached = cached.filter((bar) => easternSessionKey(String(bar.bar_time)) === latestSession);
+  } else {
+    const anchor = new Date(String(cached.at(-1)?.bar_time));
+    const exactCutoff = chartCutoff(horizon, anchor).getTime();
+    cached = cached.filter((bar) => new Date(bar.bar_time).getTime() >= exactCutoff);
+  }
+
+  const minimumBars = horizon === '1D' ? 20
+    : horizon === '1W' ? 20
+      : horizon === '1M' ? 15
+        : horizon === '3M' ? 45
+          : horizon === '6M' ? 90
+            : 180;
+
+  if (cached.length < minimumBars) return [];
+
+  return cached.map(({ bar_time, open, high, low, close, volume }) => ({
+    bar_time, open, high, low, close, volume,
+  })) as Bar[];
+}
+
 export async function fetchChartBars(symbol: string, horizon: ChartHorizon): Promise<ChartBarsResponse> {
+  const normalized = String(symbol).trim().toUpperCase();
+  const cached = await fetchCachedChartBars(normalized, horizon);
+  if (cached.length) {
+    return {
+      success: true,
+      symbol: normalized,
+      horizon,
+      timeframe: chartTimeframe(horizon),
+      source: 'Supabase cached Massive bars',
+      bars: cached,
+      retrieved_at: new Date().toISOString(),
+    };
+  }
+
   return callEdge<ChartBarsResponse>(EDGE_FUNCTIONS.chartBars, {
-    symbol: String(symbol).trim().toUpperCase(),
+    symbol: normalized,
     horizon,
   });
 }
