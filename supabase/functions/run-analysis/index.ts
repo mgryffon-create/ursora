@@ -765,30 +765,50 @@ Deno.serve(async (req) => {
 
       const price = n(q.price);
       const change = n(q.change_pct);
-      const momentum = n(q.momentum_score);
-      const trend = String(q.trend ?? '').toLowerCase();
-      const sma20 = n(q.sma20);
-      const sma50 = n(q.sma50);
-      const sma200 = n(q.sma200);
-      const quoteSupport = n(q.support);
-      const quoteResistance = n(q.resistance);
-      const quoteAtr = n(q.atr);
       const relVolume = n(q.rel_volume);
       const sessionHigh = n(q.day_high);
       const sessionLow = n(q.day_low);
 
-      const derivedStructure = deriveStructureFromBars(barsBySymbol.get(symbol) ?? []);
+      const candidateBars = [...(barsBySymbol.get(symbol) ?? [])]
+        .sort((a, b) => String(a.bar_time).localeCompare(String(b.bar_time)));
+      const latestHistoryBar = candidateBars.at(-1);
+      const latestHistoryTime = latestHistoryBar?.bar_time ? new Date(latestHistoryBar.bar_time).getTime() : NaN;
+      const latestHistoryClose = n(latestHistoryBar?.close);
+      const historyReference = n(q.prev_close) ?? price;
+      const historyAgeMs = Number.isFinite(latestHistoryTime) ? nowMs - latestHistoryTime : Infinity;
+      const historyDistancePct =
+        latestHistoryClose !== null && historyReference !== null && historyReference > 0
+          ? Math.abs(latestHistoryClose - historyReference) / historyReference
+          : Infinity;
+      const historyUsable =
+        candidateBars.length >= 10 &&
+        historyAgeMs >= 0 &&
+        historyAgeMs <= 7 * 86400000 &&
+        historyDistancePct <= 0.12;
+
+      // Never let stale or price-regime-disconnected history manufacture a fresh
+      // technical thesis. If the provider refresh failed, technical evidence abstains
+      // until usable history is available again.
+      const symbolBars = historyUsable ? candidateBars : [];
+      const momentum = historyUsable ? n(q.momentum_score) : null;
+      const trend = historyUsable ? String(q.trend ?? '').toLowerCase() : 'insufficient data';
+      const sma20 = historyUsable ? n(q.sma20) : null;
+      const sma50 = historyUsable ? n(q.sma50) : null;
+      const sma200 = historyUsable ? n(q.sma200) : null;
+      const quoteSupport = historyUsable ? n(q.support) : null;
+      const quoteResistance = historyUsable ? n(q.resistance) : null;
+      const quoteAtr = historyUsable ? n(q.atr) : null;
+
+      const derivedStructure = deriveStructureFromBars(symbolBars);
       const support = quoteSupport ?? derivedStructure.support;
       const resistance = quoteResistance ?? derivedStructure.resistance;
       const atr = quoteAtr ?? derivedStructure.atr;
-      const contextualStructure = deriveTacticalSwingLevels(barsBySymbol.get(symbol) ?? [], price);
-      const recentMove = deriveRecentMoveProfile(barsBySymbol.get(symbol) ?? [], sessionHigh, sessionLow);
+      const contextualStructure = deriveTacticalSwingLevels(symbolBars, price);
+      const recentMove = deriveRecentMoveProfile(symbolBars, sessionHigh, sessionLow);
 
       // ----- v5 directional evidence families (-100 bearish, +100 bullish) -----
       // Weak evidence describes a lean but does not vote on the thesis. Moderate and
       // Strong evidence are the only bands allowed to support or oppose a thesis.
-      const symbolBars = [...(barsBySymbol.get(symbol) ?? [])]
-        .sort((a, b) => String(a.bar_time).localeCompare(String(b.bar_time)));
       const closes = symbolBars.map((bar) => n(bar.close)).filter((v): v is number => v !== null);
       const highs = symbolBars.map((bar) => n(bar.high)).filter((v): v is number => v !== null);
       const lows = symbolBars.map((bar) => n(bar.low)).filter((v): v is number => v !== null);
