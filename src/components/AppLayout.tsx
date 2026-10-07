@@ -98,6 +98,11 @@ const StatusBar: React.FC<{ snapshot: MarketSnapshot | null }> = ({ snapshot }) 
     { label: 'SPY', price: snapshot?.spy_price, change: snapshot?.spy_change_pct },
     { label: 'QQQ', price: snapshot?.qqq_price, change: snapshot?.qqq_change_pct },
   ];
+  const scopedRegime = snapshot?.regime
+    ? snapshot.market_status === 'equity-only context'
+      ? `Equity ${snapshot.regime}`
+      : snapshot.regime
+    : 'DATA UNAVAILABLE';
   return (
     <div className="flex items-center gap-4 border-b border-zinc-800 bg-[#0b0d10] px-3 py-1.5">
       <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider">
@@ -107,7 +112,7 @@ const StatusBar: React.FC<{ snapshot: MarketSnapshot | null }> = ({ snapshot }) 
       <span className="hidden font-mono text-[10px] uppercase tracking-wider text-zinc-500 sm:inline">
         market environment <span className={cn(
           snapshot?.regime === 'Risk-On' ? 'text-emerald-300' : snapshot?.regime === 'Risk-Off' ? 'text-red-300' : 'text-sky-300',
-        )}>{snapshot?.regime ?? 'DATA UNAVAILABLE'}</span>
+        )}>{scopedRegime}</span>
       </span>
       <div className="hidden items-center gap-3 md:flex">
         {tickers.map((t) => (
