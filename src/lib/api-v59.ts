@@ -4,6 +4,7 @@ import {
   callEdge,
   EDGE_FUNCTIONS,
   fetchSignal as fetchSignalBase,
+  marketCacheState,
   type EdgeFunctionSlug,
   type FreshAnalysisResult,
 } from './api';
@@ -144,8 +145,26 @@ export async function runFreshAnalysis(
   // refetching their daily history here wastes Massive requests and can trigger 429s.
   const marketPayload = selectedSymbols.length ? { symbols: selectedSymbols } : {};
 
+  let marketNeedsRefresh = selectedSymbols.length === 0;
+  if (selectedSymbols.length) {
+    try {
+      marketNeedsRefresh = !(await marketCacheState(selectedSymbols)).fresh;
+    } catch (error) {
+      // A cache check failure should fall back to attempting the provider refresh.
+      marketNeedsRefresh = true;
+      console.warn('URSORA market cache freshness check failed:', error);
+    }
+  }
+
+  if (marketNeedsRefresh) {
+    try {
+      await callEdge(EDGE_FUNCTIONS.marketSync, marketPayload);
+    } catch (error) {
+      warnings.push(warning('Massive market quotes and historical data', error));
+    }
+  }
+
   const stages: Array<{ label: string; slug: EdgeFunctionSlug; payload: Record<string, unknown> }> = [
-    { label: 'Massive market quotes and historical data', slug: EDGE_FUNCTIONS.marketSync, payload: marketPayload },
     { label: 'Massive options chain', slug: EDGE_FUNCTIONS.optionsSync, payload: selectedPayload },
     { label: 'market context', slug: EDGE_FUNCTIONS.marketContextSync, payload: { force: true } },
     { label: 'verified news and sentiment', slug: EDGE_FUNCTIONS.alphaNewsSync, payload: selectedPayload },
