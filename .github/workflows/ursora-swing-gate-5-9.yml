@@ -1,0 +1,458 @@
+name: Apply TradeCycle 5.9 swing gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ursora-swing-gate-5-9.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Patch swing-specific suggestion rules
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          path = Path('supabase/functions/run-analysis/index.ts')
+          text = path.read_text()
+
+          def replace_once(old: str, new: str, label: str):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly 1 match, found {count}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+          """      // Hierarchical thesis direction:
+      // Price/structure is the primary evidence family. Context cannot manufacture a
+      // bullish/bearish thesis when the asset itself has not established a Moderate
+      // or Strong directional structure. Momentum/participation confirm the structure;
+      // market/news contextualise it.
+      const priceBandAbsolute = evidenceBand(priceOrientation);
+      const structuralDirection =
+        (priceBandAbsolute === 'Moderate' || priceBandAbsolute === 'Strong')
+          ? Math.sign(priceOrientation)
+          : 0;
+      const compositeOrientation = structuralDirection === 0 ? 0 : structuralDirection * Math.abs(priceOrientation);
+      const direction = structuralDirection > 0 ? 'bullish' : structuralDirection < 0 ? 'bearish' : 'neutral';
+""",
+          """      // Swing thesis direction (1–5 days): price must establish a real directional
+      // lean, but it no longer has to satisfy the full Moderate/Strong multi-week
+      // structure rubric before momentum can corroborate it. A Weak price band is
+      // allowed to seed direction only when the swing gate later receives
+      // Moderate/Strong momentum confirmation and a usable tactical frame.
+      const priceBandAbsolute = evidenceBand(priceOrientation);
+      const structuralDirection =
+        (priceBandAbsolute === 'Weak' || priceBandAbsolute === 'Moderate' || priceBandAbsolute === 'Strong')
+          ? Math.sign(priceOrientation)
+          : 0;
+      const compositeOrientation = structuralDirection === 0 ? 0 : structuralDirection * Math.abs(priceOrientation);
+      const direction = structuralDirection > 0 ? 'bullish' : structuralDirection < 0 ? 'bearish' : 'neutral';
+""",
+          'direction block')
+
+          replace_once(
+          """      const priceMeaningful =
+        priceFactor &&
+        (priceFactor.strength_band === 'Moderate' || priceFactor.strength_band === 'Strong') &&
+        priceFactor.thesis_vote === 'SUPPORT';
+
+      const confirmationState =
+        !priceMeaningful ? 'unavailable'
+          : confirmationOppose.length > 0 ? 'divergent'
+            : confirmationSupport.length >= 2 ? 'confirmed'
+              : confirmationSupport.length === 1 ? 'partially_confirmed'
+                : 'unconfirmed';
+""",
+          """      const priceMeaningful =
+        priceFactor &&
+        (priceFactor.strength_band === 'Moderate' || priceFactor.strength_band === 'Strong') &&
+        priceFactor.thesis_vote === 'SUPPORT';
+
+      // v5.9 swing core: a short-horizon price direction may be Weak or better, but
+      // momentum must be Moderate/Strong in the same direction. This prevents a
+      // generic weak trend from becoming a suggestion while avoiding the old rule
+      // that required multi-week structure to be Moderate/Strong before a 1–5 day
+      // swing could even be considered.
+      const priceDirectional =
+        direction !== 'neutral' &&
+        priceEvidence !== null &&
+        priceEvidence > 0 &&
+        priceBandAbsolute !== 'Insufficient';
+      const momentumSwingSupport = meaningfulVote(momentumFactor) === 'SUPPORT';
+      const momentumSwingOppose = meaningfulVote(momentumFactor) === 'OPPOSE';
+      const strongShortTermOpposition = [momentumFactor, participationFactor]
+        .filter(Boolean)
+        .some((factor) => meaningfulVote(factor) === 'OPPOSE' && factor?.strength_band === 'Strong');
+      const tacticalFrameValid =
+        price !== null &&
+        tacticalTarget !== null &&
+        tacticalInvalidation !== null &&
+        estimatedRatio !== null &&
+        estimatedRatio > 0 &&
+        (direction === 'bullish'
+          ? tacticalTarget > price && tacticalInvalidation < price
+          : direction === 'bearish'
+            ? tacticalTarget < price && tacticalInvalidation > price
+            : false);
+
+      const swingSetup = direction === 'neutral'
+        ? 'unclassified'
+        : (direction === 'bullish' ? breakoutUp : breakoutDown)
+          ? 'momentum_breakout'
+          : (direction === 'bullish' ? higherStructure : lowerStructure)
+            ? 'trend_continuation'
+            : momentumSwingSupport
+              ? 'momentum_continuation'
+              : 'directional_swing';
+
+      const confirmationState =
+        !priceDirectional ? 'unavailable'
+          : confirmationOppose.length > 0 ? 'divergent'
+            : confirmationSupport.length >= 2 ? 'confirmed'
+              : confirmationSupport.length === 1 ? 'partially_confirmed'
+                : 'unconfirmed';
+""",
+          'swing core block')
+
+          # The interaction panel should describe directional price evidence, not only
+          # the old Moderate/Strong price gate.
+          text = text.replace('      if (priceMeaningful) {', '      if (priceDirectional) {', 1)
+          text = text.replace(
+              "Price/structure is not Moderate or Strong, so confirmation and context families cannot create a directional thesis by themselves.",
+              "Short-horizon price action has not established a usable directional lean, so momentum and context cannot create a swing thesis by themselves.",
+              1,
+          )
+
+          replace_once(
+          """      const thesisBlockers: string[] = [];
+      const tradeBlockers: string[] = [];
+
+      if (agreement !== null && agreement < 60) {
+        thesisBlockers.push('The major directional evidence categories are conflicting or ambiguous.');
+      }
+
+      if (liquidityEvidence !== null && liquidityEvidence < -25) {
+        tradeBlockers.push('Available option contracts have poor liquidity or unusually wide spreads.');
+      }
+      if (riskRewardEvidence !== null && riskRewardEvidence < -20) {
+        tradeBlockers.push('The current structural reward does not adequately compensate for the estimated risk.');
+      }
+      if (eventInsideHoldingWindow) {
+        tradeBlockers.push('A scheduled earnings event falls inside the expected holding period.');
+      }
+""",
+          """      const thesisBlockers: string[] = [];
+      const tradeBlockers: string[] = [];
+      const executionBlockers: string[] = [];
+
+      if (agreement !== null && agreement < 60) {
+        thesisBlockers.push('The broader directional evidence categories are conflicting or ambiguous.');
+      }
+
+      // Liquidity is an execution constraint, not proof that the underlying swing
+      // setup does not exist. Contract selection can remain pending while the stock
+      // thesis itself is still suggestion-eligible.
+      if (liquidityEvidence !== null && liquidityEvidence < -25) {
+        executionBlockers.push('Available option contracts have poor liquidity or unusually wide spreads.');
+      }
+      if (riskRewardEvidence !== null && riskRewardEvidence < -20) {
+        tradeBlockers.push('The current tactical reward does not adequately compensate for the estimated risk.');
+      }
+      if (eventInsideHoldingWindow) {
+        tradeBlockers.push('A scheduled earnings event falls inside the expected 1–5 day holding period.');
+      }
+""",
+          'blocker split')
+
+          old_state = """      // Hierarchical corroboration rules:
+      // 1) Moderate/Strong price structure is required to establish direction.
+      // 2) At least one Moderate/Strong confirmation family (momentum/participation)
+      //    is required for Supported.
+      // 3) Supported requires at least two independent Moderate/Strong supporting
+      //    families total: price structure plus at least one confirmation family.
+      // 4) Strongly Supported requires Strong price structure, both confirmation
+      //    families aligned, at least one supportive context family, and no Strong opposition.
+      // 5) Context can strengthen/weaken a thesis, but cannot create one without price.
+      const hasMeaningfulConflict =
+        supportingMeaningful.length > 0 && opposingMeaningful.length > 0;
+
+      let thesisState: ThesisState;
+      if (!priceMeaningful || direction === 'neutral') {
+        thesisState = 'Insufficient Evidence';
+      } else if (
+        strongConfirmationOppose.length >= 1 &&
+        confirmationSupport.length === 0 &&
+        (opposeShare ?? 0) >= 67
+      ) {
+        thesisState = 'Rejected';
+      } else if (
+        confirmationOppose.length >= 1 &&
+        confirmationSupport.length === 0 &&
+        (opposeShare ?? 0) >= 55
+      ) {
+        thesisState = 'Opposed';
+      } else if (
+        priceFactor?.strength_band === 'Strong' &&
+        confirmationSupport.length >= 2 &&
+        contextSupport.length >= 1 &&
+        supportShare !== null &&
+        supportShare >= 80 &&
+        strongOpposing.length === 0
+      ) {
+        thesisState = 'Strongly Supported';
+      } else if (
+        confirmationSupport.length >= 1 &&
+        supportingMeaningful.length >= 2 &&
+        supportShare !== null &&
+        supportShare >= 67 &&
+        strongConfirmationOppose.length === 0
+      ) {
+        thesisState = 'Supported';
+      } else if (hasMeaningfulConflict) {
+        thesisState = 'Mixed';
+      } else {
+        // A coherent direction can exist without enough independent corroboration
+        // to call the thesis Supported. Do not label that \"Mixed\" when nothing
+        // meaningful is actually opposing the thesis.
+        thesisState = 'Insufficient Evidence';
+      }
+"""
+          new_state = """      // Swing-specific corroboration rules (v5.9):
+      // 1) Price must show a non-ambiguous short-horizon direction (Weak or better).
+      // 2) Momentum must be Moderate/Strong and agree with that direction.
+      // 3) The 1–5 day tactical target/invalidation frame must be internally valid.
+      // 4) Strong short-term contradiction blocks Supported.
+      // 5) Participation, market, options and news improve/degrade confidence and can
+      //    elevate a setup to Strongly Supported, but missing context does not veto a
+      //    valid swing setup.
+      const hasMeaningfulConflict =
+        supportingMeaningful.length > 0 && opposingMeaningful.length > 0;
+
+      let thesisState: ThesisState;
+      if (!priceDirectional || direction === 'neutral') {
+        thesisState = 'Insufficient Evidence';
+      } else if (momentumSwingOppose && momentumFactor?.strength_band === 'Strong') {
+        thesisState = 'Rejected';
+      } else if (momentumSwingOppose) {
+        thesisState = 'Opposed';
+      } else if (
+        priceFactor?.strength_band === 'Strong' &&
+        momentumFactor?.strength_band === 'Strong' &&
+        momentumSwingSupport &&
+        tacticalFrameValid &&
+        (meaningfulVote(participationFactor) === 'SUPPORT' || contextSupport.length >= 1) &&
+        strongOpposing.length === 0
+      ) {
+        thesisState = 'Strongly Supported';
+      } else if (
+        priceDirectional &&
+        momentumSwingSupport &&
+        tacticalFrameValid &&
+        !strongShortTermOpposition
+      ) {
+        thesisState = 'Supported';
+      } else if (hasMeaningfulConflict) {
+        thesisState = 'Mixed';
+      } else {
+        thesisState = 'Insufficient Evidence';
+      }
+"""
+          replace_once(old_state, new_state, 'thesis state')
+
+          replace_once(
+          """      const tradeEligible =
+        (thesisState === 'Supported' || thesisState === 'Strongly Supported') &&
+        tradeBlockers.length === 0;
+
+      const suggestionEligible =
+        tradeEligible &&
+        supportShare !== null &&
+        supportShare >= 67 &&
+        independentDirectionalFamilies >= 2 &&
+        confirmationSupport.length >= 1 &&
+        strongConfirmationOppose.length === 0 &&
+        confidence >= 60 &&
+        candidatePool.length > 0;
+
+      const suggested = suggestionEligible ? candidatePool[0] : null;
+""",
+          """      const tradeEligible =
+        (thesisState === 'Supported' || thesisState === 'Strongly Supported') &&
+        tradeBlockers.length === 0;
+
+      // Suggestion eligibility describes the underlying swing setup. It is deliberately
+      // independent from whether a live/usable option quote is available right now.
+      // Contract selection readiness is tracked separately so a valid setup is not
+      // mislabeled No Trade merely because bid/ask data are missing.
+      const suggestionEligible = tradeEligible;
+      const contractSelectionReady =
+        suggestionEligible &&
+        executionBlockers.length === 0 &&
+        candidatePool.length > 0;
+
+      const suggested = contractSelectionReady ? candidatePool[0] : null;
+""",
+          'eligibility split')
+
+          old_reason = """      const noTradeReason =
+        thesisState === 'Insufficient Evidence'
+          ? !priceMeaningful
+            ? 'Price/structure has not established a Moderate-or-Strong directional thesis. Confirmation and context evidence are shown, but they cannot create a bullish or bearish thesis without meaningful price structure.'
+            : confirmationSupport.length === 0 && confirmationOppose.length === 0
+              ? `Price/structure establishes a ${direction} direction, but momentum and participation do not yet provide Moderate-or-Strong confirmation. URSORA is waiting for corroboration rather than treating the thesis as supported.`
+              : supportingMeaningful.length < 2
+                ? `The ${direction} price thesis has not yet gained a second independent Moderate-or-Strong supporting family. Price plus at least one confirmation family are required before URSORA calls the thesis Supported.`
+                : 'The directional structure is coherent, but corroboration is still below the threshold required for a Supported thesis.'
+          : thesisState === 'Mixed'
+            ? 'Moderate-or-Strong evidence is genuinely split between support and opposition, so URSORA is treating the thesis as mixed.'
+            : thesisState === 'Opposed'
+              ? 'The balance of Moderate-or-Strong evidence currently opposes the proposed direction.'
+              : thesisState === 'Rejected'
+                ? 'Multiple independent evidence families strongly contradict the proposed direction.'
+                : tradeBlockers.length
+                  ? tradeBlockers.join(' ')
+                  : !suggestionEligible
+                    ? [
+                        independentDirectionalFamilies < 2
+                          ? `Only ${independentDirectionalFamilies} independent Moderate-or-Strong directional evidence families currently qualify; at least 2 are required.`
+                          : null,
+                        supportShare === null
+                          ? 'Thesis support cannot yet be established from enough Moderate-or-Strong evidence.'
+                          : supportShare < 67
+                            ? `Only ${supportShare}% of weighted Moderate-or-Strong evidence supports the proposed direction; at least 67% is required for a proactive suggestion.`
+                            : null,
+                        confidence < 60
+                          ? `Overall confidence is ${confidence}; at least 60 is required for a proactive suggestion.`
+                          : null,
+                        candidatePool.length === 0
+                          ? 'The thesis is supported, but no 7–60 DTE contract currently has usable bid/ask data for execution.'
+                          : null,
+                      ].filter(Boolean).join(' ')
+                    : null;
+"""
+          new_reason = """      const noTradeReason = suggestionEligible
+        ? null
+        : thesisState === 'Insufficient Evidence'
+          ? !priceDirectional
+            ? 'Short-horizon price action has not established a usable directional swing lean.'
+            : !momentumSwingSupport && !momentumSwingOppose
+              ? `Price action leans ${direction}, but momentum is not yet Moderate-or-Strong in the same direction. URSORA requires momentum confirmation for a 1–5 day swing suggestion.`
+              : !tacticalFrameValid
+                ? 'Direction and momentum may agree, but the 1–5 day target/invalidation structure is not currently usable.'
+                : 'The swing setup is directionally coherent, but a required short-horizon confirmation is still missing.'
+          : thesisState === 'Mixed'
+            ? 'Meaningful short-horizon evidence is split between support and opposition.'
+            : thesisState === 'Opposed'
+              ? 'Momentum or other short-horizon evidence currently opposes the proposed price direction.'
+              : thesisState === 'Rejected'
+                ? 'Strong momentum evidence contradicts the proposed price direction.'
+                : tradeBlockers.length
+                  ? tradeBlockers.join(' ')
+                  : 'The swing setup does not currently satisfy the suggestion gate.';
+"""
+          replace_once(old_reason, new_reason, 'no trade reason')
+
+          replace_once(
+          """        strategy: suggestionEligible ? 'directional option' : 'No Trade',
+""",
+          """        strategy: suggestionEligible ? 'directional option' : 'No Trade',
+""",
+          'strategy compatibility')
+
+          # Add swing/execution metadata to the raw and score-level diagnostics.
+          replace_once(
+          """            tactical_invalidation: tacticalInvalidation,
+            tactical_invalidation_basis: tacticalInvalidationBasis,
+            posterior_log_odds: posteriorLogOdds,
+""",
+          """            tactical_invalidation: tacticalInvalidation,
+            tactical_invalidation_basis: tacticalInvalidationBasis,
+            swing_setup: swingSetup,
+            swing_price_directional: priceDirectional,
+            swing_momentum_confirmed: momentumSwingSupport,
+            swing_tactical_frame_valid: tacticalFrameValid,
+            posterior_log_odds: posteriorLogOdds,
+""",
+          'raw swing metadata')
+
+          replace_once(
+          """          trade_blockers: tradeBlockers,
+          trade_eligible: tradeEligible,
+          suggestion_eligible: suggestionEligible,
+""",
+          """          trade_blockers: tradeBlockers,
+          execution_blockers: executionBlockers,
+          trade_eligible: tradeEligible,
+          suggestion_eligible: suggestionEligible,
+          contract_selection_ready: contractSelectionReady,
+          contract_selection_state: contractSelectionReady ? 'available' : suggestionEligible ? 'pending_live_execution_data' : 'not_applicable',
+          swing_setup: swingSetup,
+          historical_evidence_policy: {
+            holding_period: '1–5 days',
+            setup_class: swingSetup,
+            core_evidence: ['short_term_price_direction', 'momentum_alignment', 'tactical_target_invalidation'],
+            calibration_status: 'setup_tagged; brokerage-history replay classification pending',
+          },
+""",
+          'score swing metadata')
+
+          replace_once(
+          """            tradeBlockers.length ? `Trade constraints: ${tradeBlockers.join(' ')}` : 'No hard trade constraints were identified from the data currently available.',
+            suggestionEligible
+              ? 'Suggestion eligibility: eligible for proactive contract suggestion.'
+              : `Suggestion eligibility: not eligible for proactive suggestion. Current gate values — price structure ${priceFactor?.strength_band ?? 'Insufficient'}, confirmation ${confirmationState}, weighted support ${supportShare ?? 'unavailable'}%, independent Moderate/Strong families ${independentDirectionalFamilies}, confidence ${confidence}, executable contracts ${candidatePool.length}.`,
+""",
+          """            tradeBlockers.length ? `Trade constraints: ${tradeBlockers.join(' ')}` : 'No hard swing-setup constraints were identified from the data currently available.',
+            executionBlockers.length ? `Execution constraints: ${executionBlockers.join(' ')}` : 'No hard option-execution constraints were identified from the current chain.',
+            suggestionEligible
+              ? `Swing suggestion eligibility: eligible (${swingSetup}); price direction and Moderate/Strong momentum agree with a usable 1–5 day trade frame.`
+              : `Swing suggestion eligibility: not eligible. Current gate values — price direction ${priceBandAbsolute}, momentum ${momentumFactor?.strength_band ?? 'Insufficient'} / ${momentumFactor?.thesis_vote ?? 'ABSTAIN'}, tactical frame ${tacticalFrameValid ? 'valid' : 'invalid'}, confirmation ${confirmationState}.`,
+            contractSelectionReady
+              ? `Contract selection: live/usable 7–60 DTE pricing is available across ${candidatePool.length} executable contract${candidatePool.length === 1 ? '' : 's'}.`
+              : suggestionEligible
+                ? 'Contract selection: swing setup is supported, but a specific option position remains pending usable live bid/ask and execution-quality data.'
+                : 'Contract selection: not applicable until the swing setup becomes suggestion-eligible.',
+""",
+          'decision diagnostics')
+
+          # Version bump within the engine file.
+          text = text.replace('tradecycle-5.8.0', 'tradecycle-5.9.0')
+          text = text.replace('TradeCycle v5.8.0', 'TradeCycle v5.9.0')
+          path.write_text(text)
+
+          # Keep frontend deployment checks aligned with the new engine version.
+          for frontend in [
+              Path('src/components/views/OpportunitiesView.tsx'),
+              Path('src/components/views/ThesisView.tsx'),
+          ]:
+              if frontend.exists():
+                  content = frontend.read_text()
+                  content = content.replace('tradecycle-5.8.0', 'tradecycle-5.9.0')
+                  frontend.write_text(content)
+          PY
+
+          git diff --check
+          git diff --stat
+      - name: Commit TradeCycle 5.9
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No changes produced.'
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add supabase/functions/run-analysis/index.ts src/components/views/OpportunitiesView.tsx src/components/views/ThesisView.tsx
+          git commit -m 'Align suggestions with 1-5 day swing evidence'
+          git push origin HEAD:main
