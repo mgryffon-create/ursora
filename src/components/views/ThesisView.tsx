@@ -246,6 +246,35 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const optionTotalOi = evidenceContract ? contractPointNumber('options_total_open_interest') : optionSummary?.total_oi ?? null;
   const optionIv = evidenceContract ? contractPointNumber('options_iv_median') : optionSummary?.iv ?? null;
   const optionEvidencePoint = evidenceContract?.points?.options_put_call_ratio ?? null;
+  const contractNewsCount = evidenceContract ? contractPointNumber('news_item_count') : null;
+  const signalGeneratedMs = new Date(signal.generated_at).getTime();
+  const runNewsCutoffMs = Number.isFinite(signalGeneratedMs) ? signalGeneratedMs - 72 * 60 * 60 * 1000 : null;
+  const runBoundNews = evidenceContract && contractNewsCount === 0
+    ? []
+    : news
+        .filter((item) => {
+          if (runNewsCutoffMs === null) return true;
+          const published = new Date(item.published_at).getTime();
+          return Number.isFinite(published) && published >= runNewsCutoffMs && published <= signalGeneratedMs;
+        })
+        .slice(0, contractNewsCount !== null && contractNewsCount >= 0 ? contractNewsCount : undefined);
+
+  const tacticalFrameValid = Boolean(v59Decision?.tactical_frame_valid);
+  const runRiskScenarios = tacticalFrameValid
+    ? {
+        bull: risk?.bull_case ?? null,
+        base: risk?.base_case ?? null,
+        bear: risk?.bear_case ?? null,
+      }
+    : {
+        bull: signal.direction === 'neutral'
+          ? 'Bullish monitoring case: price develops a clear upward structure and momentum remains constructive enough to confirm it.'
+          : 'Bullish monitoring case: directional evidence strengthens enough to establish a usable 1–5 day frame.',
+        base: 'No trade is established. Continue monitoring until price structure, directional confirmation and a usable tactical frame are all present.',
+        bear: signal.direction === 'neutral'
+          ? 'Bearish monitoring case: price develops a clear downward structure and momentum confirms the move.'
+          : 'Bearish monitoring case: directional evidence weakens or reverses before a usable trade frame is established.',
+      };
 
   const tradeFrameLevels = [
     { value: analysisPrice, label: 'Analysis price', color: '#60a5fa', dash: '3 3' },
@@ -1114,12 +1143,12 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           <Panel
             title="News & market events"
             subtitle="Verified symbol-level news from the same 72-hour evidence window used by this analysis. Newer items carry more weight."
-            right={news.length
-              ? (news.some((item) => item.is_demo) ? <DemoBadge /> : <DataBadge kind="observed" label="VERIFIED NEWS" />)
+            right={runBoundNews.length
+              ? (runBoundNews.some((item) => item.is_demo) ? <DemoBadge /> : <DataBadge kind="observed" label="VERIFIED NEWS · RUN EVIDENCE" />)
               : undefined}
           >
             <ul className="grid gap-2 xl:grid-cols-2">
-              {(showAllNews ? news : news.slice(0, 4)).map((n) => (
+              {(showAllNews ? runBoundNews : runBoundNews.slice(0, 4)).map((n) => (
                 <li key={n.id} className="min-w-0 rounded-sm border border-zinc-800 bg-black/20 p-2.5">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-sm border border-zinc-700 px-1.5 py-[1px] font-mono text-[9px] uppercase tracking-wide text-zinc-400">
@@ -1176,13 +1205,13 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               ))}
               {!news.length && <EmptyState title="No recent news available" body="URSORA does not currently have dated news for this symbol and does not substitute an assumed event." />}
             </ul>
-            {news.length > 4 && (
+            {runBoundNews.length > 4 && (
               <button
                 type="button"
                 onClick={() => setShowAllNews((value) => !value)}
                 className="mt-3 font-mono text-[10px] uppercase tracking-wider text-sky-400 transition-colors hover:text-sky-300"
               >
-                {showAllNews ? 'Show fewer articles' : `View ${news.length - 4} more articles`}
+                {showAllNews ? 'Show fewer articles' : `View ${runBoundNews.length - 4} more articles`}
               </button>
             )}
           </Panel>
@@ -1317,9 +1346,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         <TabsContent value="risk" className="mt-3 space-y-3">
           <div className="grid gap-3 lg:grid-cols-3">
             {[
-              { t: 'Bull case', v: risk?.bull_case, cls: 'border-emerald-500/30 bg-emerald-500/[0.05]', tcls: 'text-emerald-300' },
-              { t: 'Base case', v: risk?.base_case, cls: 'border-sky-500/30 bg-sky-500/[0.05]', tcls: 'text-sky-300' },
-              { t: 'Bear case', v: risk?.bear_case, cls: 'border-red-500/30 bg-red-500/[0.05]', tcls: 'text-red-300' },
+              { t: 'Bull case', v: runRiskScenarios.bull, cls: 'border-emerald-500/30 bg-emerald-500/[0.05]', tcls: 'text-emerald-300' },
+              { t: 'Base case', v: runRiskScenarios.base, cls: 'border-sky-500/30 bg-sky-500/[0.05]', tcls: 'text-sky-300' },
+              { t: 'Bear case', v: runRiskScenarios.bear, cls: 'border-red-500/30 bg-red-500/[0.05]', tcls: 'text-red-300' },
             ].map((c) => (
               <div key={c.t} className={cn('rounded-md border p-3', c.cls)}>
                 <h4 className={cn('font-mono text-[10px] font-semibold uppercase tracking-[0.14em]', c.tcls)}>{c.t}</h4>
@@ -1328,7 +1357,10 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             ))}
           </div>
 
-          <Panel title="Risk measures" right={<DemoBadge />}>
+          <Panel
+            title="Risk measures"
+            right={risk?.is_demo ? <DemoBadge /> : <DataBadge kind="derived" label="DERIVED RISK CONTEXT" />}
+          >
             <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
               <Metric label="Premium at risk" value={money(risk?.premium_at_risk)} valueClass="text-red-300" />
               <Metric label="Break-even" value={num(risk?.break_even)} />
