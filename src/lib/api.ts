@@ -20,6 +20,103 @@ const rows = <T,>(data: T[] | null): T[] => data ?? [];
 
 export const EDGE_BASE = APP_CONFIG.edgeBaseUrl;
 
+export interface MarketCacheState {
+  fresh: boolean;
+  symbols: Record<string, {
+    quote_fresh: boolean;
+    history_fresh: boolean;
+    quote_retrieved_at: string | null;
+    history_retrieved_at: string | null;
+    latest_bar_at: string | null;
+  }>;
+}
+
+function easternRegularSessionNow(value = new Date()): boolean {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(value);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+  const weekday = get('weekday');
+  if (weekday === 'Sat' || weekday === 'Sun') return false;
+  const minutes = Number(get('hour')) * 60 + Number(get('minute'));
+  return minutes >= 570 && minutes < 960;
+}
+
+export async function marketCacheState(symbols: string[]): Promise<MarketCacheState> {
+  const normalized = [...new Set(symbols.map((symbol) => String(symbol).trim().toUpperCase()).filter(Boolean))];
+  if (!normalized.length) return { fresh: false, symbols: {} };
+
+  const since = new Date(Date.now() - 8 * 86400000).toISOString();
+  const [{ data: quoteData, error: quoteError }, { data: barData, error: barError }] = await Promise.all([
+    db
+      .from('quotes')
+      .select('symbol,retrieved_at')
+      .in('symbol', normalized)
+      .order('retrieved_at', { ascending: false }),
+    db
+      .from('ohlcv_bars')
+      .select('symbol,bar_time,retrieved_at')
+      .in('symbol', normalized)
+      .eq('timeframe', '1d')
+      .gte('bar_time', since)
+      .order('bar_time', { ascending: false }),
+  ]);
+  if (quoteError) throw quoteError;
+  if (barError) throw barError;
+
+  const quoteBySymbol = new Map<string, any>();
+  for (const row of rows<any>(quoteData as any[])) {
+    const symbol = String(row.symbol ?? '').toUpperCase();
+    if (symbol && !quoteBySymbol.has(symbol)) quoteBySymbol.set(symbol, row);
+  }
+
+  const barBySymbol = new Map<string, any>();
+  for (const row of rows<any>(barData as any[])) {
+    const symbol = String(row.symbol ?? '').toUpperCase();
+    if (symbol && !barBySymbol.has(symbol)) barBySymbol.set(symbol, row);
+  }
+
+  const regularSession = easternRegularSessionNow();
+  const quoteMaxAgeMs = regularSession ? 10 * 60_000 : 8 * 60 * 60_000;
+  const historyMaxRetrievedAgeMs = 24 * 60 * 60_000;
+  const latestBarMaxAgeMs = 4 * 86400000;
+  const state: MarketCacheState['symbols'] = {};
+
+  for (const symbol of normalized) {
+    const quote = quoteBySymbol.get(symbol);
+    const bar = barBySymbol.get(symbol);
+    const quoteRetrievedAt = quote?.retrieved_at ? String(quote.retrieved_at) : null;
+    const historyRetrievedAt = bar?.retrieved_at ? String(bar.retrieved_at) : null;
+    const latestBarAt = bar?.bar_time ? String(bar.bar_time) : null;
+    const quoteAge = quoteRetrievedAt ? Date.now() - new Date(quoteRetrievedAt).getTime() : Infinity;
+    const historyRetrievedAge = historyRetrievedAt ? Date.now() - new Date(historyRetrievedAt).getTime() : Infinity;
+    const latestBarAge = latestBarAt ? Date.now() - new Date(latestBarAt).getTime() : Infinity;
+    state[symbol] = {
+      quote_fresh: Number.isFinite(quoteAge) && quoteAge >= 0 && quoteAge <= quoteMaxAgeMs,
+      history_fresh:
+        Number.isFinite(historyRetrievedAge) &&
+        historyRetrievedAge >= 0 &&
+        historyRetrievedAge <= historyMaxRetrievedAgeMs &&
+        Number.isFinite(latestBarAge) &&
+        latestBarAge >= 0 &&
+        latestBarAge <= latestBarMaxAgeMs,
+      quote_retrieved_at: quoteRetrievedAt,
+      history_retrieved_at: historyRetrievedAt,
+      latest_bar_at: latestBarAt,
+    };
+  }
+
+  return {
+    fresh: normalized.every((symbol) => state[symbol]?.quote_fresh && state[symbol]?.history_fresh),
+    symbols: state,
+  };
+}
+
+
 export const EDGE_FUNCTIONS = {
   analysis: 'run-analysis',
   backtest: 'run-backtest',
