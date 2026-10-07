@@ -401,14 +401,41 @@ Deno.serve(async (req) => {
         note: '5.9 is append-only: source evidence remains immutable and this row is a derived swing classification.',
       };
 
+      const sourceWeights = source.weights && typeof source.weights === 'object'
+        ? structuredClone(source.weights)
+        : {};
+      const decisionNotes = [
+        `TradeCycle 5.9 swing classification: ${thesisState}.`,
+        direction === 'neutral'
+          ? 'Short-horizon price direction is not established.'
+          : `Short-horizon price direction: ${priceBand} ${direction}.`,
+        momentumAgrees
+          ? `Momentum confirmation: ${momentumBand} and aligned with price.`
+          : momentumOpposes
+            ? `Momentum confirmation: ${momentumBand} and opposing price.`
+            : `Momentum confirmation: ${momentumBand}; Moderate-or-Strong alignment is required.`,
+        frame.valid
+          ? `1–5 day tactical frame: usable${frame.ratio !== null ? ` at ${frame.ratio.toFixed(2)} R:R` : ''}.`
+          : '1–5 day tactical frame: not currently usable.',
+        `Secondary context confirmations: ${contextSupportCount}. Participation, broader market and verified catalysts adjust conviction but do not create the thesis.`,
+        supported
+          ? contractReady
+            ? `Execution data: ${executable} executable ${direction === 'bearish' ? 'put' : 'call'} contracts currently meet the pricing window.`
+            : 'Execution data: the underlying swing is supported, but a specific executable option position is not yet available.'
+          : 'Contract selection is not applicable until the underlying swing setup is supported.',
+        'Underlying factor weights are preserved as evidence metadata; TradeCycle 5.9 does not use the legacy aggregate score alone as the swing gate.',
+      ];
+      const v59Weights = { ...sourceWeights, decisions: decisionNotes };
+
       const row = cloneSignalRow(source, derivedRunId, {
         direction,
-        strategy: supported ? 'directional option' : 'No Trade',
+        strategy: supported ? 'Supported Swing' : 'No Trade',
         confidence_score: swingConfidence,
         target_price: frame.target,
         invalidation_level: frame.invalidation,
         no_trade_reason: noTradeReason,
         score_breakdown: score,
+        weights: v59Weights,
       });
 
       const { data: inserted, error: insertError } = await db
