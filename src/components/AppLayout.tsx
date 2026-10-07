@@ -30,6 +30,8 @@ type ViewKey =
 
 type NavGroupKey = 'today' | 'trades' | 'intelligence';
 
+const AUTO_WATCHLIST_ANALYSIS_INTERVAL_MS = 18 * 60 * 60 * 1000;
+
 const NAV_GROUPS: {
   key: NavGroupKey;
   label: string;
@@ -159,98 +161,87 @@ export const AppLayout: React.FC = () => {
       setAuthMode(null);
     }
   }, [user]);
+
   useEffect(() => {
     if (!user || loading) return;
 
-    const loginRefreshKey = `ursora_login_market_refresh_${user.id}`;
-    const loginAnalysisKey = `ursora_login_watchlist_analysis_${user.id}`;
-    const today = new Date().toISOString().slice(0, 10);
+    const autoAnalysisKey = `ursora_watchlist_last_auto_analysis_${user.id}`;
+    const autoAnalysisInFlightKey = `ursora_watchlist_auto_analysis_inflight_${user.id}`;
     const dailyDiscoveryKey = 'ursora_daily_discovery_refresh';
+    const coreIndexes = ['SPY', 'IWM', 'QQQ'];
 
-    const loginAlreadyRefreshed = window.sessionStorage.getItem(loginRefreshKey) === 'done';
-    const loginAlreadyAnalyzed = window.sessionStorage.getItem(loginAnalysisKey) === 'done';
-    const discoveryFreshToday = window.localStorage.getItem(dailyDiscoveryKey) === today;
+    const refreshSnapshotAndNotify = async () => {
+      const nextSnapshot = await fetchSnapshot();
+      setSnapshot(nextSnapshot);
+      window.dispatchEvent(new CustomEvent('ursora-market-refreshed'));
+    };
 
-    const run = async () => {
+    const runAutomaticWatchlistAnalysis = async () => {
+      const lastAutomaticRun = Number(window.localStorage.getItem(autoAnalysisKey) ?? 0);
+      const analysisDue = !lastAutomaticRun || Date.now() - lastAutomaticRun >= AUTO_WATCHLIST_ANALYSIS_INTERVAL_MS;
+      const alreadyInFlight = window.sessionStorage.getItem(autoAnalysisInFlightKey) === 'true';
+
+      if (!analysisDue || alreadyInFlight || !favorites.length) return;
+
+      const watchlistSymbols = [...new Set(
+        favorites.map((symbol) => String(symbol).toUpperCase()).filter(Boolean),
+      )].slice(0, 6);
+
+      if (!watchlistSymbols.length) return;
+
+      window.sessionStorage.setItem(autoAnalysisInFlightKey, 'true');
       try {
+        const result = await runFreshAnalysis({
+          kind: 'login-watchlist-auto',
+          symbols: watchlistSymbols,
+        });
+
+        // The 18-hour clock belongs only to successful automatic runs. Manual analyses
+        // do not read or update this timestamp and therefore never suppress the next auto run.
+        window.localStorage.setItem(autoAnalysisKey, String(Date.now()));
+
+        if (result.warnings.length) {
+          console.warn('URSORA automatic watchlist analysis completed with warnings:', result.warnings);
+        }
+
+        await refreshSnapshotAndNotify();
+      } catch (error) {
+        console.warn('URSORA automatic watchlist analysis did not complete:', error);
+      } finally {
+        window.sessionStorage.removeItem(autoAnalysisInFlightKey);
+      }
+    };
+
+    const runDailyDiscoveryRefresh = async () => {
+      try {
+        const currentDay = new Date().toISOString().slice(0, 10);
+        if (window.localStorage.getItem(dailyDiscoveryKey) === currentDay) return;
+
         const tickerRows = await fetchTickers();
         const discoveryUniverse = tickerRows
           .map((ticker) => String(ticker.symbol).toUpperCase())
           .filter(Boolean);
-        const coreIndexes = ['SPY', 'IWM', 'QQQ'];
 
-        // The center route is a once-daily market scan. Refresh the complete configured
-        // discovery universe once per day so every non-favorite has a current snapshot.
-        if (!discoveryFreshToday) {
-          await refreshMarketSymbols([...new Set([...discoveryUniverse, ...coreIndexes])], true);
-          window.localStorage.setItem(dailyDiscoveryKey, today);
-        }
-
-        // A browser login/session now gets a real watchlist evidence refresh, not just
-        // quotes. Full analysis remains capped at six symbols so every selected ticker
-        // receives the complete provider pipeline.
-        if (!loginAlreadyAnalyzed && favorites.length) {
-          const watchlistSymbols = [...new Set(
-            favorites.map((symbol) => String(symbol).toUpperCase()).filter(Boolean),
-          )].slice(0, 6);
-
-          if (watchlistSymbols.length) {
-            const result = await runFreshAnalysis({
-              kind: 'login-watchlist',
-              symbols: watchlistSymbols,
-            });
-
-            if (result.warnings.length) {
-              console.warn('URSORA login watchlist analysis completed with warnings:', result.warnings);
-            }
-          }
-
-          window.sessionStorage.setItem(loginAnalysisKey, 'done');
-          window.sessionStorage.setItem(loginRefreshKey, 'done');
-        } else if (!loginAlreadyRefreshed) {
-          // Accounts without favorites still refresh core market context once per login.
-          await refreshMarketSymbols(coreIndexes, true);
-          window.sessionStorage.setItem(loginRefreshKey, 'done');
-        }
-
-        const nextSnapshot = await fetchSnapshot();
-        setSnapshot(nextSnapshot);
-        window.dispatchEvent(new CustomEvent('ursora-market-refreshed'));
+        await refreshMarketSymbols([...new Set([...discoveryUniverse, ...coreIndexes])], true);
+        window.localStorage.setItem(dailyDiscoveryKey, currentDay);
+        await refreshSnapshotAndNotify();
       } catch (error) {
-        console.warn('URSORA automatic market/watchlist refresh did not complete:', error);
+        console.warn('URSORA daily discovery refresh did not complete:', error);
       }
     };
 
-    void run();
+    // Watchlist analysis is intentionally launched first and independently. A large
+    // discovery-universe refresh must never block the user's own tickers at login.
+    void runAutomaticWatchlistAnalysis();
+    void runDailyDiscoveryRefresh();
 
     const id = window.setInterval(() => {
-      const currentDay = new Date().toISOString().slice(0, 10);
-      if (window.localStorage.getItem(dailyDiscoveryKey) !== currentDay) {
-        void fetchTickers()
-          .then((tickerRows) =>
-            refreshMarketSymbols(
-              [...new Set([
-                ...tickerRows.map((ticker) => String(ticker.symbol).toUpperCase()).filter(Boolean),
-                'SPY', 'IWM', 'QQQ',
-              ])],
-              true,
-            )
-          )
-          .then(() => {
-            window.localStorage.setItem(dailyDiscoveryKey, currentDay);
-            return fetchSnapshot();
-          })
-          .then((nextSnapshot) => {
-            setSnapshot(nextSnapshot);
-            window.dispatchEvent(new CustomEvent('ursora-market-refreshed'));
-          })
-          .catch((error) => console.warn('URSORA daily discovery refresh did not complete:', error));
-      }
+      void runAutomaticWatchlistAnalysis();
+      void runDailyDiscoveryRefresh();
     }, 15 * 60 * 1000);
 
     return () => window.clearInterval(id);
   }, [favorites, loading, user]);
-
 
   useEffect(() => {
     if (!entered && !user) return;
