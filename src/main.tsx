@@ -1,7 +1,11 @@
+import { createRoot } from 'react-dom/client';
+import App from './App.tsx';
+import './index.css';
+import { prepareBrokerageBootstrap, startBrokerageDailyRefresh } from '@/lib/brokerage-bootstrap';
 
-import { createRoot } from 'react-dom/client'
-import App from './App.tsx'
-import './index.css'
+const root = createRoot(document.getElementById('root')!);
 
-// Remove dark mode class addition
-createRoot(document.getElementById("root")!).render(<App />);
+void prepareBrokerageBootstrap().finally(() => {
+  root.render(<App />);
+  startBrokerageDailyRefresh();
+});
