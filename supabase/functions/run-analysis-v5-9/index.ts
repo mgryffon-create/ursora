@@ -17,6 +17,16 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+function errorDetail(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
 function n(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
@@ -121,7 +131,6 @@ function swingFrame(signal: AnyRow, raw: AnyRow, direction: 'bullish' | 'bearish
   const price = n(signal.stock_price_at_generation);
   if (price === null) return { target: null, invalidation: null, ratio: null, valid: false };
 
-  // Reclassification must preserve the stored evidence frame whenever it exists.
   const storedTarget = n(signal.target_price) ?? n(raw.tactical_target);
   const storedInvalidation = n(signal.invalidation_level) ?? n(raw.tactical_invalidation);
   if (storedTarget !== null && storedInvalidation !== null) {
@@ -205,8 +214,6 @@ Deno.serve(async (req) => {
       const apikey = req.headers.get('apikey') ?? Deno.env.get('SUPABASE_ANON_KEY') ?? '';
       if (!baseUrl) throw new Error('SUPABASE_URL is unavailable.');
 
-      // Fresh mode: ask the established 5.8 evidence engine to produce a new evidence
-      // snapshot, then apply only the 5.9 swing-decision layer below.
       const upstream = await fetch(`${baseUrl.replace(/\/$/, '')}/functions/v1/run-analysis`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: auth, apikey },
@@ -217,8 +224,6 @@ Deno.serve(async (req) => {
       if (!upstream.ok) return json({ error: upstreamResult.error ?? upstreamText }, upstream.status);
       runId = String(upstreamResult.run_id ?? '');
     } else {
-      // Reclassify mode: no provider calls and no new analysis run. The stored signal
-      // evidence is reused exactly as-is and only the 5.9 decision fields are updated.
       upstreamResult = { run_id: runId, signals: 0, updates: 0 };
     }
 
@@ -439,6 +444,6 @@ Deno.serve(async (req) => {
         : 'Fresh evidence was produced by the established evidence engine and classified with the TradeCycle 5.9 swing gate.',
     });
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    return json({ error: errorDetail(error) }, 500);
   }
 });
