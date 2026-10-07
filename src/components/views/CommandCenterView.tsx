@@ -154,6 +154,10 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
     if (changes.every((v) => v < -0.15)) return 'Risk-Off';
     return 'Mixed';
   })();
+  const regimeValue = snapshot?.regime ?? derivedRegime;
+  const scopedRegime = snapshot?.market_status === 'equity-only context'
+    ? `Equity ${regimeValue}`
+    : regimeValue;
 
   const watchlistMovers = useMemo(
     () =>
@@ -280,7 +284,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
         <Panel
           title="Market environment"
           help="A compact view of the broader conditions surrounding individual trades. Risk-on generally means major equity indexes are rising while volatility is contained; risk-off means broad selling pressure or elevated volatility. Mixed means the signals are not aligned."
-          right={<DemoBadge />}
+          right={snapshot?.is_demo ? <DemoBadge /> : <DataBadge kind="derived" label="DERIVED MARKET CONTEXT" />}
         >
           {snapshot || spyQuote || qqqQuote ? (
             <div>
@@ -291,7 +295,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
                 )}
               >
                 <Gauge className="h-3.5 w-3.5" aria-hidden="true" />
-                {snapshot?.regime ?? derivedRegime}
+                {scopedRegime}
               </div>
               <p className="mt-2.5 text-[12px] leading-relaxed text-zinc-400">
                 {snapshot?.regime_note ?? 'Derived from the current SPY and QQQ direction in Ursora’s tracked quote universe.'}
