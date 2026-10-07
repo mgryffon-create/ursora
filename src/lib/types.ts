@@ -69,6 +69,56 @@ export interface Quote {
   as_of: string;
 }
 
+export type EvidenceStatus =
+  | 'observed'
+  | 'no_meaningful_evidence'
+  | 'unavailable'
+  | 'stale'
+  | 'refresh_failed';
+
+export type EvidenceRole = 'primary' | 'confirmation' | 'context' | 'auxiliary' | 'trade_quality';
+
+export interface EvidenceContractFamily {
+  key: string;
+  label: string;
+  role: EvidenceRole;
+  status: EvidenceStatus;
+  provenance: 'observed' | 'derived' | 'imputed' | 'unavailable' | string;
+  absolute_score: number | null;
+  relative_score: number | null;
+  strength_band: 'Insufficient' | 'Weak' | 'Moderate' | 'Strong';
+  thesis_vote: 'ABSTAIN' | 'SUPPORT' | 'OPPOSE';
+  can_vote: boolean;
+  vote_reason: string;
+  confidence: number | null;
+  freshness: number | null;
+  source_quality: number | null;
+  explanation: string | null;
+}
+
+export interface EvidenceContractPoint {
+  key: string;
+  family: string;
+  value: number | string | boolean | null;
+  unit: string | null;
+  status: EvidenceStatus;
+  source_name: string | null;
+  source_timestamp: string | null;
+  retrieved_at: string | null;
+}
+
+export interface EvidenceContract {
+  version: '1.0';
+  generated_at: string;
+  thesis_direction: Direction;
+  families: Record<string, EvidenceContractFamily>;
+  points: Record<string, EvidenceContractPoint>;
+  validation: {
+    valid: boolean;
+    issues: string[];
+  };
+}
+
 export interface ScoreFactor {
   factor: string;
   label: string;
@@ -144,6 +194,7 @@ export interface Signal {
     trade_eligible?: boolean;
     suggestion_eligible?: boolean;
     thesis_support?: number;
+    evidence_contract?: EvidenceContract;
   };
   weights: {
     effective?: Record<string, number>;
