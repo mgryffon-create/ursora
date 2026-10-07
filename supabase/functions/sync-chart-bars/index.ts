@@ -66,6 +66,22 @@ function easternDateKey(value: Date): string {
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
+function easternClockMinutes(value: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(value);
+  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+  return get('hour') * 60 + get('minute');
+}
+
+function isRegularSessionBar(value: Date): boolean {
+  const minutes = easternClockMinutes(value);
+  return minutes >= 9 * 60 + 30 && minutes < 16 * 60;
+}
+
 function easternMinutes(value: Date): number {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York',
@@ -190,6 +206,40 @@ Deno.serve(async (req) => {
         bar.low !== null &&
         bar.close !== null
       );
+
+
+    // Never present a historical series as current when it is materially inconsistent
+    // with URSORA's latest market quote. This catches stale/entitlement-lagged intraday
+    // data instead of silently drawing a believable but wrong chart.
+    if (rows.length) {
+      const { data: quoteRows, error: quoteError } = await db
+        .from('quotes')
+        .select('price,as_of,retrieved_at,source_name')
+        .eq('symbol', symbol)
+        .eq('is_demo', false)
+        .order('retrieved_at', { ascending: false })
+        .limit(1);
+      if (quoteError) throw quoteError;
+
+      const currentQuote = n((quoteRows as any[] | null)?.[0]?.price);
+      const latestBarClose = n(rows.at(-1)?.close);
+      if (currentQuote !== null && latestBarClose !== null && currentQuote > 0) {
+        const divergencePct = Math.abs(latestBarClose - currentQuote) / currentQuote;
+        if (divergencePct > 0.08) {
+          return json({
+            error: `Chart data is stale or inconsistent with the current ${symbol} quote.`,
+            code: 'CHART_DATA_MISMATCH',
+            symbol,
+            horizon,
+            quote_price: currentQuote,
+            latest_bar_close: latestBarClose,
+            divergence_pct: Math.round(divergencePct * 10000) / 100,
+            latest_bar_time: rows.at(-1)?.bar_time ?? null,
+            note: 'URSORA refused to display this series because the provider bars do not match the current market regime.',
+          }, 409);
+        }
+      }
+    }
 
     if (rows.length) {
       const { error } = await db.from('ohlcv_bars').upsert(rows, {
