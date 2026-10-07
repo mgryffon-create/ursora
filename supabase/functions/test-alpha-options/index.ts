@@ -1,5 +1,3 @@
-import { createClient } from 'npm:@supabase/supabase-js@2';
-
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -11,32 +9,6 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
-}
-
-class AuthError extends Error {
-  status: number;
-  constructor(message: string, status = 401) {
-    super(message);
-    this.name = 'AuthError';
-    this.status = status;
-  }
-}
-
-function adminClient() {
-  const url = Deno.env.get('SUPABASE_URL');
-  const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (!url || !key) throw new Error('Supabase runtime credentials are missing.');
-  return createClient(url, key, { auth: { persistSession: false } });
-}
-
-async function requireUser(req: Request) {
-  const header = req.headers.get('Authorization');
-  if (!header?.startsWith('Bearer ')) throw new AuthError('Authentication required.', 401);
-  const token = header.slice(7).trim();
-  const db = adminClient();
-  const { data: { user }, error } = await db.auth.getUser(token);
-  if (error || !user) throw new AuthError('Invalid or expired session.', 401);
-  return user;
 }
 
 function alphaKey() {
@@ -62,10 +34,9 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'POST required' }, 405);
 
   try {
-    await requireUser(req);
-    const body = await req.json().catch(() => ({}));
-    const symbol = String(body.symbol ?? 'TSLA').trim().toUpperCase();
-    if (!symbol) return json({ error: 'symbol is required' }, 400);
+    // Temporary entitlement probe. Hard-coded to TSLA so the unauthenticated
+    // endpoint cannot be used as a general-purpose Alpha Vantage proxy.
+    const symbol = 'TSLA';
 
     const url = new URL('https://www.alphavantage.co/query');
     url.searchParams.set('function', 'REALTIME_OPTIONS');
@@ -161,7 +132,6 @@ Deno.serve(async (req) => {
       top_level_keys: payload && typeof payload === 'object' ? Object.keys(payload) : [],
     });
   } catch (error) {
-    if (error instanceof AuthError) return json({ error: error.message }, error.status);
     return json({ error: error instanceof Error ? error.message : String(error) }, 500);
   }
 });
