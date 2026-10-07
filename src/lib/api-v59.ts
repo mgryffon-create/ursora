@@ -175,6 +175,12 @@ export async function runFreshAnalysis(
     }
 
     try {
+      await callEdge('build-indicative-contracts-v59' as EdgeFunctionSlug, { run_id: analysis.run_id });
+    } catch (error) {
+      warnings.push(`indicative contract research: ${describe(error)}`);
+    }
+
+    try {
       await callEdge(EDGE_FUNCTIONS.tradeLifecycle, {});
     } catch (error) {
       warnings.push(warning('trade monitoring and review', error));
