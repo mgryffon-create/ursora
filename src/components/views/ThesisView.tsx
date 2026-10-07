@@ -95,40 +95,82 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   useEffect(() => {
     let active = true;
     setLoading(true);
+    setError(null);
     setShowAllNews(false);
     setChartHorizon('1M');
     setChartBarsByHorizon({});
     setChartError(null);
+
     (async () => {
-      const sig = await fetchSignal(signalId);
-      if (!active) return;
-      setSignal(sig);
-      if (!sig) {
+      try {
+        const sig = await fetchSignal(signalId);
+        if (!active) return;
+        setSignal(sig);
+        if (!sig) return;
+
+        // Only block first paint on the data needed to render the thesis shell.
+        // Expensive enrichment and fresh chart history load after the page is visible.
+        const [q, tks, cands, rk, bs] = await Promise.all([
+          fetchQuote(sig.symbol),
+          fetchTickers(),
+          fetchCandidates(sig.id),
+          fetchRisk(sig.id),
+          fetchBars(sig.symbol, 80),
+        ]);
+        if (!active) return;
+
+        setQuote(q);
+        setTicker(tks.find((t) => t.symbol === sig.symbol) ?? null);
+        setCandidates(cands);
+        setRisk(rk);
+        setBars(bs);
+        setChartBarsByHorizon({ '1M': bs.slice(-23) });
         setLoading(false);
-        return;
+        track('thesis_viewed', { symbol: sig.symbol, opportunity: sig.opportunity_score });
+
+        // Secondary evidence should never hold the entire trade-analysis page hostage.
+        void Promise.all([
+          fetchSnapshot(),
+          fetchNews(sig.symbol, 14),
+          fetchFilings(sig.symbol),
+          fetchTranscripts(sig.symbol),
+          fetchSentiment(sig.symbol),
+          fetchEconomicEvents(),
+          fetchEarnings(),
+        ]).then(([snap, nw, fl, tr, se, ec, ea]) => {
+          if (!active) return;
+          setSnapshot(snap);
+          setNews(nw);
+          setFilings(fl);
+          setTranscripts(tr);
+          setSentiment(se);
+          setEcon(ec.filter((e) => e.affected_symbols.includes(sig.symbol)));
+          setEarnings(ea.filter((e) => e.symbol === sig.symbol));
+        }).catch((secondaryError) => {
+          console.warn('URSORA secondary thesis evidence did not finish loading:', secondaryError);
+        });
+
+        setChartLoading(true);
+        void fetchChartBars(sig.symbol, '1M')
+          .then((initialChart) => {
+            if (!active) return;
+            setChartBarsByHorizon((current) => ({ ...current, '1M': initialChart.bars }));
+          })
+          .catch((chartLoadError) => {
+            if (!active) return;
+            setChartError(chartLoadError instanceof Error ? chartLoadError.message : String(chartLoadError));
+          })
+          .finally(() => {
+            if (active) setChartLoading(false);
+          });
+      } catch (loadError) {
+        if (!active) return;
+        setError(loadError instanceof Error ? loadError.message : String(loadError));
+      } finally {
+        if (active) setLoading(false);
       }
-      const [q, tks, snap, cands, rk, nw, fl, tr, se, bs, initialChart, ec, ea] = await Promise.all([
-        fetchQuote(sig.symbol), fetchTickers(), fetchSnapshot(), fetchCandidates(sig.id), fetchRisk(sig.id),
-        fetchNews(sig.symbol, 14), fetchFilings(sig.symbol), fetchTranscripts(sig.symbol), fetchSentiment(sig.symbol),
-        fetchBars(sig.symbol, 80), fetchChartBars(sig.symbol, '1M'), fetchEconomicEvents(), fetchEarnings(),
-      ]);
-      if (!active) return;
-      setQuote(q);
-      setTicker(tks.find((t) => t.symbol === sig.symbol) ?? null);
-      setSnapshot(snap);
-      setCandidates(cands);
-      setRisk(rk);
-      setNews(nw);
-      setFilings(fl);
-      setTranscripts(tr);
-      setSentiment(se);
-      setBars(bs);
-      setChartBarsByHorizon({ '1M': initialChart.bars });
-      setEcon(ec.filter((e) => e.affected_symbols.includes(sig.symbol)));
-      setEarnings(ea.filter((e) => e.symbol === sig.symbol));
-      setLoading(false);
-      track('thesis_viewed', { symbol: sig.symbol, opportunity: sig.opportunity_score });
     })();
+
     return () => {
       active = false;
     };
