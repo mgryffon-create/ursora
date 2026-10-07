@@ -155,6 +155,46 @@ function factorByKey(score: AnyRow, key: string): AnyRow | null {
   return factors.find((factor: AnyRow) => factor.factor === key) ?? null;
 }
 
+
+function evidenceRole(key: string): 'primary' | 'confirmation' | 'context' | 'auxiliary' | 'trade_quality' {
+  if (key === 'price_trend') return 'primary';
+  if (key === 'momentum' || key === 'participation') return 'confirmation';
+  if (key === 'market_alignment' || key === 'catalysts_news') return 'context';
+  if (key === 'options_market') return 'auxiliary';
+  return 'trade_quality';
+}
+
+function evidenceStatus(factor: AnyRow): 'observed' | 'no_meaningful_evidence' | 'unavailable' | 'stale' | 'refresh_failed' {
+  if (!factor || factor.provenance === 'unavailable') return 'unavailable';
+  const freshness = n(factor.freshness);
+  if (freshness !== null && freshness < 0.20) return 'stale';
+  const strength = String(factor.strength_band ?? 'Insufficient');
+  if (strength === 'Insufficient' || strength === 'Weak') return 'no_meaningful_evidence';
+  return 'observed';
+}
+
+function contractPoint(
+  key: string,
+  family: string,
+  value: unknown,
+  unit: string | null,
+  status: 'observed' | 'no_meaningful_evidence' | 'unavailable' | 'stale' | 'refresh_failed',
+  sourceName: unknown,
+  sourceTimestamp: unknown,
+  retrievedAt: unknown,
+) {
+  return {
+    key,
+    family,
+    value: value ?? null,
+    unit,
+    status,
+    source_name: sourceName ? String(sourceName) : null,
+    source_timestamp: sourceTimestamp ? String(sourceTimestamp) : null,
+    retrieved_at: retrievedAt ? String(retrievedAt) : null,
+  };
+}
+
 function setupClass(raw: AnyRow, direction: 'bullish' | 'bearish'): string {
   if (direction === 'bullish' ? raw.breakout_up === true : raw.breakout_down === true) return 'momentum_breakout';
   if (direction === 'bullish' ? raw.price_structure_higher === true : raw.price_structure_lower === true) return 'trend_continuation';
@@ -361,6 +401,84 @@ Deno.serve(async (req) => {
       }
 
       score.factors = factors;
+
+      const contractFamilies: Record<string, AnyRow> = {};
+      for (const factor of factors) {
+        const key = String(factor.factor ?? '');
+        if (!key) continue;
+        const absoluteScore =
+          key === 'price_trend' ? priceOrientation :
+          key === 'momentum' ? momentumOrientation :
+          n(factor.signed_score);
+        const vote = String(factor.thesis_vote ?? 'ABSTAIN');
+        const role = evidenceRole(key);
+        let voteReason = 'Evidence is below the Moderate/Strong voting threshold.';
+        if (vote === 'SUPPORT') voteReason = 'Moderate/Strong evidence supports the established thesis direction.';
+        else if (vote === 'OPPOSE') voteReason = 'Moderate/Strong evidence opposes the established thesis direction.';
+        else if (key === 'momentum' && direction === 'neutral' && (momentumBand === 'Moderate' || momentumBand === 'Strong')) {
+          voteReason = 'Standalone momentum is meaningful, but price has not established a directional thesis, so momentum cannot vote.';
+        } else if (key === 'options_market') {
+          voteReason = 'Aggregate options activity lacks trade-side/opening-closing context and remains auxiliary.';
+        }
+
+        contractFamilies[key] = {
+          key,
+          label: String(factor.label ?? key),
+          role,
+          status: evidenceStatus(factor),
+          provenance: String(factor.provenance ?? 'unavailable'),
+          absolute_score: absoluteScore,
+          relative_score: n(factor.signed_score),
+          strength_band: key === 'price_trend' ? priceBand : key === 'momentum' ? momentumBand : String(factor.strength_band ?? 'Insufficient'),
+          thesis_vote: vote,
+          can_vote: vote === 'SUPPORT' || vote === 'OPPOSE',
+          vote_reason: voteReason,
+          confidence: n(factor.confidence),
+          freshness: n(factor.freshness),
+          source_quality: n(factor.source_quality),
+          explanation: factor.explanation ? String(factor.explanation) : null,
+        };
+      }
+
+      const optionSnapshotStatus =
+        raw.option_snapshot_retrieved_at
+          ? 'observed'
+          : raw.put_call_ratio !== null && raw.put_call_ratio !== undefined
+            ? 'no_meaningful_evidence'
+            : 'unavailable';
+      const marketPointStatus = raw.history_usable === false ? 'stale' : 'observed';
+      const validationIssues: string[] = [];
+      if (direction === 'neutral' && supported) validationIssues.push('Neutral price direction cannot be suggestion-eligible.');
+      if (!frame.valid && (frame.target !== null || frame.invalidation !== null)) {
+        validationIssues.push('Tactical target/invalidation exists while the tactical frame is invalid.');
+      }
+      if (raw.put_call_ratio !== null && raw.put_call_ratio !== undefined && contractFamilies.options_market?.status === 'unavailable') {
+        validationIssues.push('Options metric exists while the options evidence family is marked unavailable.');
+      }
+
+      score.evidence_contract = {
+        version: '1.0',
+        generated_at: new Date().toISOString(),
+        thesis_direction: direction,
+        families: contractFamilies,
+        points: {
+          analysis_price: contractPoint('analysis_price', 'price_trend', source.stock_price_at_generation, 'USD', marketPointStatus, raw.market_source_name, raw.market_source_timestamp, raw.market_retrieved_at),
+          relative_volume: contractPoint('relative_volume', 'participation', raw.relative_volume, 'x', raw.relative_volume === null || raw.relative_volume === undefined ? 'unavailable' : 'observed', raw.market_source_name, raw.market_source_timestamp, raw.market_retrieved_at),
+          options_put_call_ratio: contractPoint('options_put_call_ratio', 'options_market', raw.put_call_ratio, 'ratio', optionSnapshotStatus, raw.option_source_name, raw.option_snapshot_retrieved_at, raw.option_snapshot_retrieved_at),
+          options_call_volume: contractPoint('options_call_volume', 'options_market', raw.call_volume, 'contracts', raw.call_volume === null || raw.call_volume === undefined ? 'unavailable' : optionSnapshotStatus, raw.option_source_name, raw.option_snapshot_retrieved_at, raw.option_snapshot_retrieved_at),
+          options_put_volume: contractPoint('options_put_volume', 'options_market', raw.put_volume, 'contracts', raw.put_volume === null || raw.put_volume === undefined ? 'unavailable' : optionSnapshotStatus, raw.option_source_name, raw.option_snapshot_retrieved_at, raw.option_snapshot_retrieved_at),
+          options_total_open_interest: contractPoint('options_total_open_interest', 'options_market', raw.total_open_interest, 'contracts', raw.total_open_interest === null || raw.total_open_interest === undefined ? 'unavailable' : optionSnapshotStatus, raw.option_source_name, raw.option_snapshot_retrieved_at, raw.option_snapshot_retrieved_at),
+          options_iv_median: contractPoint('options_iv_median', 'options_market', raw.option_iv_median, 'decimal', raw.option_iv_median === null || raw.option_iv_median === undefined ? 'unavailable' : optionSnapshotStatus, raw.option_source_name, raw.option_snapshot_retrieved_at, raw.option_snapshot_retrieved_at),
+          news_item_count: contractPoint('news_item_count', 'catalysts_news', raw.news_item_count, 'items', raw.news_item_count ? 'observed' : 'no_meaningful_evidence', raw.news_source_name, raw.news_latest_published_at, raw.news_latest_published_at),
+          tactical_target: contractPoint('tactical_target', 'risk_reward', frame.target, 'USD', frame.valid ? 'observed' : 'unavailable', raw.market_source_name, raw.market_source_timestamp, raw.market_retrieved_at),
+          tactical_invalidation: contractPoint('tactical_invalidation', 'risk_reward', frame.invalidation, 'USD', frame.valid ? 'observed' : 'unavailable', raw.market_source_name, raw.market_source_timestamp, raw.market_retrieved_at),
+        },
+        validation: {
+          valid: validationIssues.length === 0,
+          issues: validationIssues,
+        },
+      };
+
       score.thesis_state = thesisState;
       score.trade_eligible = supported;
       score.suggestion_eligible = supported;
