@@ -186,11 +186,11 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
 
   const factors = useMemo(() => signal?.score_breakdown?.factors ?? [], [signal]);
   const thesisState = signal?.score_breakdown?.thesis_state ?? null;
-  const evidenceCompleteness = signal?.score_breakdown?.evidence_completeness ?? null;
-  const directionalCompleteness = signal?.score_breakdown?.directional_completeness ?? null;
-  const directionalUncertainty = signal?.score_breakdown?.directional_uncertainty ?? null;
-  const availableFamilies = signal?.score_breakdown?.available_families ?? null;
-  const totalFamilies = signal?.score_breakdown?.total_families ?? null;
+  const legacyEvidenceCompleteness = signal?.score_breakdown?.evidence_completeness ?? null;
+  const legacyDirectionalCompleteness = signal?.score_breakdown?.directional_completeness ?? null;
+  const legacyDirectionalUncertainty = signal?.score_breakdown?.directional_uncertainty ?? null;
+  const legacyAvailableFamilies = signal?.score_breakdown?.available_families ?? null;
+  const legacyTotalFamilies = signal?.score_breakdown?.total_families ?? null;
   const agreementScore = signal?.score_breakdown?.agreement_score ?? null;
   const agreementFamilyCount = signal?.score_breakdown?.agreement_family_count ?? null;
   const supportShare = signal?.score_breakdown?.support_share ?? null;
@@ -200,6 +200,13 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const tradeBlockers = signal?.score_breakdown?.trade_blockers ?? [];
   const rawAnalysis = signal?.score_breakdown?.raw ?? {};
   const evidenceContract = signal?.score_breakdown?.evidence_contract ?? null;
+  const contractCoverage = evidenceContract?.coverage ?? null;
+  const evidenceCompleteness = contractCoverage?.weighted_completeness_pct ?? legacyEvidenceCompleteness;
+  const directionalCompleteness = contractCoverage?.directional_weighted_completeness_pct ?? legacyDirectionalCompleteness;
+  const directionalUncertainty = contractCoverage?.uncertainty_pct ?? legacyDirectionalUncertainty;
+  const reliabilityAdjustedCoverage = contractCoverage?.reliability_adjusted_coverage_pct ?? null;
+  const availableFamilies = contractCoverage?.available_families ?? legacyAvailableFamilies;
+  const totalFamilies = contractCoverage?.total_families ?? legacyTotalFamilies;
   const scoreMeta = (signal?.score_breakdown ?? {}) as Record<string, unknown>;
   const rawNumber = (value: unknown): number | null => {
     if (value === null || value === undefined || value === '') return null;
@@ -523,7 +530,12 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                   )}
                   {directionalCompleteness !== null && (
                     <div className="mt-0.5 text-[10px] text-zinc-600">
-                      Directional: {directionalCompleteness}% complete{directionalUncertainty !== null ? ` · ${directionalUncertainty}% uncertainty` : ''}
+                      Directional evidence: {directionalCompleteness}% complete
+                    </div>
+                  )}
+                  {reliabilityAdjustedCoverage !== null && (
+                    <div className="mt-0.5 text-[10px] text-zinc-600">
+                      Reliability-adjusted coverage: {reliabilityAdjustedCoverage}%{directionalUncertainty !== null ? ` · ${directionalUncertainty}% uncertainty` : ''}
                     </div>
                   )}
                 </div>
