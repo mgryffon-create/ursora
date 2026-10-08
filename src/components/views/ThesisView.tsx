@@ -932,7 +932,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
               <Metric label="VIX" value={num(snapshot?.vix)} hint={pct(snapshot?.vix_change_pct) ?? undefined} />
               <Metric label="US 10Y" value={num(snapshot?.us10y)} />
               <Metric label="US 2Y" value={num(snapshot?.us02y)} />
-              <Metric label="Dollar index" value={num(snapshot?.dxy)} />
+              <Metric label="Broad USD index" value={num(snapshot?.dxy)} />
               <Metric label="WTI" value={num(snapshot?.wti)} />
               <Metric label="Gold" value={num(snapshot?.gold)} />
             </div>
