@@ -113,6 +113,14 @@ export interface EvidenceContract {
   thesis_direction: Direction;
   families: Record<string, EvidenceContractFamily>;
   points: Record<string, EvidenceContractPoint>;
+  coverage: {
+    available_families: number;
+    total_families: number;
+    weighted_completeness_pct: number;
+    directional_weighted_completeness_pct: number;
+    reliability_adjusted_coverage_pct: number;
+    uncertainty_pct: number;
+  };
   validation: {
     valid: boolean;
     issues: string[];
