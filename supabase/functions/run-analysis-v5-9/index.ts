@@ -440,6 +440,64 @@ Deno.serve(async (req) => {
         };
       }
 
+      // Normalize source-state semantics before computing coverage. A successful
+      // source that produced no meaningful directional evidence is still available;
+      // it is not the same thing as an unavailable integration.
+      if (contractFamilies.catalysts_news) {
+        const newsCount = n(raw.news_item_count);
+        if (newsCount !== null) {
+          contractFamilies.catalysts_news.status = newsCount > 0 ? 'observed' : 'no_meaningful_evidence';
+        }
+      }
+      if (contractFamilies.options_market && raw.option_snapshot_retrieved_at) {
+        contractFamilies.options_market.status = 'observed';
+      }
+
+      const familyEntries = factors
+        .map((factor) => ({
+          factor,
+          contract: contractFamilies[String(factor.factor ?? '')],
+        }))
+        .filter((entry) => entry.contract);
+
+      const familyIsAvailable = (status: string) =>
+        status === 'observed' || status === 'no_meaningful_evidence';
+
+      const availableFamilies = familyEntries.filter((entry) => familyIsAvailable(String(entry.contract.status))).length;
+      const totalFamilies = familyEntries.length;
+      const totalBaseWeight = familyEntries.reduce((sum, entry) => sum + Math.max(0, Number(entry.factor.base_weight ?? 0)), 0);
+      const availableBaseWeight = familyEntries.reduce(
+        (sum, entry) => sum + (familyIsAvailable(String(entry.contract.status)) ? Math.max(0, Number(entry.factor.base_weight ?? 0)) : 0),
+        0,
+      );
+      const directionalEntries = familyEntries.filter((entry) => entry.contract.role !== 'trade_quality');
+      const directionalTotalBaseWeight = directionalEntries.reduce((sum, entry) => sum + Math.max(0, Number(entry.factor.base_weight ?? 0)), 0);
+      const directionalAvailableBaseWeight = directionalEntries.reduce(
+        (sum, entry) => sum + (familyIsAvailable(String(entry.contract.status)) ? Math.max(0, Number(entry.factor.base_weight ?? 0)) : 0),
+        0,
+      );
+      const reliabilityAdjustedWeight = familyEntries.reduce((sum, entry) => {
+        if (!familyIsAvailable(String(entry.contract.status))) return sum;
+        const baseWeight = Math.max(0, Number(entry.factor.base_weight ?? 0));
+        const reliability = Math.max(0, Math.min(1, Number(entry.factor.reliability ?? 0)));
+        return sum + baseWeight * reliability;
+      }, 0);
+
+      const contractCoverage = {
+        available_families: availableFamilies,
+        total_families: totalFamilies,
+        weighted_completeness_pct: Math.round(totalBaseWeight > 0 ? (availableBaseWeight / totalBaseWeight) * 100 : 0),
+        directional_weighted_completeness_pct: Math.round(
+          directionalTotalBaseWeight > 0 ? (directionalAvailableBaseWeight / directionalTotalBaseWeight) * 100 : 0,
+        ),
+        reliability_adjusted_coverage_pct: Math.round(
+          totalBaseWeight > 0 ? (reliabilityAdjustedWeight / totalBaseWeight) * 100 : 0,
+        ),
+        uncertainty_pct: Math.round(
+          totalBaseWeight > 0 ? (1 - reliabilityAdjustedWeight / totalBaseWeight) * 100 : 100,
+        ),
+      };
+
       const optionSnapshotStatus =
         raw.option_snapshot_retrieved_at
           ? 'observed'
@@ -473,6 +531,7 @@ Deno.serve(async (req) => {
           tactical_target: contractPoint('tactical_target', 'risk_reward', frame.target, 'USD', frame.valid ? 'observed' : 'unavailable', raw.market_source_name, raw.market_source_timestamp, raw.market_retrieved_at),
           tactical_invalidation: contractPoint('tactical_invalidation', 'risk_reward', frame.invalidation, 'USD', frame.valid ? 'observed' : 'unavailable', raw.market_source_name, raw.market_source_timestamp, raw.market_retrieved_at),
         },
+        coverage: contractCoverage,
         validation: {
           valid: validationIssues.length === 0,
           issues: validationIssues,
