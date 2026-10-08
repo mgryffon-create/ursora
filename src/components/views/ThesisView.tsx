@@ -239,6 +239,15 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
     ? scoreMeta.v59_decision as Record<string, unknown>
     : null;
   const contextConfirmationCount = rawNumber(v59Decision?.context_confirmation_count);
+  const researchOnlyContracts = contractSelectionState === 'pending_live_execution_data';
+  const riskFailureConditions = (risk?.why_it_could_fail ?? []).map((message) =>
+    thesisState === 'Supported' && /suggestion-eligible/i.test(message)
+      ? 'Before entry, contract-specific execution quality and executable pricing must still be confirmed.'
+      : message
+  );
+  const liquidityRiskText = researchOnlyContracts && candidates.length
+    ? 'Indicative research contracts are available, but executable bid/ask pricing is unavailable, so contract-specific liquidity cannot yet be confirmed.'
+    : risk?.liquidity_risk;
   const momentumContract = evidenceContract?.families?.momentum ?? null;
   const priceContract = evidenceContract?.families?.price_trend ?? null;
   const contractPointNumber = (key: string): number | null => {
@@ -480,7 +489,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             { v: 'exec', l: 'Executive statements', Icon: MessageSquareQuote },
             { v: 'sentiment', l: 'Investor sentiment', Icon: Users },
             { v: 'risk', l: 'Risk', Icon: ShieldAlert },
-            { v: 'contracts', l: 'Option contract candidates', Icon: ClipboardList },
+            { v: 'contracts', l: researchOnlyContracts ? 'Indicative option research' : 'Option contract candidates', Icon: ClipboardList },
           ].map(({ v, l, Icon }) => (
             <TabsTrigger key={v} value={v} className="gap-1.5 font-mono text-[10px] uppercase tracking-wider data-[state=active]:bg-sky-500/15 data-[state=active]:text-sky-300">
               <Icon className="h-3 w-3" aria-hidden="true" />
@@ -1409,7 +1418,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             <div className="mt-3 grid gap-2 lg:grid-cols-3">
               {[
                 { t: 'IV risk', v: risk?.iv_risk },
-                { t: 'Liquidity risk', v: risk?.liquidity_risk },
+                { t: 'Liquidity risk', v: liquidityRiskText },
                 { t: 'Market-event risk', v: risk?.catalyst_risk },
               ].map((r) => (
                 <div key={r.t} className="rounded-sm border border-zinc-800 bg-black/20 p-2.5">
@@ -1443,7 +1452,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             className="border-red-500/40"
           >
             <ol className="space-y-2">
-              {(risk?.why_it_could_fail ?? []).map((w, i) => (
+              {riskFailureConditions.map((w, i) => (
                 <li key={i} className="flex gap-2.5 text-[13px] leading-relaxed text-zinc-300">
                   <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-red-500/40 bg-red-500/10 font-mono text-[9px] text-red-300">
                     {i + 1}
@@ -1451,7 +1460,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                   {w}
                 </li>
               ))}
-              {!risk?.why_it_could_fail?.length && <Unavailable />}
+              {!riskFailureConditions.length && <Unavailable />}
             </ol>
             <Disclaimer className="mt-3 border-t border-zinc-800 pt-3" />
           </Panel>
@@ -1459,10 +1468,12 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
 
         <TabsContent value="contracts" className="mt-3 space-y-3">
           <Panel
-            title="Option contract candidates"
-            subtitle="Ranked on liquidity, spread, open interest, Greeks, expiry fit, premium, break-even and reach to structure. Illiquid contracts are filtered out before ranking."
+            title={researchOnlyContracts ? "Indicative option research" : "Option contract candidates"}
+            subtitle={researchOnlyContracts
+              ? "Research-ranked contracts derived from delayed options data. These are not executable candidates because live bid/ask pricing is unavailable."
+              : "Ranked on liquidity, spread, open interest, Greeks, expiry fit, premium, break-even and reach to structure. Illiquid contracts are filtered out before ranking."}
             right={candidates.length
-              ? <DataBadge kind="derived" label="DERIVED FROM OPTIONS DATA" />
+              ? <DataBadge kind={researchOnlyContracts ? "delayed" : "derived"} label={researchOnlyContracts ? "INDICATIVE · NOT EXECUTABLE" : "DERIVED FROM OPTIONS DATA"} />
               : undefined}
           >
             {candidates.length === 0 ? (
@@ -1498,9 +1509,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                       <span className="ml-2 text-[10px] text-zinc-500">{dte(c.expiration)}d</span>
                     </div>
                     <div className="mt-2 grid grid-cols-2 gap-1.5">
-                      <Metric label="Bid / Ask" value={`${num(c.bid)} / ${num(c.ask)}`} />
+                      <Metric label="Bid / Ask" value={c.bid != null && c.ask != null ? `${num(c.bid)} / ${num(c.ask)}` : null} />
                       <Metric label="Mid" value={num(c.mid)} />
-                      <Metric label="Spread" value={`${num(c.spread_pct)}%`} valueClass={Number(c.spread_pct) > 6 ? 'text-amber-300' : undefined} />
+                      <Metric label="Spread" value={c.spread_pct != null ? `${num(c.spread_pct)}%` : null} valueClass={Number(c.spread_pct) > 6 ? 'text-amber-300' : undefined} />
                       <Metric label="Liquidity" value={c.liquidity_score} />
                       <Metric label="Volume" value={compact(c.volume)} />
                       <Metric label="Open interest" value={compact(c.open_interest)} />
