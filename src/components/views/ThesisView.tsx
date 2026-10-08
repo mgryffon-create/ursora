@@ -350,6 +350,18 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
     quote?.source_name?.includes('Frozen Session Close') ||
     quote?.source_name?.includes('Daily Aggregates'),
   );
+  const quoteSessionDate = quote?.as_of
+    ? new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        month: 'short',
+        day: 'numeric',
+      }).format(new Date(quote.as_of))
+    : null;
+  const quoteContextLine = quote?.price != null
+    ? quoteIsDelayed
+      ? `session close ${money(quote.price)}${quoteSessionDate ? ` · ${quoteSessionDate}` : ''}`
+      : `latest quote ${money(quote.price)} · ${clockET(quote.as_of)}`
+    : null;
 
   return (
     <div className="space-y-4">
@@ -399,9 +411,9 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
                   ? signal.score_breakdown.raw.change_pct
                   : null) ?? '—'} · signal price
               </div>
-              {quote?.price != null && (
+              {quoteContextLine && (
                 <div className="mt-0.5 font-mono text-[9px] text-zinc-600">
-                  current {money(quote.price)} · {clockET(quote.as_of)}
+                  {quoteContextLine}
                 </div>
               )}
             </div>
@@ -1025,14 +1037,14 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
             </div>
           </Panel>
           <Panel
-            title="Current trading-session movement"
+            title={quoteIsDelayed ? "Session-close market snapshot" : "Current trading-session movement"}
             right={quote?.is_demo
               ? <DemoBadge />
               : <DataBadge kind={quoteIsDelayed ? 'delayed' : 'observed'} label={quoteIsDelayed ? 'MASSIVE MARKET DATA · SESSION CLOSE' : 'MASSIVE MARKET DATA'} />}
           >
             <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
               <Metric label="Trend" value={quote?.trend} mono={false} />
-              <Metric label="Last" value={num(quote?.price)} />
+              <Metric label={quoteIsDelayed ? "Close" : "Last"} value={num(quote?.price)} />
               <Metric label="Change" value={pct(quote?.change_pct)} valueClass={changeColor(quote?.change_pct)} />
               <Metric label="Session open" value={num(quote?.day_open)} />
               <Metric label="Session high" value={num(quote?.day_high)} />
