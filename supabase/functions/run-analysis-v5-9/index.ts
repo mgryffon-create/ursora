@@ -315,8 +315,13 @@ Deno.serve(async (req) => {
       const momentumOrientation = deriveMomentumOrientation(raw);
       const priceBand = band(priceOrientation);
       const momentumBand = band(momentumOrientation);
-      const direction = priceOrientation > 0 ? 'bullish' : priceOrientation < 0 ? 'bearish' : 'neutral';
-      const priceDirectional = priceBand !== 'Insufficient';
+      // Price/structure is the primary gate. Weak evidence may describe a lean, but it
+      // cannot establish a thesis direction. Confirmation/context families therefore
+      // have nothing to support or oppose until price reaches Moderate or Strong.
+      const priceDirectional = priceBand === 'Moderate' || priceBand === 'Strong';
+      const direction = priceDirectional
+        ? priceOrientation > 0 ? 'bullish' : priceOrientation < 0 ? 'bearish' : 'neutral'
+        : 'neutral';
       const momentumAgrees = direction !== 'neutral' &&
         (momentumBand === 'Moderate' || momentumBand === 'Strong') &&
         Math.sign(momentumOrientation) === Math.sign(priceOrientation);
@@ -385,18 +390,25 @@ Deno.serve(async (req) => {
           factor.signed_score = direction === 'neutral' ? 0 : Math.abs(priceOrientation);
           factor.raw_score = Math.abs(priceOrientation);
           factor.strength_band = priceBand;
-          factor.thesis_vote = direction !== 'neutral' && (priceBand === 'Moderate' || priceBand === 'Strong') ? 'SUPPORT' : 'ABSTAIN';
+          factor.thesis_vote = direction !== 'neutral' ? 'SUPPORT' : 'ABSTAIN';
         }
         if (factor.factor === 'momentum') {
           const relative = direction === 'neutral' ? 0 : Math.sign(momentumOrientation) === Math.sign(priceOrientation)
             ? Math.abs(momentumOrientation)
             : -Math.abs(momentumOrientation);
           factor.signed_score = relative;
-          factor.raw_score = Math.abs(relative);
+          factor.raw_score = Math.abs(momentumOrientation);
           factor.strength_band = momentumBand;
           factor.thesis_vote = momentumBand === 'Moderate' || momentumBand === 'Strong'
             ? relative > 0 ? 'SUPPORT' : relative < 0 ? 'OPPOSE' : 'ABSTAIN'
             : 'ABSTAIN';
+        }
+        if (
+          direction === 'neutral' &&
+          ['participation', 'market_alignment', 'options_market', 'catalysts_news'].includes(String(factor.factor))
+        ) {
+          factor.signed_score = 0;
+          factor.thesis_vote = 'ABSTAIN';
         }
       }
 
@@ -507,6 +519,8 @@ Deno.serve(async (req) => {
       const marketPointStatus = raw.history_usable === false ? 'stale' : 'observed';
       const validationIssues: string[] = [];
       if (direction === 'neutral' && supported) validationIssues.push('Neutral price direction cannot be suggestion-eligible.');
+      if (supported && !priceDirectional) validationIssues.push('A supported thesis requires Moderate/Strong primary price evidence.');
+      if (!priceDirectional && direction !== 'neutral') validationIssues.push('Weak/Insufficient price evidence cannot establish thesis direction.');
       if (!frame.valid && (frame.target !== null || frame.invalidation !== null)) {
         validationIssues.push('Tactical target/invalidation exists while the tactical frame is invalid.');
       }
