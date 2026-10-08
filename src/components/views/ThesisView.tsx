@@ -254,7 +254,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const optionIv = evidenceContract ? contractPointNumber('options_iv_median') : optionSummary?.iv ?? null;
   const optionEvidencePoint = evidenceContract?.points?.options_put_call_ratio ?? null;
   const contractNewsCount = evidenceContract ? contractPointNumber('news_item_count') : null;
-  const signalGeneratedMs = new Date(signal.generated_at).getTime();
+  const signalGeneratedMs = signal?.generated_at ? new Date(signal.generated_at).getTime() : NaN;
   const runNewsCutoffMs = Number.isFinite(signalGeneratedMs) ? signalGeneratedMs - 72 * 60 * 60 * 1000 : null;
   const runBoundNews = evidenceContract && contractNewsCount === 0
     ? []
@@ -271,7 +271,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
       ? `Equity ${snapshot.regime}`
       : snapshot.regime
     : null;
-  const analysisRegimeLabel = signal.regime
+  const analysisRegimeLabel = signal?.regime
     ? snapshot?.market_status === 'equity-only context'
       ? `Equity ${signal.regime}`
       : signal.regime
@@ -285,11 +285,11 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         bear: risk?.bear_case ?? null,
       }
     : {
-        bull: signal.direction === 'neutral'
+        bull: signal?.direction === 'neutral'
           ? 'Bullish monitoring case: price develops a clear upward structure and momentum remains constructive enough to confirm it.'
           : 'Bullish monitoring case: directional evidence strengthens enough to establish a usable 1–5 day frame.',
         base: 'No trade is established. Continue monitoring until price structure, directional confirmation and a usable tactical frame are all present.',
-        bear: signal.direction === 'neutral'
+        bear: signal?.direction === 'neutral'
           ? 'Bearish monitoring case: price develops a clear downward structure and momentum confirms the move.'
           : 'Bearish monitoring case: directional evidence weakens or reverses before a usable trade frame is established.',
       };
