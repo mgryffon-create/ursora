@@ -329,33 +329,15 @@ export const ThesisView: React.FC<{
           : 'Bearish monitoring case: directional evidence weakens or reverses before a usable trade frame is established.',
       };
 
-  const tradeFrameLevels = [
-    { value: analysisPrice, label: 'Analysis price', color: '#60a5fa', dash: '3 3' },
+  const chartLevels = [
+    { value: analysisPrice, label: 'Thesis anchor', color: '#60a5fa', dash: '3 3' },
     { value: signal?.target_price, label: '1–5 day target', color: '#34d399', dash: '6 3' },
     { value: signal?.invalidation_level, label: '1–5 day invalidation', color: '#fbbf24', dash: '2 2' },
+    { value: tacticalResistance, label: 'Reachable resistance', color: '#34d399' },
+    { value: tacticalSupport, label: 'Reachable support', color: '#f87171' },
+    { value: contextResistance, label: 'Daily pivot resistance', color: '#10b981', dash: '2 5' },
+    { value: contextSupport, label: 'Daily pivot support', color: '#fb7185', dash: '2 5' },
   ];
-
-  const chartLevels = chartHorizon === '1D'
-    ? tradeFrameLevels
-    : chartHorizon === '1W'
-      ? [
-          ...tradeFrameLevels,
-          { value: tacticalResistance, label: 'Reachable resistance', color: '#34d399' },
-          { value: tacticalSupport, label: 'Reachable support', color: '#f87171' },
-        ]
-      : chartHorizon === '1M'
-        ? [
-            ...tradeFrameLevels,
-            { value: tacticalResistance, label: 'Reachable resistance', color: '#34d399' },
-            { value: tacticalSupport, label: 'Reachable support', color: '#f87171' },
-            { value: contextResistance, label: 'Daily pivot resistance', color: '#10b981', dash: '2 5' },
-            { value: contextSupport, label: 'Daily pivot support', color: '#fb7185', dash: '2 5' },
-          ]
-        : [
-            ...tradeFrameLevels,
-            { value: quote?.resistance, label: 'Broader resistance', color: '#34d399', dash: '2 5' },
-            { value: quote?.support, label: 'Broader support', color: '#f87171', dash: '2 5' },
-          ];
 
   const selectChartHorizon = async (horizon: ChartHorizon) => {
     setChartHorizon(horizon);
@@ -1011,8 +993,8 @@ export const ThesisView: React.FC<{
           <Panel
             title="Price movement with tactical swing levels"
             subtitle={tacticalLookback
-              ? `The chart separates the 1–5 day trade frame from longer-horizon structure. TradeCycle uses ${tacticalLookback} recent daily sessions plus a 5-session realized-move profile; only reachable pivots become tactical levels.`
-              : 'The chart separates the 1–5 day trade frame from longer-horizon structure; only reachable pivots become tactical levels.'}
+              ? `The tactical frame stays fixed while you change the history view. TradeCycle uses ${tacticalLookback} recent daily sessions plus a 5-session realized-move profile; the chart horizon changes only the candles shown.`
+              : 'The tactical frame stays fixed while you change the history view; the chart horizon changes only the candles shown.'}
             right={quote?.is_demo
               ? <DemoBadge />
               : <DataBadge kind={quoteIsDelayed ? 'delayed' : 'observed'} label={quoteIsDelayed ? 'MASSIVE MARKET DATA · SESSION CLOSE' : 'MASSIVE MARKET DATA'} />}
