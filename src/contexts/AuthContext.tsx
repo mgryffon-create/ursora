@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import db from '@/lib/db';
+import { callEdge, EDGE_FUNCTIONS } from '@/lib/api';
 
 export interface UserPrefs {
   user_id?: string;
@@ -210,6 +211,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [loadUserData]);
 
+  useEffect(() => {
+    if (!user || loading || typeof window === 'undefined') return;
+
+    const loginKey = `ursora_login_news_refresh_${user.id}`;
+    const runLoginRefresh = async () => {
+      if (window.sessionStorage.getItem(loginKey) === 'true') return;
+      window.sessionStorage.setItem(loginKey, 'true');
+      try {
+        await callEdge(EDGE_FUNCTIONS.marketauxNewsSync, {
+          priority: 'watchlist_login',
+          include_broad: true,
+        });
+      } catch (error) {
+        console.warn('URSORA watchlist news refresh did not complete:', error);
+      }
+    };
+
+    const runBackgroundRefresh = async () => {
+      try {
+        await callEdge(EDGE_FUNCTIONS.marketauxNewsSync, {
+          priority: 'background',
+          max_symbols: 5,
+          include_broad: true,
+        });
+      } catch (error) {
+        console.warn('URSORA background news refresh did not complete:', error);
+      }
+    };
+
+    void runLoginRefresh();
+
+    // Give the watchlist refresh first claim on the provider budget. Background
+    // universe maintenance starts later and only touches symbols stale for 24h.
+    const initialBackground = window.setTimeout(() => {
+      void runBackgroundRefresh();
+    }, 30_000);
+
+    const backgroundInterval = window.setInterval(() => {
+      void runBackgroundRefresh();
+    }, 15 * 60_000);
+
+    return () => {
+      window.clearTimeout(initialBackground);
+      window.clearInterval(backgroundInterval);
+    };
+  }, [user, loading]);
+
   const signIn = useCallback(async (email: string, password: string, remember = true) => {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('ursora_remember_login', remember ? 'true' : 'false');
@@ -265,6 +313,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (user?.id) {
         window.sessionStorage.removeItem(`ursora_login_market_refresh_${user.id}`);
         window.sessionStorage.removeItem(`ursora_login_watchlist_analysis_${user.id}`);
+        window.sessionStorage.removeItem(`ursora_login_news_refresh_${user.id}`);
       }
       window.sessionStorage.removeItem('ursora_session_only_active');
     }
