@@ -101,11 +101,15 @@ function deriveDailyReactionLevels(
     )
     .sort((a, b) => String(a.bar_time).localeCompare(String(b.bar_time)));
 
-  const sessions = [...new Set(ordered.map((bar) => sessionKey(String(bar.bar_time))))].slice(-3);
+  const sessions = [...new Set(ordered.map((bar) => sessionKey(String(bar.bar_time))))].slice(-5);
   const recent = ordered.filter((bar) => sessions.includes(sessionKey(String(bar.bar_time))));
-  if (recent.length < 8) {
+  if (recent.length < 12) {
     return { support: null, resistance: null, supportTouches: 0, resistanceTouches: 0 };
   }
+
+  const sessionRank = new Map<string, number>();
+  sessions.forEach((key, index) => sessionRank.set(key, index));
+  const newestSessionIndex = sessions.length - 1;
 
   const barRanges = recent
     .map((bar) => Number(bar.high) - Number(bar.low))
@@ -120,7 +124,8 @@ function deriveDailyReactionLevels(
     kind: 'high' | 'low';
     value: number;
     index: number;
-    rejected: boolean;
+    sessionIndex: number;
+    rejectionStrength: number;
   }> = [];
 
   for (let i = 1; i < recent.length - 1; i += 1) {
@@ -135,13 +140,15 @@ function deriveDailyReactionLevels(
     const prevLow = Number(prev.low);
     const nextLow = Number(next.low);
     const sessionRange = Math.max(high - low, tolerance);
+    const sIndex = sessionRank.get(sessionKey(String(bar.bar_time))) ?? 0;
 
     if (high >= prevHigh && high >= nextHigh) {
       pivots.push({
         kind: 'high',
         value: high,
         index: i,
-        rejected: high - close >= Math.max(sessionRange * 0.22, tolerance * 0.5),
+        sessionIndex: sIndex,
+        rejectionStrength: Math.max(0, Math.min(1.5, (high - close) / sessionRange)),
       });
     }
     if (low <= prevLow && low <= nextLow) {
@@ -149,7 +156,8 @@ function deriveDailyReactionLevels(
         kind: 'low',
         value: low,
         index: i,
-        rejected: close - low >= Math.max(sessionRange * 0.22, tolerance * 0.5),
+        sessionIndex: sIndex,
+        rejectionStrength: Math.max(0, Math.min(1.5, (close - low) / sessionRange)),
       });
     }
   }
@@ -167,32 +175,75 @@ function deriveDailyReactionLevels(
       level: number;
       touches: number;
       rejections: number;
+      strongestRejection: number;
+      latestSessionIndex: number;
+      score: number;
       distance: number;
-      recency: number;
     }> = [];
 
     for (const seed of candidates) {
       const members = candidates.filter((pivot) => Math.abs(pivot.value - seed.value) <= tolerance);
-      const uniqueIndexes = new Set(members.map((pivot) => pivot.index));
-      if (uniqueIndexes.size < 2) continue;
+      const uniqueTouches = new Map<number, typeof members[number]>();
 
-      const rejections = members.filter((pivot) => pivot.rejected).length;
-      if (rejections < 1) continue;
+      for (const member of members) {
+        const existing = uniqueTouches.get(member.index);
+        if (!existing || member.rejectionStrength > existing.rejectionStrength) {
+          uniqueTouches.set(member.index, member);
+        }
+      }
 
-      const level = members.reduce((sum, pivot) => sum + pivot.value, 0) / members.length;
+      const distinct = [...uniqueTouches.values()];
+      if (distinct.length < 2) continue;
+
+      const meaningful = distinct.filter((pivot) => pivot.rejectionStrength >= 0.22);
+      if (!meaningful.length) continue;
+
+      const latestSessionIndex = Math.max(...distinct.map((pivot) => pivot.sessionIndex));
+      const sessionsAgo = newestSessionIndex - latestSessionIndex;
+
+      // A zone last interacted with 4–5 sessions ago must have unusually strong
+      // confirmation to remain "daily": at least 3 touches and 2 real rejections.
+      const strongOlderConfirmation = distinct.length >= 3 && meaningful.length >= 2;
+      if (sessionsAgo > 2 && !strongOlderConfirmation) continue;
+
+      const level = distinct.reduce((sum, pivot) => sum + pivot.value, 0) / distinct.length;
+      const avgRejection = meaningful.reduce((sum, pivot) => sum + pivot.rejectionStrength, 0) / meaningful.length;
+      const strongestRejection = Math.max(...meaningful.map((pivot) => pivot.rejectionStrength));
+      const distance = Math.abs(level - referencePrice);
+
+      // Recency is intentionally nonlinear: sessions 0–2 dominate; sessions 3–4
+      // can survive only with stronger repeated confirmation.
+      const recencyWeight = sessionsAgo <= 0 ? 5
+        : sessionsAgo === 1 ? 4
+          : sessionsAgo === 2 ? 3
+            : sessionsAgo === 3 ? 1.5
+              : 0.75;
+
+      const distancePenalty = Math.min(3, distance / Math.max(medianBarRange * 2.5, tolerance));
+      const score =
+        distinct.length * 3 +
+        meaningful.length * 2.5 +
+        avgRejection * 3 +
+        strongestRejection * 1.5 +
+        recencyWeight -
+        distancePenalty;
+
       clusters.push({
         level,
-        touches: uniqueIndexes.size,
-        rejections,
-        distance: Math.abs(level - referencePrice),
-        recency: Math.max(...members.map((pivot) => pivot.index)),
+        touches: distinct.length,
+        rejections: meaningful.length,
+        strongestRejection,
+        latestSessionIndex,
+        score,
+        distance,
       });
     }
 
     clusters.sort((a, b) =>
+      b.score - a.score ||
       b.touches - a.touches ||
       b.rejections - a.rejections ||
-      b.recency - a.recency ||
+      b.latestSessionIndex - a.latestSessionIndex ||
       a.distance - b.distance
     );
 
@@ -1215,8 +1266,8 @@ export const ThesisView: React.FC<{
             <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               <Metric label="Reachable support" value={num(tacticalSupport)} valueClass="text-red-300" />
               <Metric label="Reachable resistance" value={num(tacticalResistance)} valueClass="text-emerald-300" />
-              <Metric label="Current daily reaction support" value={num(dailyReaction.support)} hint={dailyReaction.supportTouches ? `${dailyReaction.supportTouches} intraday touches · last 3 sessions` : undefined} valueClass="text-violet-300" />
-              <Metric label="Current daily reaction resistance" value={num(dailyReaction.resistance)} hint={dailyReaction.resistanceTouches ? `${dailyReaction.resistanceTouches} intraday touches · last 3 sessions` : undefined} valueClass="text-cyan-300" />
+              <Metric label="Current daily reaction support" value={num(dailyReaction.support)} hint={dailyReaction.supportTouches ? `${dailyReaction.supportTouches} intraday touches · 5-session scored window` : undefined} valueClass="text-violet-300" />
+              <Metric label="Current daily reaction resistance" value={num(dailyReaction.resistance)} hint={dailyReaction.resistanceTouches ? `${dailyReaction.resistanceTouches} intraday touches · 5-session scored window` : undefined} valueClass="text-cyan-300" />
               <Metric label="Recent swing support" value={num(contextSupport)} valueClass="text-zinc-400" />
               <Metric label="Recent swing resistance" value={num(contextResistance)} valueClass="text-zinc-400" />
             </div>
