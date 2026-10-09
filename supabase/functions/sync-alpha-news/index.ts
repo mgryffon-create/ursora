@@ -90,6 +90,13 @@ function recencyWeight(publishedAt: string): number {
   return Math.max(0.05, Math.exp(-ageHours / 48));
 }
 
+function normalizedHeadline(value: unknown): string {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 Deno.serve(async (req) => {
@@ -141,11 +148,14 @@ Deno.serve(async (req) => {
     }
 
     const existingArticleKeys = new Set<string>();
+    const existingHeadlineKeys = new Set<string>();
     for (const row of recentStoredNews ?? []) {
       const symbol = String((row as any).symbol ?? '').toUpperCase();
       const identity = String((row as any).url ?? (row as any).headline ?? '').trim();
       const publishedAt = String((row as any).published_at ?? '');
       if (symbol && identity) existingArticleKeys.add(`${symbol}|${identity}|${publishedAt}`);
+      const headlineKey = normalizedHeadline((row as any).headline);
+      if (symbol && headlineKey) existingHeadlineKeys.add(`${symbol}|${headlineKey}`);
     }
 
     // One targeted company query per run complements a broad-market news query.
@@ -198,15 +208,17 @@ Deno.serve(async (req) => {
           if (!symbolSet.has(symbol)) continue;
 
           const relevance = n(ticker?.relevance_score);
-          if (relevance !== null && relevance < 0.15) continue;
+          if (relevance === null || relevance < 0.35) continue;
 
           const tickerScore = n(ticker?.ticker_sentiment_score);
           const overallScore = n(item.overall_sentiment_score);
           const score = tickerScore ?? overallScore;
           const identity = String(item.url ?? item.title).trim();
           const dedupeKey = `${symbol}|${identity}|${publishedAt}`;
-          if (existingArticleKeys.has(dedupeKey)) continue;
+          const headlineKey = `${symbol}|${normalizedHeadline(item.title)}`;
+          if (existingArticleKeys.has(dedupeKey) || existingHeadlineKeys.has(headlineKey)) continue;
           existingArticleKeys.add(dedupeKey);
+          existingHeadlineKeys.add(headlineKey);
 
           broadRows.push({
             symbol,
@@ -229,6 +241,17 @@ Deno.serve(async (req) => {
           });
         }
       }
+
+      // Rebuild the tracked-symbol verified-news window from the provider associations
+      // that passed the current relevance and de-duplication rules. This removes
+      // legacy rows that were stored under weak ticker associations.
+      const { error: purgeError } = await db
+        .from('news_items')
+        .delete()
+        .in('symbol', symbols)
+        .eq('source_type', 'verified_news')
+        .lt('retrieved_at', attemptedAt);
+      if (purgeError) throw purgeError;
 
       if (broadRows.length) {
         const { error: insertError } = await db.from('news_items').insert(broadRows);
@@ -287,7 +310,7 @@ Deno.serve(async (req) => {
           // evidence. This prevents unrelated company filings from being stored as TSLA.
           if (!tickerSentiment) return null;
           const relevance = n(tickerSentiment?.relevance_score);
-          if (relevance === null || relevance < 0.15) return null;
+          if (relevance === null || relevance < 0.35) return null;
 
           const tickerScore = n(tickerSentiment?.ticker_sentiment_score);
           const overallScore = n(item.overall_sentiment_score);
@@ -315,8 +338,10 @@ Deno.serve(async (req) => {
         }).filter(Boolean).filter((row: any) => {
           const identity = String(row.url ?? row.headline ?? '').trim();
           const key = `${symbol}|${identity}|${row.published_at}`;
-          if (!identity || existingArticleKeys.has(key)) return false;
+          const headlineKey = `${symbol}|${normalizedHeadline(row.headline)}`;
+          if (!identity || existingArticleKeys.has(key) || existingHeadlineKeys.has(headlineKey)) return false;
           existingArticleKeys.add(key);
+          existingHeadlineKeys.add(headlineKey);
           return true;
         });
 
