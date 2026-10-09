@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Activity, ArrowLeftRight, Flame, Gauge, Pause, Play, Radio, TrendingDown, TrendingUp } from 'lucide-react';
 import {
-  fetchFeed, fetchLatestQuotes, fetchMovers, fetchNews, fetchSignalUpdates, fetchSnapshot, fetchTodaySignals,
+  fetchFeed, fetchLatestQuotes, fetchMovers, fetchNews, fetchSignalHistory, fetchSignalUpdates, fetchSnapshot, fetchTodaySignals,
 } from '@/lib/api';
 import type { FeedEvent, MarketMover, MarketSnapshot, NewsItem, Quote, Signal, SignalUpdate } from '@/lib/types';
 import { changeColor, clockET, compact, num, pct, scoreColor, stampET } from '@/lib/format';
@@ -190,9 +190,22 @@ export const CommandCenterView: React.FC<{
     return new Map(ranked.map((signal, index) => [signal.symbol, index + 1]));
   }, [signals]);
 
-  const openTicker = useCallback((symbol: string, options?: { tab?: string; newsId?: number }) => {
-    const signal = signalBySymbol.get(symbol);
-    if (signal) onOpenThesis(signal.id, options);
+  const openTicker = useCallback(async (symbol: string, options?: { tab?: string; newsId?: number }) => {
+    const currentSignal = signalBySymbol.get(symbol);
+    if (currentSignal) {
+      onOpenThesis(currentSignal.id, options);
+      return;
+    }
+
+    // News can arrive independently of the latest analysis run. Resolve the most
+    // recent stored analysis lazily so a valid company headline never becomes a
+    // dead link just because the ticker is absent from fetchTodaySignals().
+    try {
+      const [latest] = await fetchSignalHistory(symbol, 1);
+      if (latest) onOpenThesis(latest.id, options);
+    } catch (error) {
+      console.warn(`URSORA could not resolve the latest analysis for ${symbol}:`, error);
+    }
   }, [onOpenThesis, signalBySymbol]);
 
   const tickerCell = useCallback((symbol: string, detail?: string | null) => {
@@ -468,15 +481,30 @@ export const CommandCenterView: React.FC<{
                 return (
                   <li key={n.id} className="border-b border-zinc-800/60 pb-2 last:border-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      {n.symbol ? tickerCell(n.symbol) : <span className="font-mono text-[11px] font-semibold text-zinc-100">MACRO</span>}
+                      {n.symbol ? tickerCell(n.symbol) : (
+                        n.url ? (
+                          <a
+                            href={n.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-mono text-[11px] font-semibold text-zinc-100 underline-offset-2 transition-colors hover:text-sky-300 hover:underline"
+                            title="Open the verified macro source"
+                          >
+                            MACRO
+                          </a>
+                        ) : (
+                          <span className="font-mono text-[11px] font-semibold text-zinc-100">MACRO</span>
+                        )
+                      )}
                       <SourceBadge type={n.source_type} />
                       <span className="font-mono text-[10px] text-zinc-500">{clockET(n.published_at)}</span>
                     </div>
-                    {signal ? (
+                    {n.symbol ? (
                       <button
                         type="button"
-                        onClick={() => openTicker(n.symbol!, { tab: 'news', newsId: n.id })}
+                        onClick={() => void openTicker(n.symbol!, { tab: 'news', newsId: n.id })}
                         className="mt-1 block w-full text-left"
+                        title={signal ? 'Open this article in the current ticker analysis' : 'Open this article in the latest available ticker analysis'}
                       >
                         <span className="block text-[12px] font-medium leading-snug text-zinc-200 transition-colors hover:text-sky-300">
                           {n.headline}
@@ -487,6 +515,23 @@ export const CommandCenterView: React.FC<{
                           </span>
                         )}
                       </button>
+                    ) : n.url ? (
+                      <a
+                        href={n.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 block w-full text-left"
+                        title="Open the full verified macro article"
+                      >
+                        <span className="block text-[12px] font-medium leading-snug text-zinc-200 transition-colors hover:text-sky-300">
+                          {n.headline}
+                        </span>
+                        {summary && (
+                          <span className="mt-1 block line-clamp-2 text-[11px] leading-relaxed text-zinc-500">
+                            {summary}
+                          </span>
+                        )}
+                      </a>
                     ) : (
                       <>
                         <p className="mt-1 text-[12px] font-medium leading-snug text-zinc-200">{n.headline}</p>
