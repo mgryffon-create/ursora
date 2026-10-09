@@ -403,7 +403,9 @@ Deno.serve(async (req) => {
     }
 
     if (insertedRows.length) {
-      const { error: insertError } = await db.from('news_items').insert(insertedRows);
+      const { error: insertError } = await db
+        .from('news_items')
+        .upsert(insertedRows, { onConflict: 'dedupe_key', ignoreDuplicates: true });
       if (insertError) throw insertError;
     }
 
