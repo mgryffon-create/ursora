@@ -77,9 +77,11 @@ function deriveDailyReactionLevels(
   resistance: number | null;
   supportTouches: number;
   resistanceTouches: number;
+  supportDetail: string | null;
+  resistanceDetail: string | null;
 } {
   if (!intradayBars.length || referencePrice === null) {
-    return { support: null, resistance: null, supportTouches: 0, resistanceTouches: 0 };
+    return { support: null, resistance: null, supportTouches: 0, resistanceTouches: 0, supportDetail: null, resistanceDetail: null };
   }
 
   const sessionKey = (value: string) => {
@@ -104,7 +106,7 @@ function deriveDailyReactionLevels(
   const sessions = [...new Set(ordered.map((bar) => sessionKey(String(bar.bar_time))))].slice(-5);
   const recent = ordered.filter((bar) => sessions.includes(sessionKey(String(bar.bar_time))));
   if (recent.length < 12) {
-    return { support: null, resistance: null, supportTouches: 0, resistanceTouches: 0 };
+    return { support: null, resistance: null, supportTouches: 0, resistanceTouches: 0, supportDetail: null, resistanceDetail: null };
   }
 
   const sessionRank = new Map<string, number>();
@@ -165,7 +167,7 @@ function deriveDailyReactionLevels(
   const bestCluster = (
     kind: 'high' | 'low',
     side: 'above' | 'below',
-  ): { level: number | null; touches: number } => {
+  ): { level: number | null; touches: number; detail: string | null } => {
     const candidates = pivots.filter((pivot) =>
       pivot.kind === kind &&
       (side === 'above' ? pivot.value > referencePrice : pivot.value < referencePrice)
@@ -248,7 +250,19 @@ function deriveDailyReactionLevels(
     );
 
     const best = clusters[0];
-    return best ? { level: best.level, touches: best.touches } : { level: null, touches: 0 };
+    if (!best) return { level: null, touches: 0, detail: null };
+
+    const sessionsAgo = newestSessionIndex - best.latestSessionIndex;
+    const recencyText = sessionsAgo <= 0
+      ? 'last interaction today'
+      : sessionsAgo === 1
+        ? 'last interaction 1 session ago'
+        : `last interaction ${sessionsAgo} sessions ago`;
+    const detail =
+      `5-session intraday window · ${best.touches} touches · ${best.rejections} meaningful rejection${best.rejections === 1 ? '' : 's'} · ${recencyText}. ` +
+      `URSORA clusters nearby 30-minute swing ${kind === 'high' ? 'highs' : 'lows'}, weights recent reactions most heavily, then ranks zones by repeated tests, rejection strength, recency and distance from current price.`;
+
+    return { level: best.level, touches: best.touches, detail };
   };
 
   const resistance = bestCluster('high', 'above');
@@ -259,6 +273,8 @@ function deriveDailyReactionLevels(
     resistance: resistance.level,
     supportTouches: support.touches,
     resistanceTouches: resistance.touches,
+    supportDetail: support.detail,
+    resistanceDetail: resistance.detail,
   };
 }
 
@@ -536,8 +552,8 @@ export const ThesisView: React.FC<{
     { value: analysisPrice, label: 'Thesis anchor', color: '#60a5fa', dash: '3 3' },
     { value: signal?.target_price, label: '1–5 day target', color: '#34d399', dash: '6 3' },
     { value: signal?.invalidation_level, label: '1–5 day invalidation', color: '#fbbf24', dash: '2 2' },
-    { value: dailyReaction.resistance, label: `Daily reaction resistance${dailyReaction.resistanceTouches ? ` · ${dailyReaction.resistanceTouches} touches` : ''}`, color: '#22d3ee', dash: '4 2' },
-    { value: dailyReaction.support, label: `Daily reaction support${dailyReaction.supportTouches ? ` · ${dailyReaction.supportTouches} touches` : ''}`, color: '#c084fc', dash: '4 2' },
+    { value: dailyReaction.resistance, label: `Daily reaction resistance${dailyReaction.resistanceTouches ? ` · ${dailyReaction.resistanceTouches} touches` : ''}`, color: '#22d3ee', dash: '4 2', detail: dailyReaction.resistanceDetail ?? undefined },
+    { value: dailyReaction.support, label: `Daily reaction support${dailyReaction.supportTouches ? ` · ${dailyReaction.supportTouches} touches` : ''}`, color: '#c084fc', dash: '4 2', detail: dailyReaction.supportDetail ?? undefined },
     { value: tacticalResistance, label: 'Reachable resistance', color: '#34d399' },
     { value: tacticalSupport, label: 'Reachable support', color: '#f87171' },
     { value: contextResistance, label: 'Recent swing resistance', color: '#10b981', dash: '2 5' },
