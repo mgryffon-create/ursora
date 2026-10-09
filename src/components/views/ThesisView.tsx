@@ -475,12 +475,12 @@ function deriveExecutionCycle(
 }
 
 type EntryPlan = {
-  low: number;
-  high: number;
-  reference: number;
-  chaseLimit: number;
+  low: number | null;
+  high: number | null;
+  reference: number | null;
+  chaseLimit: number | null;
   minimumRr: number;
-  state: 'no_confirmation' | 'in_zone' | 'entry_passed' | 'reclaim_required' | 'invalidated';
+  state: 'no_current_entry' | 'in_zone' | 'entry_passed' | 'reclaim_required' | 'invalidated';
   trigger: string;
   detail: string;
   options: Array<{
@@ -505,21 +505,88 @@ function deriveEntryPlan(args: {
   localMoveUnit: number | null;
   medianCloseMove: number | null;
   executionCycle: ExecutionCycle;
+  suggested: boolean;
 }): EntryPlan | null {
   const {
     direction, setup, analysisPrice, currentPrice, target, invalidation,
     dailySupport, dailyResistance, tacticalSupport, tacticalResistance,
-    localMoveUnit, medianCloseMove, executionCycle,
+    localMoveUnit, medianCloseMove, executionCycle, suggested,
   } = args;
 
-  const bullish = direction === 'bullish';
-  const bearish = direction === 'bearish';
-  if ((!bullish && !bearish) || analysisPrice === null || target === null || invalidation === null) return null;
+  const effectiveDirection =
+    direction === 'bullish' || direction === 'bearish'
+      ? direction
+      : executionCycle.confirmed && (executionCycle.direction === 'bullish' || executionCycle.direction === 'bearish')
+        ? executionCycle.direction
+        : null;
+  const bullish = effectiveDirection === 'bullish';
+  const bearish = effectiveDirection === 'bearish';
+  const minimumRr = 1.25;
+
+  const guidancePlan = (
+    detail: string,
+    options: EntryPlan['options'],
+    trigger = 'Wait for a new substantiated price event before treating an entry as actionable.',
+  ): EntryPlan => ({
+    low: null,
+    high: null,
+    reference: null,
+    chaseLimit: null,
+    minimumRr,
+    state: 'no_current_entry',
+    trigger,
+    detail,
+    options,
+  });
+
+  if (!bullish && !bearish) {
+    const options: EntryPlan['options'] = [];
+    if (dailySupport !== null) {
+      options.push({
+        label: 'Bullish confirmation watch',
+        range: dailySupport.toFixed(2),
+        state: 'watch',
+        detail: 'If price tests this support, rejects it, and then confirms higher with constructive momentum/participation, URSORA can build a bullish entry from that event.',
+      });
+    }
+    if (dailyResistance !== null) {
+      options.push({
+        label: 'Bearish confirmation watch',
+        range: dailyResistance.toFixed(2),
+        state: 'watch',
+        detail: 'If price tests this resistance, rejects it, and then confirms lower with constructive selling momentum/participation, URSORA can build a bearish entry from that event.',
+      });
+    }
+    return guidancePlan(
+      'No directional entry is confirmed right now. URSORA still shows entry guidance on non-suggested tickers so you can see what would need to happen before the setup becomes actionable.',
+      options,
+    );
+  }
+
+  if (analysisPrice === null || target === null || invalidation === null) {
+    return guidancePlan(
+      `URSORA has a ${effectiveDirection} monitoring direction, but this stored analysis does not yet have a complete tactical target/invalidation frame. That means there is no defensible entry price to present yet.`,
+      [{
+        label: 'Next requirement',
+        state: 'wait',
+        detail: 'Wait for recent structure to produce both a usable trade frame and a confirmed reversal/retest or breakout trigger.',
+      }],
+    );
+  }
 
   const frameValid = bullish
     ? target > analysisPrice && invalidation < analysisPrice
     : target < analysisPrice && invalidation > analysisPrice;
-  if (!frameValid) return null;
+  if (!frameValid) {
+    return guidancePlan(
+      'The stored target/invalidation geometry does not support a coherent entry right now. URSORA will keep monitoring the ticker, but it will not invent an entry inside a broken tactical frame.',
+      [{
+        label: 'Frame reset required',
+        state: 'wait',
+        detail: 'A new target/invalidation frame must form around current structure before an entry can be considered actionable.',
+      }],
+    );
+  }
 
   const moveUnit = Math.max(
     localMoveUnit ?? 0,
@@ -527,19 +594,72 @@ function deriveEntryPlan(args: {
     analysisPrice * 0.006,
     0.5,
   );
-  const minimumRr = 1.25;
   const chaseLimit = (target + minimumRr * invalidation) / (1 + minimumRr);
 
   if (!executionCycle.confirmed ||
-      executionCycle.direction !== direction ||
+      executionCycle.direction !== effectiveDirection ||
       executionCycle.origin === null ||
       executionCycle.confirmation === null) {
-    return null;
+    const options: EntryPlan['options'] = [];
+    const watchLevel = bullish ? dailySupport : dailyResistance;
+    if (watchLevel !== null) {
+      options.push({
+        label: bullish ? 'Bullish reversal watch' : 'Bearish reversal watch',
+        range: watchLevel.toFixed(2),
+        state: 'conditional',
+        detail: bullish
+          ? 'Watch for a rejection/hold here followed by a higher confirmation move with participation before treating it as an entry.'
+          : 'Watch for a rejection/failure here followed by a lower confirmation move with participation before treating it as an entry.',
+      });
+    }
+    return guidancePlan(
+      `The ${effectiveDirection} idea does not currently have a substantiated execution-cycle event. ${suggested ? 'A suggested trade requires that event before it should be treated as actionable.' : 'This remains monitoring guidance, not a suggested trade.'}`,
+      options,
+    );
   }
 
   const origin = executionCycle.origin;
   const confirmation = executionCycle.confirmation;
   const cycleInvalidation = executionCycle.invalidation;
+  const confirmationInsideFrame = bullish
+    ? confirmation > invalidation && confirmation < target
+    : confirmation < invalidation && confirmation > target;
+  if (!confirmationInsideFrame) {
+    const options: EntryPlan['options'] = [{
+      label: 'Prior cycle confirmation',
+      range: confirmation.toFixed(2),
+      state: 'outside current frame',
+      detail: `${executionCycle.reason} That confirmation now sits outside the current target/invalidation frame, so it cannot be reused as a present-day entry.`,
+    }];
+
+    const nextStructure = bullish
+      ? (dailySupport !== null && dailySupport > invalidation && dailySupport < target ? dailySupport
+        : tacticalSupport !== null && tacticalSupport > invalidation && tacticalSupport < target ? tacticalSupport
+          : null)
+      : (dailyResistance !== null && dailyResistance < invalidation && dailyResistance > target ? dailyResistance
+        : tacticalResistance !== null && tacticalResistance < invalidation && tacticalResistance > target ? tacticalResistance
+          : null);
+
+    if (nextStructure !== null) {
+      options.push({
+        label: bullish ? 'Next bullish retest watch' : 'Next bearish retest watch',
+        range: nextStructure.toFixed(2),
+        state: 'conditional',
+        detail: bullish
+          ? 'This nearby structure is inside the current trade frame. It becomes an entry candidate only after buyers defend/reclaim it and direction is reconfirmed.'
+          : 'This nearby structure is inside the current trade frame. It becomes an entry candidate only after sellers reject/lose it and direction is reconfirmed.',
+      });
+    }
+
+    return guidancePlan(
+      `The prior ${effectiveDirection} cycle is real, but its confirmation price is no longer compatible with this run's tactical frame. URSORA is waiting for a new confirmed ${bullish ? 'pullback/retest or breakout' : 'bounce/rejection or breakdown'} inside the current frame rather than manufacturing an entry.`,
+      options,
+      bullish
+        ? 'Wait for a new bullish hold/reclaim inside the current frame.'
+        : 'Wait for a new bearish rejection/loss inside the current frame.',
+    );
+  }
+
   const confirmationDistance = Math.max(Math.abs(confirmation - origin), moveUnit * 0.12);
   const zoneWidth = Math.max(0.12, Math.min(moveUnit * 0.20, confirmationDistance * 0.45));
 
@@ -559,7 +679,17 @@ function deriveEntryPlan(args: {
     high = Math.min(high, invalidation - Math.max(0.01, analysisPrice * 0.0001));
     low = Math.max(low, target + 0.01, chaseLimit);
   }
-  if (!(low <= high)) return null;
+  if (!(low <= high)) {
+    return guidancePlan(
+      'The confirmed cycle and current risk frame do not overlap enough to create a defensible entry band. Wait for a new retest/reclaim or breakout confirmation inside the frame.',
+      [{
+        label: 'Current confirmation',
+        range: confirmation.toFixed(2),
+        state: 'not reusable',
+        detail: 'This price confirmed the prior move, but clipping it to the current target/invalidation frame would create a false entry zone.',
+      }],
+    );
+  }
 
   const reference = confirmation;
   const price = currentPrice ?? analysisPrice;
@@ -865,7 +995,13 @@ export const ThesisView: React.FC<{
           : 'The persisted market-cycle state did not include an explanation.',
       }
     : null;
-  const executionCycle = persistedExecutionCycle ?? deriveExecutionCycle(dailyReactionBars, signal?.direction);
+  const guidanceDirection =
+    signal?.direction === 'bullish' || signal?.direction === 'bearish'
+      ? signal.direction
+      : persistedCycleDirection !== 'neutral'
+        ? persistedCycleDirection
+        : null;
+  const executionCycle = persistedExecutionCycle ?? deriveExecutionCycle(dailyReactionBars, guidanceDirection);
   const isV59 = signal?.engine_version === 'tradecycle-5.9.0';
   const swingSetup = typeof rawAnalysis.swing_setup === 'string' ? rawAnalysis.swing_setup : 'unclassified';
   const swingPriceBand = typeof rawAnalysis.swing_price_band === 'string' ? rawAnalysis.swing_price_band : 'Insufficient';
@@ -874,7 +1010,7 @@ export const ThesisView: React.FC<{
   const swingFrameValid = rawAnalysis.swing_tactical_frame_valid === true;
   const swingRewardRisk = rawNumber(rawAnalysis.swing_reward_risk_ratio);
   const entryPlan = deriveEntryPlan({
-    direction: signal?.direction,
+    direction: guidanceDirection,
     setup: swingSetup,
     analysisPrice,
     currentPrice: rawNumber(quote?.price),
@@ -887,6 +1023,7 @@ export const ThesisView: React.FC<{
     localMoveUnit,
     medianCloseMove: recentMedianCloseMove5,
     executionCycle,
+    suggested: signal?.strategy !== 'No Trade',
   });
   const contractSelectionState = typeof scoreMeta.contract_selection_state === 'string'
     ? scoreMeta.contract_selection_state
@@ -982,10 +1119,14 @@ export const ThesisView: React.FC<{
       value: entryPlan?.reference ?? null,
       rangeLow: entryPlan?.low ?? null,
       rangeHigh: entryPlan?.high ?? null,
-      displayValue: entryPlan ? `${entryPlan.low.toFixed(2)}–${entryPlan.high.toFixed(2)}` : undefined,
+      displayValue: entryPlan
+        ? entryPlan.low !== null && entryPlan.high !== null
+          ? `${entryPlan.low.toFixed(2)}–${entryPlan.high.toFixed(2)}`
+          : 'WAIT'
+        : 'WAIT',
       label: entryPlan
         ? `Entry · ${entryPlan.state.replaceAll('_', ' ')}`
-        : 'Entry',
+        : 'Entry · no current entry',
       color: '#a78bfa',
       group: 'setup',
       detail: entryPlan?.detail,
