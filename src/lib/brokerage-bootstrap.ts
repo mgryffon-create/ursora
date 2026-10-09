@@ -65,10 +65,33 @@ export async function hydrateBrokerageData(force = false): Promise<boolean> {
       const userId = data.session.user.id;
       const accounts = await linkedAccounts(userId);
 
-      // Existing rows are the source of truth for whether this account has a linked
-      // brokerage. If none exist, bootstrap should stay fast and not probe SnapTrade
-      // on every login for users who have never connected a broker.
-      if (!accounts.length) return false;
+      // Local rows can be missing even when the signed-in SnapTrade registration
+      // already has a live brokerage authorization (for example after an auth/account
+      // migration). Probe SnapTrade once when no local accounts exist so the account
+      // table can self-heal instead of permanently treating "no rows" as "not linked".
+      if (!accounts.length) {
+        try {
+          const hydrated = await edgePost(
+            'sync-snaptrade-accounts-v2',
+            data.session.access_token,
+            { include_activities: true },
+          ) as { accounts?: number };
+          if ((hydrated?.accounts ?? 0) > 0) {
+            await edgePost('normalize-snaptrade-trades-v2', data.session.access_token, {});
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('ursora-brokerage-refreshed', {
+                detail: { userId, synced: true, discovered: hydrated.accounts ?? 0 },
+              }));
+            }
+            return true;
+          }
+        } catch (error) {
+          // A user with no SnapTrade registration gets a fast 409 here. That is not
+          // an application error and should not block startup.
+          console.info('URSORA brokerage discovery found no linked account for this registration.');
+        }
+        return false;
+      }
 
       const lastSync = oldestSyncMs(accounts);
       const stale = !lastSync || Date.now() - lastSync >= BROKERAGE_SYNC_INTERVAL_MS;
