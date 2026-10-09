@@ -17,6 +17,12 @@ export interface KeyLevel {
   rangeLow?: number | null;
   rangeHigh?: number | null;
   displayValue?: string;
+  entryOptions?: Array<{
+    label: string;
+    range?: string;
+    state?: string;
+    detail: string;
+  }>;
 }
 
 const axisStyle = { fill: '#71717a', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' };
@@ -204,7 +210,7 @@ export const PriceChart: React.FC<{
             {level.displayValue ?? (hasRange ? `${rangeLow.toFixed(2)}–${rangeHigh.toFixed(2)}` : value.toFixed(2))}
           </span>
         </div>
-        {level.detail && (
+        {(level.detail || level.entryOptions?.length) && (
           <>
             <button
               type="button"
@@ -212,13 +218,37 @@ export const PriceChart: React.FC<{
               aria-expanded={expanded}
               className="mt-1 font-mono text-[8px] uppercase tracking-wider text-sky-400/80 transition-colors hover:text-sky-300"
             >
-              {expanded ? 'hide why' : 'why this level?'}
+              {expanded
+                ? (level.entryOptions?.length ? 'hide entry setups' : 'hide why')
+                : (level.entryOptions?.length ? 'view entry setups' : 'why this level?')}
             </button>
             {expanded && (
               <div className={compact
                 ? "mt-1.5 border-t border-zinc-800 pt-1.5 text-[9px] leading-relaxed text-zinc-500"
                 : "mt-2 border-t border-zinc-800 pt-2 text-[10px] leading-relaxed text-zinc-500"}>
-                {level.detail}
+                {level.entryOptions?.length ? (
+                  <div className="space-y-2">
+                    {level.entryOptions.map((option) => (
+                      <div key={option.label} className="rounded-sm border border-zinc-800 bg-black/20 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-[8px] uppercase tracking-wider text-zinc-400">{option.label}</span>
+                          <span className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">
+                            {option.state ?? ''}
+                          </span>
+                        </div>
+                        {option.range && (
+                          <div className="mt-1 font-mono text-[10px] tabular-nums text-zinc-200">{option.range}</div>
+                        )}
+                        <div className="mt-1 text-[9px] leading-relaxed text-zinc-500">{option.detail}</div>
+                      </div>
+                    ))}
+                    {level.detail && (
+                      <div className="border-t border-zinc-800 pt-2 text-[9px] leading-relaxed text-zinc-500">
+                        {level.detail}
+                      </div>
+                    )}
+                  </div>
+                ) : level.detail}
               </div>
             )}
           </>
