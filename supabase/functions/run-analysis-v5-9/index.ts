@@ -150,6 +150,75 @@ function swingFrame(signal: AnyRow, raw: AnyRow, direction: 'bullish' | 'bearish
   return { target, invalidation, ratio, valid: ratio !== null && ratio > 0 };
 }
 
+function swingFrameFromCycle(
+  signal: AnyRow,
+  raw: AnyRow,
+  direction: 'bullish' | 'bearish',
+  cycle: AnyRow | null,
+) {
+  const legacy = swingFrame(signal, raw, direction);
+  if (legacy.valid) return { ...legacy, basis: 'stored_tactical_frame' };
+
+  const price = n(signal.stock_price_at_generation);
+  if (price === null || !cycle) return { ...legacy, basis: 'unavailable' };
+
+  const cycleInvalidation = n(cycle.cycle_invalidation);
+  const confirmation = n(cycle.confirmation_price);
+  const contextSupport = n(raw.context_support);
+  const contextResistance = n(raw.context_resistance);
+  const tacticalSupport = n(raw.tactical_support);
+  const tacticalResistance = n(raw.tactical_resistance);
+  const localUnit = n(raw.local_move_unit);
+
+  let invalidation = cycleInvalidation;
+  if (invalidation === null || (direction === 'bullish' ? invalidation >= price : invalidation <= price)) {
+    invalidation = direction === 'bullish'
+      ? (tacticalSupport !== null && tacticalSupport < price ? tacticalSupport : contextSupport !== null && contextSupport < price ? contextSupport : null)
+      : (tacticalResistance !== null && tacticalResistance > price ? tacticalResistance : contextResistance !== null && contextResistance > price ? contextResistance : null);
+  }
+
+  let target = direction === 'bullish'
+    ? (tacticalResistance !== null && tacticalResistance > price ? tacticalResistance : contextResistance !== null && contextResistance > price ? contextResistance : null)
+    : (tacticalSupport !== null && tacticalSupport < price ? tacticalSupport : contextSupport !== null && contextSupport < price ? contextSupport : null);
+
+  if (target === null && localUnit !== null && localUnit > 0) {
+    target = direction === 'bullish' ? price + localUnit * 1.15 : price - localUnit * 1.15;
+  }
+
+  // If nearby stored structure is already behind current price, use recent realized
+  // movement to construct a forward tactical objective rather than inheriting a null
+  // frame from an older neutral classification.
+  if (target !== null && (direction === 'bullish' ? target <= price : target >= price) && localUnit !== null && localUnit > 0) {
+    target = direction === 'bullish' ? price + localUnit * 1.15 : price - localUnit * 1.15;
+  }
+
+  if (invalidation === null && confirmation !== null && localUnit !== null && localUnit > 0) {
+    invalidation = direction === 'bullish'
+      ? Math.min(confirmation - localUnit * 0.55, price - localUnit * 0.45)
+      : Math.max(confirmation + localUnit * 0.55, price + localUnit * 0.45);
+  }
+
+  if (target === null || invalidation === null) {
+    return { target, invalidation, ratio: null, valid: false, basis: 'cycle_structure_incomplete' };
+  }
+
+  const reward = Math.abs(target - price);
+  const risk = Math.abs(price - invalidation);
+  const ratio = risk > 0 ? reward / risk : null;
+  const valid = ratio !== null && ratio > 0 &&
+    (direction === 'bullish'
+      ? target > price && invalidation < price
+      : target < price && invalidation > price);
+
+  return {
+    target,
+    invalidation,
+    ratio,
+    valid,
+    basis: valid ? 'persisted_cycle_plus_stored_structure' : 'cycle_structure_invalid',
+  };
+}
+
 function factorByKey(score: AnyRow, key: string): AnyRow | null {
   const factors = Array.isArray(score?.factors) ? score.factors : [];
   return factors.find((factor: AnyRow) => factor.factor === key) ?? null;
@@ -388,8 +457,8 @@ Deno.serve(async (req) => {
         Math.sign(momentumOrientation) === -Math.sign(priceOrientation);
 
       const frame = direction === 'neutral'
-        ? { target: null, invalidation: null, ratio: null, valid: false }
-        : swingFrame(source, raw, direction);
+        ? { target: null, invalidation: null, ratio: null, valid: false, basis: 'no_direction' }
+        : swingFrameFromCycle(source, raw, direction, persistedCycle);
       const setupRaw = persistedCycle
         ? {
             ...raw,
@@ -410,7 +479,21 @@ Deno.serve(async (req) => {
         tradeBlockers.push('The current tactical reward does not adequately compensate for the estimated risk.');
       }
 
-      const supported = direction !== 'neutral' && priceDirectional && momentumAgrees && frame.valid && !participationStrongOppose && tradeBlockers.length === 0;
+      const cycleRetestHeld = persistedCycle?.retest_status === 'held';
+      const cycleVolumeRatio = n(persistedCycle?.volume_confirmation_ratio);
+      const cycleSubstantiated = cycleConfirmed &&
+        (
+          cycleRetestHeld ||
+          (cycleConfidence !== null && cycleConfidence >= 80 && (cycleVolumeRatio === null || cycleVolumeRatio >= 0.90)) ||
+          (cycleEventType === 'breakout' && cycleConfidence !== null && cycleConfidence >= 80)
+        );
+      const confirmationSatisfied = cycleSubstantiated && !momentumOpposes;
+      const supported = direction !== 'neutral' &&
+        priceDirectional &&
+        confirmationSatisfied &&
+        frame.valid &&
+        !participationStrongOppose &&
+        tradeBlockers.length === 0;
       if (supported) supportedCount++;
 
       const contextSupportCount = [
@@ -445,11 +528,11 @@ Deno.serve(async (req) => {
         : direction === 'neutral' || !priceDirectional
           ? 'No recent substantiated market-cycle event has established a usable directional swing setup.'
           : momentumOpposes
-            ? `Momentum is ${momentumBand.toLowerCase()} and opposes the ${direction} price direction.`
-            : !momentumAgrees
-              ? `Price action leans ${direction}, but momentum is not yet Moderate-or-Strong in the same direction.`
+            ? `Momentum is ${momentumBand.toLowerCase()} and materially opposes the confirmed ${direction} cycle.`
+            : !cycleSubstantiated
+              ? 'A directional cycle is visible, but reversal/breakout confirmation is not yet strong enough to structure as a trade.'
               : !frame.valid
-                ? 'Direction and momentum agree, but the 1–5 day target/invalidation frame is not currently usable.'
+                ? 'The cycle is substantiated, but recent cached structure cannot yet produce a usable 1–5 day target/invalidation frame.'
                 : participationStrongOppose
                   ? 'Strong participation evidence contradicts the proposed short-horizon direction.'
                   : tradeBlockers.join(' ') || 'The swing setup does not currently satisfy the suggestion gate.';
@@ -639,6 +722,7 @@ Deno.serve(async (req) => {
         swing_momentum_band: momentumBand,
         swing_momentum_confirmed: momentumAgrees,
         swing_tactical_frame_valid: frame.valid,
+        swing_tactical_frame_basis: frame.basis,
         swing_reward_risk_ratio: frame.ratio,
         swing_cycle_confirmed: cycleConfirmed,
         swing_cycle_direction: cycleDirection,
@@ -692,6 +776,9 @@ Deno.serve(async (req) => {
         momentum_band: momentumBand,
         momentum_agrees: momentumAgrees,
         tactical_frame_valid: frame.valid,
+        tactical_frame_basis: frame.basis,
+        cycle_substantiated: cycleSubstantiated,
+        confirmation_satisfied: confirmationSatisfied,
         context_confirmation_count: contextSupportCount,
         executable_contracts: executable,
         note: '5.9 is append-only: source evidence remains immutable and this row is a derived swing classification.',
