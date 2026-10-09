@@ -104,25 +104,35 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'POST required' }, 405);
 
   try {
-    const { db } = await requireUser(req);
+    const { user, db } = await requireUser(req);
     const body = await req.json().catch(() => ({}));
 
-    let symbols = Array.isArray(body.symbols)
+    const requestedSymbols = Array.isArray(body.symbols)
       ? body.symbols.map((x: unknown) => String(x).toUpperCase()).filter(Boolean)
       : [];
 
-    if (!symbols.length) {
-      const { data, error } = await db
+    const [{ data: defaultRows, error: defaultError }, { data: favoriteRows, error: favoriteError }] = await Promise.all([
+      db
         .from('tickers')
         .select('symbol')
         .eq('is_default', true)
         .order('priority', { ascending: true })
-        .limit(30);
-      if (error) throw error;
-      symbols = (data ?? []).map((row: any) => String(row.symbol ?? '').toUpperCase()).filter(Boolean);
-    }
+        .limit(30),
+      db
+        .from('user_favorites')
+        .select('symbol')
+        .eq('user_id', user.id)
+        .order('added_at', { ascending: true })
+        .limit(30),
+    ]);
+    if (defaultError) throw defaultError;
+    if (favoriteError) throw favoriteError;
 
-    symbols = [...new Set(symbols)].slice(0, 30);
+    const symbols = [...new Set([
+      ...requestedSymbols,
+      ...(favoriteRows ?? []).map((row: any) => String(row.symbol ?? '').toUpperCase()).filter(Boolean),
+      ...(defaultRows ?? []).map((row: any) => String(row.symbol ?? '').toUpperCase()).filter(Boolean),
+    ])].slice(0, 30);
     const key = alphaKey();
     const providerKey = 'alpha_intelligence';
     const cacheHours = 18;
@@ -198,25 +208,26 @@ Deno.serve(async (req) => {
         if (!publishedAt || !item.title) continue;
 
         const tickerSentiment = Array.isArray(item.ticker_sentiment) ? item.ticker_sentiment : [];
-        const trackedAssociations = tickerSentiment
+        const allAssociations = tickerSentiment
           .map((ticker: any) => ({
             ticker,
             symbol: String(ticker?.ticker ?? '').toUpperCase(),
             relevance: n(ticker?.relevance_score),
           }))
-          .filter((entry: any) => symbolSet.has(entry.symbol) && entry.relevance !== null)
+          .filter((entry: any) => entry.symbol && entry.relevance !== null)
           .sort((a: any, b: any) => Number(b.relevance) - Number(a.relevance));
-        const strongestRelevance = trackedAssociations[0]?.relevance ?? null;
 
-        for (const association of trackedAssociations) {
+        // news_items currently has one symbol column, not a many-to-many article
+        // relation. Store the article only against the provider's strongest ticker
+        // association. If the true primary ticker is not in URSORA's tracked
+        // universe, skip the article rather than mislabeling it as a secondary name.
+        const association = allAssociations[0];
+        if (!association || !symbolSet.has(association.symbol) || Number(association.relevance) < 0.35) continue;
+
+        {
           const ticker = association.ticker;
           const symbol = association.symbol;
           const relevance = association.relevance;
-          // Keep the primary ticker association and any additional ticker only
-          // when Alpha marks it strongly relevant. This prevents thematic mentions
-          // from masquerading as symbol-level market-moving news.
-          if (relevance === null || relevance < 0.35) continue;
-          if (relevance < 0.65 && strongestRelevance !== null && relevance < strongestRelevance) continue;
 
           const tickerScore = n(ticker?.ticker_sentiment_score);
           const overallScore = n(item.overall_sentiment_score);
@@ -308,14 +319,20 @@ Deno.serve(async (req) => {
           const publishedAt = parseAlphaTime(item.time_published);
           if (!publishedAt || !item.title) return null;
 
-          const tickerSentiment = Array.isArray(item.ticker_sentiment)
-            ? item.ticker_sentiment.find((x: any) => String(x.ticker).toUpperCase() === symbol)
-            : null;
+          const associations = (Array.isArray(item.ticker_sentiment) ? item.ticker_sentiment : [])
+            .map((entry: any) => ({
+              entry,
+              symbol: String(entry?.ticker ?? '').toUpperCase(),
+              relevance: n(entry?.relevance_score),
+            }))
+            .filter((entry: any) => entry.symbol && entry.relevance !== null)
+            .sort((a: any, b: any) => Number(b.relevance) - Number(a.relevance));
+          const primary = associations[0] ?? null;
+          const tickerSentiment = primary?.symbol === symbol ? primary.entry : null;
 
-          // A targeted provider response is not itself proof that every returned
-          // article belongs to the requested ticker. Require an explicit provider
-          // association and enough relevance to make the item useful as symbol-level
-          // evidence. This prevents unrelated company filings from being stored as TSLA.
+          // A ticker-targeted provider query may still return articles whose primary
+          // subject is another company. Require this symbol to be the provider's
+          // strongest ticker association before storing it as symbol-level evidence.
           if (!tickerSentiment) return null;
           const relevance = n(tickerSentiment?.relevance_score);
           if (relevance === null || relevance < 0.35) return null;
