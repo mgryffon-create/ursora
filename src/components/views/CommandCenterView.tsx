@@ -67,6 +67,14 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
   }, [live, poll]);
 
   const quoteList = useMemo(() => Object.values(quotes), [quotes]);
+  const quoteDataIsDemo = quoteList.length > 0 && quoteList.every((q) => q.is_demo);
+  const newsDataIsDemo = news.length > 0 && news.every((item) => item.is_demo);
+  const quoteBadge = quoteDataIsDemo
+    ? <DemoBadge />
+    : <DataBadge kind="observed" label="OBSERVED MARKET DATA" />;
+  const newsBadge = newsDataIsDemo
+    ? <DemoBadge />
+    : <DataBadge kind="observed" label="VERIFIED NEWS" />;
 
   const byKind = useMemo(() => {
     const g: Record<string, MarketMover[]> = { gainer: [], loser: [], rel_volume: [], unusual_options: [] };
@@ -321,7 +329,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
         <Panel
           title="Major indexes, volatility, and market participation"
           help="Major indexes show how broad parts of the market are moving. Volatility estimates how much price movement traders are pricing in. Market participation shows how many tracked stocks are rising versus falling."
-          right={<DemoBadge />}
+          right={quoteBadge}
         >
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <Metric label="SPY" value={num(snapshot?.spy_price ?? spyQuote?.price)} hint={snapshot?.spy_trend ?? spyQuote?.trend ?? undefined} valueClass={changeColor(snapshot?.spy_change_pct ?? spyQuote?.change_pct)} />
@@ -369,7 +377,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
       {/* MOVERS + FEED */}
       <div className="space-y-3">
         <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
-            <Panel title="Top gainers" help="Tracked stocks with the largest positive price change in the current session. A gain alone does not mean the move is sustainable or tradeable." right={<DemoBadge />}>
+            <Panel title="Top gainers" help="Tracked stocks with the largest positive price change in the current session. A gain alone does not mean the move is sustainable or tradeable." right={quoteBadge}>
               <ul className="space-y-1.5">
                 {byKind.gainer.map((m) => (
                   <li key={`g-${m.id}`} className="flex items-baseline justify-between gap-2 border-b border-zinc-800/60 pb-1.5 last:border-0">
@@ -385,7 +393,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
                 {!byKind.gainer.length && <Unavailable />}
               </ul>
             </Panel>
-            <Panel title="Top losers" help="Tracked stocks with the largest negative price change in the current session. A decline alone does not establish a bearish thesis." right={<DemoBadge />}>
+            <Panel title="Top losers" help="Tracked stocks with the largest negative price change in the current session. A decline alone does not establish a bearish thesis." right={quoteBadge}>
               <ul className="space-y-1.5">
                 {byKind.loser.map((m) => (
                   <li key={`l-${m.id}`} className="flex items-baseline justify-between gap-2 border-b border-zinc-800/60 pb-1.5 last:border-0">
@@ -401,7 +409,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
                 {!byKind.loser.length && <Unavailable />}
               </ul>
             </Panel>
-            <Panel title="Highest relative volume" help="Relative volume compares current trading volume with the stock’s recent average. A value above 1.0 means the stock is trading more actively than usual." right={<DemoBadge />}>
+            <Panel title="Highest relative volume" help="Relative volume compares current trading volume with the stock’s recent average. A value above 1.0 means the stock is trading more actively than usual." right={quoteBadge}>
               <ul className="space-y-1.5">
                 {byKind.rel_volume.map((m) => (
                   <li key={`r-${m.id}`} className="flex items-baseline justify-between gap-2 border-b border-zinc-800/60 pb-1.5 last:border-0">
@@ -419,7 +427,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
               title="Unusual options activity"
               help="Flags options contracts or symbols with activity that is large relative to existing open interest. This identifies unusual participation, not whether traders are bullish or bearish."
               subtitle="Volume against open interest only. Never auto-read as bullish or bearish."
-              right={<DemoBadge />}
+              right={quoteBadge}
             >
               <ul className="space-y-1.5">
                 {byKind.unusual_options.map((m) => (
@@ -439,7 +447,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
             </Panel>
         </div>
 
-        <Panel title="Watchlist movers" help="A compact view of price movement and trading conditions for symbols you follow. Relative volume compares current volume with recent average volume; put/call compares put-option volume with call-option volume." subtitle="Your personal watchlist, ranked by absolute move." right={<DemoBadge />}>
+        <Panel title="Watchlist movers" help="A compact view of price movement and trading conditions for symbols you follow. Relative volume compares current volume with recent average volume; put/call compares put-option volume with call-option volume." subtitle="Your personal watchlist, ranked by absolute move." right={quoteBadge}>
             {watchlistMovers.length ? (
               <div className={cn('grid gap-3', watchlistMovers.length > 6 && '2xl:grid-cols-2')}>
                 {renderWatchlistTable(watchlistMovers.slice(0, watchlistMovers.length > 6 ? Math.ceil(watchlistMovers.length / 2) : watchlistMovers.length))}
@@ -450,7 +458,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
             )}
           </Panel>
 
-        <Panel title="Recent market-moving events" help="Recent company or market news that may change the evidence behind a thesis. These items provide context and are not treated as trade instructions by themselves." subtitle="Recent dated events and announcements across tracked symbols." right={<DemoBadge />}>
+        <Panel title="Recent market-moving events" help="Recent company or market news that may change the evidence behind a thesis. These items provide context and are not treated as trade instructions by themselves." subtitle="Recent dated events and announcements across tracked symbols." right={newsBadge}>
             <ul className="space-y-2">
               {news.slice(0, 6).map((n) => (
                 <li key={n.id} className="border-b border-zinc-800/60 pb-2 last:border-0">
