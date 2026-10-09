@@ -7,7 +7,7 @@ import type { FeedEvent, MarketMover, MarketSnapshot, NewsItem, Quote, Signal, S
 import { changeColor, clockET, compact, num, pct, scoreColor, stampET } from '@/lib/format';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  DemoBadge, Disclaimer, InfoHint, Metric, Panel, SectionHeading, SourceBadge, Spinner, Unavailable,
+  DataBadge, DemoBadge, Disclaimer, InfoHint, Metric, Panel, SectionHeading, SourceBadge, Spinner, Unavailable,
 } from '@/components/common/Primitives';
 import { cn } from '@/lib/utils';
 
@@ -305,7 +305,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
               </p>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <Metric label="VIX" value={num(snapshot?.vix)} hint={pct(snapshot?.vix_change_pct) ?? undefined} valueClass={Number(snapshot?.vix) > 20 ? 'text-amber-300' : 'text-zinc-100'} />
-                <Metric label="Dollar index" value={num(snapshot?.dxy)} />
+                <Metric label="Broad USD index" value={num(snapshot?.dxy)} />
                 <Metric label="WTI crude" value={num(snapshot?.wti)} />
                 <Metric label="Gold" value={num(snapshot?.gold)} />
               </div>
