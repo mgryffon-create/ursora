@@ -162,7 +162,7 @@ Deno.serve(async (req) => {
     }
 
     await db.from('provider_configs').upsert({
-      provider_key: 'alpha_intelligence',
+      provider_key: 'alpha_earnings',
       interface_name: 'MarketIntelligenceProvider',
       display_name: 'Alpha Vantage Intelligence',
       adapter: 'AlphaVantageIntelligenceAdapter',
