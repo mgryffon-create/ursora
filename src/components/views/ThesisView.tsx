@@ -287,6 +287,12 @@ type EntryPlan = {
   state: 'waiting' | 'in_zone' | 'acceptable' | 'extended' | 'invalidated';
   trigger: string;
   detail: string;
+  options: Array<{
+    label: string;
+    range?: string;
+    state?: string;
+    detail: string;
+  }>;
 };
 
 function deriveEntryPlan(args: {
@@ -438,7 +444,63 @@ function deriveEntryPlan(args: {
     `The chase limit is ${chaseLimit.toFixed(2)} because entering beyond that point would leave less than ${minimumRr.toFixed(2)}:1 reward-to-risk using this run's target and invalidation. ` +
     `${stateText} ${trigger}`;
 
-  return { low, high, reference, chaseLimit, minimumRr, state, trigger, detail };
+  const formatRange = (a: number, b: number) => `${a.toFixed(2)}–${b.toFixed(2)}`;
+  const rrAt = (entry: number) => {
+    const reward = Math.abs(target - entry);
+    const risk = Math.abs(entry - invalidation);
+    return risk > 0 ? reward / risk : null;
+  };
+
+  const options: EntryPlan['options'] = [];
+
+  // Preferred pullback / reaction entry
+  options.push({
+    label: setup === 'momentum_breakout' ? 'Preferred breakout / retest' : 'Preferred pullback',
+    range: formatRange(low, high),
+    state: state.replaceAll('_', ' '),
+    detail: `${trigger} This is URSORA's preferred location because it offers the best balance of nearby structure and remaining room to the target.`,
+  });
+
+  // Immediate/continuation entry is only shown when current price still has acceptable economics.
+  if (currentPrice !== null && Number.isFinite(currentPrice)) {
+    const currentRr = rrAt(currentPrice);
+    if (currentRr !== null && currentRr >= minimumRr && state !== 'invalidated') {
+      options.push({
+        label: 'Immediate / continuation',
+        range: currentPrice.toFixed(2),
+        state: state === 'extended' ? 'lower quality' : 'available',
+        detail: `Entering near the current price still leaves about ${currentRr.toFixed(2)}:1 reward-to-risk, but it may offer less room than waiting for the preferred zone.`,
+      });
+    }
+  }
+
+  // Breakout/retest alternative for non-breakout setups when a fresh reaction barrier exists.
+  const breakoutReference = bullish ? dailyResistance : dailySupport;
+  if (setup !== 'momentum_breakout' && breakoutReference !== null && Number.isFinite(breakoutReference)) {
+    const breakoutLow = bullish ? breakoutReference - zoneWidth * 0.15 : breakoutReference - zoneWidth;
+    const breakoutHigh = bullish ? breakoutReference + zoneWidth : breakoutReference + zoneWidth * 0.15;
+    const breakoutEntry = (breakoutLow + breakoutHigh) / 2;
+    const breakoutRr = rrAt(breakoutEntry);
+    if (breakoutRr !== null && breakoutRr >= minimumRr) {
+      options.push({
+        label: 'Breakout / retest alternative',
+        range: formatRange(Math.min(breakoutLow, breakoutHigh), Math.max(breakoutLow, breakoutHigh)),
+        state: 'conditional',
+        detail: bullish
+          ? 'This becomes attractive only if price clears the current reaction resistance and then proves it can hold that area on a retest.'
+          : 'This becomes attractive only if price breaks the current reaction support and then proves it can stay below that area on a retest.',
+      });
+    }
+  }
+
+  options.push({
+    label: bullish ? 'Max chase' : 'Min chase',
+    range: chaseLimit.toFixed(2),
+    state: 'guardrail',
+    detail: `Beyond this price, the remaining reward to target falls below ${minimumRr.toFixed(2)}:1 relative to the stored invalidation.`,
+  });
+
+  return { low, high, reference, chaseLimit, minimumRr, state, trigger, detail, options };
 }
 
 
@@ -747,22 +809,14 @@ export const ThesisView: React.FC<{
       rangeHigh: entryPlan?.high ?? null,
       displayValue: entryPlan ? `${entryPlan.low.toFixed(2)}–${entryPlan.high.toFixed(2)}` : undefined,
       label: entryPlan
-        ? `Preferred entry · ${entryPlan.state.replaceAll('_', ' ')}`
-        : 'Preferred entry',
+        ? `Entry · ${entryPlan.state.replaceAll('_', ' ')}`
+        : 'Entry',
       color: '#a78bfa',
       group: 'setup',
       detail: entryPlan?.detail,
+      entryOptions: entryPlan?.options,
     },
-    {
-      value: entryPlan?.chaseLimit ?? null,
-      label: signal?.direction === 'bearish' ? 'Do not chase below' : 'Max chase',
-      color: '#f59e0b',
-      group: 'setup',
-      dash: '5 3',
-      detail: entryPlan
-        ? `This is the execution guardrail, not a thesis invalidation. Beyond ${entryPlan.chaseLimit.toFixed(2)}, the remaining reward to the stored target falls below ${entryPlan.minimumRr.toFixed(2)}:1 relative to the stored invalidation.`
-        : undefined,
-    },
+
     {
       value: signal?.target_price,
       label: '1–5 day target',
