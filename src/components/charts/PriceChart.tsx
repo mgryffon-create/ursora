@@ -107,26 +107,22 @@ export const PriceChart: React.FC<{
     priceRange: [Number(b.low), Number(b.high)] as [number, number],
   }));
 
-  // The selected horizon owns the chart scale. Tactical/broader reference levels
-  // must never stretch the Y axis and flatten the actual price movement.
+  // Keep the selected price history readable, but always include every tactical
+  // level in the chart domain. Horizon changes the candles shown, not whether the
+  // trade frame can be seen.
   const barMin = Math.min(...lows);
   const barMax = Math.max(...highs);
-  const barRange = Math.max(0, barMax - barMin);
-  const midpoint = (barMin + barMax) / 2;
+  const levelValues = drawn.map((level) => Number(level.value)).filter(Number.isFinite);
+  const domainMin = Math.min(barMin, ...(levelValues.length ? levelValues : [barMin]));
+  const domainMax = Math.max(barMax, ...(levelValues.length ? levelValues : [barMax]));
+  const domainRange = Math.max(0, domainMax - domainMin);
+  const midpoint = (domainMin + domainMax) / 2;
   const minimumPad = Math.max(Math.abs(midpoint) * 0.0025, 0.25);
-  const pad = Math.max(barRange * (horizon === '1D' ? 0.16 : horizon === '1W' ? 0.12 : 0.10), minimumPad);
-  const visibleMin = barMin - pad;
-  const visibleMax = barMax + pad;
+  const pad = Math.max(domainRange * (horizon === '1D' ? 0.08 : horizon === '1W' ? 0.07 : 0.06), minimumPad);
+  const visibleMin = domainMin - pad;
+  const visibleMax = domainMax + pad;
 
-  const visibleLevels = drawn.filter((level) => {
-    const value = Number(level.value);
-    return value >= visibleMin && value <= visibleMax;
-  });
-
-  const offscreenLevels = drawn.filter((level) => {
-    const value = Number(level.value);
-    return value < visibleMin || value > visibleMax;
-  });
+  const visibleLevels = drawn;
 
   const shortLabel = (label: string) =>
     label
@@ -203,8 +199,6 @@ export const PriceChart: React.FC<{
           <div className="mt-2 space-y-1.5">
             {drawn.map((l) => {
               const value = Number(l.value);
-              const isOffscreen = value < visibleMin || value > visibleMax;
-              const direction = value > visibleMax ? 'above chart' : value < visibleMin ? 'below chart' : 'on chart';
               return (
                 <div key={`${l.label}-rail`} className="rounded-sm border border-zinc-800/80 bg-[#0f1216] px-2 py-1.5">
                   <div className="flex items-center justify-between gap-2">
@@ -215,9 +209,6 @@ export const PriceChart: React.FC<{
                     <span className="font-mono text-[10px] tabular-nums" style={{ color: l.color }}>
                       {value.toFixed(2)}
                     </span>
-                  </div>
-                  <div className="mt-0.5 font-mono text-[8px] uppercase tracking-wider text-zinc-600">
-                    {isOffscreen ? direction : 'visible in selected history'}
                   </div>
                 </div>
               );
