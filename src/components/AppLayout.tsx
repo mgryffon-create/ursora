@@ -139,6 +139,8 @@ export const AppLayout: React.FC = () => {
   const [authMode, setAuthMode] = useState<'signin' | 'signup' | null>(null);
   const [view, setView] = useState<ViewKey>('opportunities');
   const [thesisId, setThesisId] = useState<number | null>(null);
+  const [thesisInitialTab, setThesisInitialTab] = useState('score');
+  const [thesisFocusNewsId, setThesisFocusNewsId] = useState<number | null>(null);
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   const [expandedGroup, setExpandedGroup] = useState<NavGroupKey>('today');
@@ -275,8 +277,10 @@ export const AppLayout: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
-  const openThesis = useCallback((id: number) => {
+  const openThesis = useCallback((id: number, options?: { tab?: string; newsId?: number }) => {
     setThesisId(id);
+    setThesisInitialTab(options?.tab ?? 'score');
+    setThesisFocusNewsId(options?.newsId ?? null);
     setView('thesis');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
@@ -302,7 +306,12 @@ export const AppLayout: React.FC = () => {
     switch (view) {
       case 'thesis':
         return thesisId ? (
-          <ThesisView signalId={thesisId} onBack={() => go('opportunities')} />
+          <ThesisView
+            signalId={thesisId}
+            initialTab={thesisInitialTab}
+            focusNewsId={thesisFocusNewsId}
+            onBack={() => go('opportunities')}
+          />
         ) : (
           <OpportunitiesView onOpenThesis={openThesis} />
         );
@@ -333,7 +342,7 @@ export const AppLayout: React.FC = () => {
       default:
         return <OpportunitiesView onOpenThesis={openThesis} />;
     }
-  }, [go, historicalEvidenceTradeIds, openHistoricalEvidence, openThesis, thesisId, view]);
+  }, [go, historicalEvidenceTradeIds, openHistoricalEvidence, openThesis, thesisFocusNewsId, thesisId, thesisInitialTab, view]);
 
   if (loading) {
     return (
