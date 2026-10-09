@@ -134,7 +134,7 @@ Deno.serve(async (req) => {
       ...(defaultRows ?? []).map((row: any) => String(row.symbol ?? '').toUpperCase()).filter(Boolean),
     ])].slice(0, 30);
     const key = alphaKey();
-    const providerKey = 'alpha_intelligence';
+    const providerKey = 'alpha_news';
     const cacheHours = 18;
     const staleBefore = Date.now() - cacheHours * 3600000;
 
@@ -202,10 +202,21 @@ Deno.serve(async (req) => {
 
       const symbolSet = new Set(symbols);
       const broadRows: any[] = [];
+      const broadFeed = Array.isArray(payload?.feed) ? payload.feed : [];
+      let rejectedInvalid = 0;
+      let rejectedNoAssociation = 0;
+      let rejectedUntrackedPrimary = 0;
+      let rejectedLowRelevance = 0;
+      let rejectedDuplicate = 0;
+      let newestProviderTimestamp: string | null = null;
 
-      for (const item of Array.isArray(payload?.feed) ? payload.feed : []) {
+      for (const item of broadFeed) {
         const publishedAt = parseAlphaTime(item.time_published);
-        if (!publishedAt || !item.title) continue;
+        if (!publishedAt || !item.title) {
+          rejectedInvalid += 1;
+          continue;
+        }
+        if (!newestProviderTimestamp || publishedAt > newestProviderTimestamp) newestProviderTimestamp = publishedAt;
 
         const tickerSentiment = Array.isArray(item.ticker_sentiment) ? item.ticker_sentiment : [];
         const allAssociations = tickerSentiment
@@ -222,7 +233,18 @@ Deno.serve(async (req) => {
         // association. If the true primary ticker is not in URSORA's tracked
         // universe, skip the article rather than mislabeling it as a secondary name.
         const association = allAssociations[0];
-        if (!association || !symbolSet.has(association.symbol) || Number(association.relevance) < 0.35) continue;
+        if (!association) {
+          rejectedNoAssociation += 1;
+          continue;
+        }
+        if (!symbolSet.has(association.symbol)) {
+          rejectedUntrackedPrimary += 1;
+          continue;
+        }
+        if (Number(association.relevance) < 0.35) {
+          rejectedLowRelevance += 1;
+          continue;
+        }
 
         {
           const ticker = association.ticker;
@@ -235,7 +257,10 @@ Deno.serve(async (req) => {
           const identity = String(item.url ?? item.title).trim();
           const dedupeKey = `${symbol}|${identity}|${publishedAt}`;
           const headlineKey = `${symbol}|${normalizedHeadline(item.title)}`;
-          if (existingArticleKeys.has(dedupeKey) || existingHeadlineKeys.has(headlineKey)) continue;
+          if (existingArticleKeys.has(dedupeKey) || existingHeadlineKeys.has(headlineKey)) {
+            rejectedDuplicate += 1;
+            continue;
+          }
           existingArticleKeys.add(dedupeKey);
           existingHeadlineKeys.add(headlineKey);
 
@@ -278,12 +303,21 @@ Deno.serve(async (req) => {
         inserted += broadRows.length;
       }
 
-      results.push({
+      const broadDiagnostics = {
         scope: 'broad',
         ok: true,
+        provider_feed_items: broadFeed.length,
+        newest_provider_timestamp: newestProviderTimestamp,
         articles: broadRows.length,
         symbols_covered: [...new Set(broadRows.map((row) => row.symbol))].length,
-      });
+        rejected_invalid: rejectedInvalid,
+        rejected_no_association: rejectedNoAssociation,
+        rejected_untracked_primary: rejectedUntrackedPrimary,
+        rejected_low_relevance: rejectedLowRelevance,
+        rejected_duplicate: rejectedDuplicate,
+      };
+      console.log('alpha-news broad diagnostics', JSON.stringify(broadDiagnostics));
+      results.push(broadDiagnostics);
     } catch (error) {
       results.push({ scope: 'broad', ok: false, error: errorMessage(error) });
     }
@@ -428,7 +462,7 @@ Deno.serve(async (req) => {
       candidate_providers: ['Alpha Vantage'],
       secret_env_name: 'ALPHA_VANTAGE_API_KEY',
       docs_url: 'https://www.alphavantage.co/documentation/',
-      notes: `Broad market news fan-out plus one rotating ticker-targeted query; ${cacheHours}-hour targeted cache.`,
+      notes: `Broad market news fan-out plus one rotating ticker-targeted query; ${cacheHours}-hour targeted cache. Latest run: ${JSON.stringify(results.slice(0, 2))}`,
       last_sync: new Date().toISOString(),
       last_error: results.find((x) => x.ok === false)?.error ?? null,
     }, { onConflict: 'provider_key' });
