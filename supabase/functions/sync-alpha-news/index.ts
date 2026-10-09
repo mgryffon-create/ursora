@@ -147,16 +147,11 @@ Deno.serve(async (req) => {
       if (!latestNewsBySymbol.has(symbol)) latestNewsBySymbol.set(symbol, ts);
     }
 
+    // De-duplicate only within the current provider rebuild. Do not seed these
+    // sets from legacy stored rows, because those rows may contain the very
+    // ticker-association errors this sync is responsible for replacing.
     const existingArticleKeys = new Set<string>();
     const existingHeadlineKeys = new Set<string>();
-    for (const row of recentStoredNews ?? []) {
-      const symbol = String((row as any).symbol ?? '').toUpperCase();
-      const identity = String((row as any).url ?? (row as any).headline ?? '').trim();
-      const publishedAt = String((row as any).published_at ?? '');
-      if (symbol && identity) existingArticleKeys.add(`${symbol}|${identity}|${publishedAt}`);
-      const headlineKey = normalizedHeadline((row as any).headline);
-      if (symbol && headlineKey) existingHeadlineKeys.add(`${symbol}|${headlineKey}`);
-    }
 
     // One targeted company query per run complements a broad-market news query.
     // This keeps request volume bounded while avoiding the old one-symbol-only bottleneck.
@@ -203,12 +198,25 @@ Deno.serve(async (req) => {
         if (!publishedAt || !item.title) continue;
 
         const tickerSentiment = Array.isArray(item.ticker_sentiment) ? item.ticker_sentiment : [];
-        for (const ticker of tickerSentiment) {
-          const symbol = String(ticker?.ticker ?? '').toUpperCase();
-          if (!symbolSet.has(symbol)) continue;
+        const trackedAssociations = tickerSentiment
+          .map((ticker: any) => ({
+            ticker,
+            symbol: String(ticker?.ticker ?? '').toUpperCase(),
+            relevance: n(ticker?.relevance_score),
+          }))
+          .filter((entry: any) => symbolSet.has(entry.symbol) && entry.relevance !== null)
+          .sort((a: any, b: any) => Number(b.relevance) - Number(a.relevance));
+        const strongestRelevance = trackedAssociations[0]?.relevance ?? null;
 
-          const relevance = n(ticker?.relevance_score);
+        for (const association of trackedAssociations) {
+          const ticker = association.ticker;
+          const symbol = association.symbol;
+          const relevance = association.relevance;
+          // Keep the primary ticker association and any additional ticker only
+          // when Alpha marks it strongly relevant. This prevents thematic mentions
+          // from masquerading as symbol-level market-moving news.
           if (relevance === null || relevance < 0.35) continue;
+          if (relevance < 0.65 && strongestRelevance !== null && relevance < strongestRelevance) continue;
 
           const tickerScore = n(ticker?.ticker_sentiment_score);
           const overallScore = n(item.overall_sentiment_score);
