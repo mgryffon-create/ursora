@@ -198,7 +198,25 @@ async function yahooChart(symbol: string): Promise<QuotePoint> {
   };
 }
 
-function deriveRegime(spyChange: number | null, qqqChange: number | null, vix: number | null, vixChange: number | null) {
+async function yahooSectorPerformance(): Promise<Array<{ sector: string; change_pct: number }>> {
+  const results = await Promise.allSettled(Object.keys(sectorSymbols).map((symbol) => yahooChart(symbol)));
+  const rows: Array<{ sector: string; change_pct: number }> = [];
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    const symbol = Object.keys(sectorSymbols)[i];
+    if (result.status !== 'fulfilled' || result.value.changePct === null) continue;
+    rows.push({ sector: sectorSymbols[symbol], change_pct: result.value.changePct });
+  }
+  return rows.sort((a, b) => b.change_pct - a.change_pct);
+}
+
+function deriveRegime(
+  spyChange: number | null,
+  qqqChange: number | null,
+  vix: number | null,
+  vixChange: number | null,
+  crossAssetObserved: boolean,
+) {
   const directional = [spyChange, qqqChange].filter((v): v is number => v !== null);
   const avg = directional.length ? directional.reduce((a, b) => a + b, 0) / directional.length : 0;
 
@@ -208,7 +226,9 @@ function deriveRegime(spyChange: number | null, qqqChange: number | null, vix: n
       regime: 'Risk-On',
       note: volatilityObserved
         ? 'Broad equity indexes are advancing while observed volatility is not materially elevated.'
-        : 'Broad equity indexes are advancing. This is an equity-only risk-on classification because volatility and cross-asset macro feeds are not connected.',
+        : crossAssetObserved
+          ? 'Broad equity indexes are advancing. Rates, dollar and commodity context are connected, while VIX remains unavailable.'
+          : 'Broad equity indexes are advancing. This is an equity-only risk-on classification because volatility and cross-asset macro feeds are not connected.',
     };
   }
   if (avg < -0.35 || (vix !== null && vix >= 25) || (vixChange !== null && vixChange >= 8)) {
@@ -216,14 +236,18 @@ function deriveRegime(spyChange: number | null, qqqChange: number | null, vix: n
       regime: 'Risk-Off',
       note: volatilityObserved
         ? 'Broad equity pressure and/or elevated observed volatility indicate a defensive market environment.'
-        : 'Broad equity indexes are under pressure. This is an equity-only risk-off classification because volatility and cross-asset macro feeds are not connected.',
+        : crossAssetObserved
+          ? 'Broad equity indexes are under pressure. Rates, dollar and commodity context are connected, while VIX remains unavailable.'
+          : 'Broad equity indexes are under pressure. This is an equity-only risk-off classification because volatility and cross-asset macro feeds are not connected.',
     };
   }
   return {
     regime: 'Mixed',
     note: volatilityObserved
       ? 'Index direction and observed volatility are not aligned strongly enough to classify the environment as clearly risk-on or risk-off.'
-      : 'Broad equity direction is mixed. This is an equity-only classification because volatility and cross-asset macro feeds are not connected.',
+      : crossAssetObserved
+        ? 'Broad equity direction is mixed. Rates, dollar and commodity context are connected, while VIX remains unavailable.'
+        : 'Broad equity direction is mixed. This is an equity-only classification because volatility and cross-asset macro feeds are not connected.',
   };
 }
 
@@ -374,27 +398,47 @@ Deno.serve(async (req) => {
     }
 
     if (!sectorCacheFresh) {
+      let sectorSource = '';
+      let sectorError: string | null = null;
       try {
         const sectors = await massiveSectorPerformance();
         if (sectors.length) {
           sectorPerformance = sectors;
-          await db.from('provider_configs').upsert({
-            provider_key: 'massive_sectors',
-            interface_name: 'MarketContextProvider',
-            display_name: 'Massive Sector ETF Context',
-            adapter: 'MassiveSectorSnapshotAdapter',
-            mode: 'connected',
-            supplies: Object.values(sectorSymbols),
-            candidate_providers: ['Massive'],
-            secret_env_name: 'MASSIVE_API_KEY',
-            docs_url: 'https://massive.com/docs/rest/stocks/snapshots/full-market-snapshot',
-            notes: 'Single batched ETF snapshot used for sector leadership; refreshed on a multi-hour cache.',
-            last_sync: new Date().toISOString(),
-            last_error: null,
-          }, { onConflict: 'provider_key' });
+          sectorSource = 'Massive batch snapshot';
         }
       } catch (error) {
-        macroErrors.push(`sectors: ${errorMessage(error)}`);
+        sectorError = errorMessage(error);
+      }
+
+      if (!sectorPerformance.length) {
+        try {
+          const sectors = await yahooSectorPerformance();
+          if (sectors.length) {
+            sectorPerformance = sectors;
+            sectorSource = 'Yahoo daily chart fallback';
+          }
+        } catch (error) {
+          sectorError = [sectorError, errorMessage(error)].filter(Boolean).join(' | ');
+        }
+      }
+
+      if (sectorPerformance.length) {
+        await db.from('provider_configs').upsert({
+          provider_key: 'massive_sectors',
+          interface_name: 'MarketContextProvider',
+          display_name: 'Sector ETF Context',
+          adapter: sectorSource === 'Massive batch snapshot' ? 'MassiveSectorSnapshotAdapter' : 'YahooSectorChartFallbackAdapter',
+          mode: 'connected',
+          supplies: Object.values(sectorSymbols),
+          candidate_providers: ['Massive', 'Yahoo daily chart fallback'],
+          secret_env_name: sectorSource === 'Massive batch snapshot' ? 'MASSIVE_API_KEY' : null,
+          docs_url: null,
+          notes: `Sector leadership currently sourced from ${sectorSource}. Massive snapshot entitlement failure automatically falls back to public daily ETF chart data.`,
+          last_sync: new Date().toISOString(),
+          last_error: sectorError,
+        }, { onConflict: 'provider_key' });
+      } else if (sectorError) {
+        macroErrors.push('Sector movement unavailable from both primary and fallback feeds.');
       }
     }
 
@@ -432,11 +476,13 @@ Deno.serve(async (req) => {
     const advancers = tracked.filter((row) => Number(row.change_pct) > 0).length;
     const decliners = tracked.filter((row) => Number(row.change_pct) < 0).length;
 
+    const crossAssetObserved = [us10y, us02y, broadUsd, wti, gold].filter((value) => value !== null).length >= 3;
     const regimeInfo = deriveRegime(
       n(spy?.change_pct),
       n(qqq?.change_pct),
       null,
       null,
+      crossAssetObserved,
     );
 
     const macroBits = [
@@ -475,7 +521,7 @@ Deno.serve(async (req) => {
         : null,
       sector_performance: sectorPerformance,
       macro_note: macroBits.length
-        ? `Connected macro context: ${macroBits.join(' · ')}. Broad USD uses FRED DTWEXBGS rather than ICE DXY. VIX remains unavailable pending a product-usable licensed source.${macroErrors.length ? ` Partial refresh warnings: ${macroErrors.join(' | ')}` : ''}`
+        ? `Connected macro context: ${macroBits.join(' · ')}. Broad USD uses FRED DTWEXBGS rather than ICE DXY. VIX remains unavailable pending a product-usable licensed source.${macroErrors.length ? ' Some optional context feeds were unavailable on this refresh.' : ''}`
         : 'Core index and breadth context are available; macro providers did not return usable values on this refresh.',
       market_status: macroBits.length >= 4 ? 'cross-asset context' : 'equity-only context',
       retrieved_at: now,
