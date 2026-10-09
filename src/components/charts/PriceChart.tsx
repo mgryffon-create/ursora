@@ -13,6 +13,7 @@ export interface KeyLevel {
   color: string;
   dash?: string;
   detail?: string;
+  group?: 'setup' | 'structure';
 }
 
 const axisStyle = { fill: '#71717a', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' };
@@ -176,6 +177,46 @@ export const PriceChart: React.FC<{
       .replace(/^Broader /i, 'Broad ')
       .replace(/^Recent swing /i, 'Swing ');
 
+  const setupLevels = drawn.filter((level) => (level.group ?? 'structure') === 'setup');
+  const structureLevels = drawn.filter((level) => (level.group ?? 'structure') === 'structure');
+
+  const LevelCard = ({ level, compact = false }: { level: KeyLevel; compact?: boolean }) => {
+    const value = Number(level.value);
+    const expanded = expandedLevel === level.label;
+    return (
+      <div className="rounded-sm border border-zinc-800/80 bg-[#0f1216] px-2.5 py-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-zinc-400">
+            <span className="inline-block h-[2px] w-3 shrink-0" style={{ backgroundColor: level.color }} />
+            <span className="truncate">{shortLabel(level.label)}</span>
+          </span>
+          <span className="font-mono text-[10px] tabular-nums" style={{ color: level.color }}>
+            {value.toFixed(2)}
+          </span>
+        </div>
+        {level.detail && (
+          <>
+            <button
+              type="button"
+              onClick={() => setExpandedLevel(expanded ? null : level.label)}
+              aria-expanded={expanded}
+              className="mt-1 font-mono text-[8px] uppercase tracking-wider text-sky-400/80 transition-colors hover:text-sky-300"
+            >
+              {expanded ? 'hide why' : 'why this level?'}
+            </button>
+            {expanded && (
+              <div className={compact
+                ? "mt-1.5 border-t border-zinc-800 pt-1.5 text-[9px] leading-relaxed text-zinc-500"
+                : "mt-2 border-t border-zinc-800 pt-2 text-[10px] leading-relaxed text-zinc-500"}>
+                {level.detail}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div>
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_220px]">
@@ -255,49 +296,36 @@ export const PriceChart: React.FC<{
 
         <aside className="rounded-sm border border-zinc-800 bg-black/20 p-2.5">
           <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-zinc-500">
-            Tactical frame
+            Trade setup
           </div>
           <div className="mt-2 space-y-1.5">
-            {drawn.map((l) => {
-              const value = Number(l.value);
-              const expanded = expandedLevel === l.label;
-              return (
-                <div key={`${l.label}-rail`} className="rounded-sm border border-zinc-800/80 bg-[#0f1216] px-2 py-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-zinc-400">
-                      <span className="inline-block h-[2px] w-3 shrink-0" style={{ backgroundColor: l.color }} />
-                      <span className="truncate">{shortLabel(l.label)}</span>
-                    </span>
-                    <span className="font-mono text-[10px] tabular-nums" style={{ color: l.color }}>
-                      {value.toFixed(2)}
-                    </span>
-                  </div>
-                  {l.detail && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => setExpandedLevel(expanded ? null : l.label)}
-                        aria-expanded={expanded}
-                        className="mt-1 font-mono text-[8px] uppercase tracking-wider text-sky-400/80 transition-colors hover:text-sky-300"
-                      >
-                        {expanded ? 'hide method' : 'why this level?'}
-                      </button>
-                      {expanded && (
-                        <div className="mt-1.5 border-t border-zinc-800 pt-1.5 text-[9px] leading-relaxed text-zinc-500">
-                          {l.detail}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              );
-            })}
+            {setupLevels.map((level) => (
+              <LevelCard key={`${level.label}-setup`} level={level} compact />
+            ))}
           </div>
           <div className="mt-2 border-t border-zinc-800 pt-2 font-mono text-[9px] leading-relaxed text-zinc-600">
-            Levels stay fixed to this TradeCycle run. Changing the history view only changes the candles.
+            The setup frame stays fixed to this TradeCycle run. Market structure below provides context around it.
           </div>
         </aside>
       </div>
+
+      {structureLevels.length > 0 && (
+        <section className="mt-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-zinc-500">Market structure</div>
+              <div className="mt-0.5 text-[10px] text-zinc-600">
+                Reaction zones and nearby support/resistance that frame the setup.
+              </div>
+            </div>
+          </div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {structureLevels.map((level) => (
+              <LevelCard key={`${level.label}-structure`} level={level} />
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="mt-2 font-mono text-[10px] text-zinc-500">
         {bars.length} {barLabel ?? (horizon === '1D' ? '5-minute bars' : horizon === '1W' ? '30-minute bars' : 'daily bars')} · {horizon}
