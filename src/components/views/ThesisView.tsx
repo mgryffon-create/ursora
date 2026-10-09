@@ -278,13 +278,209 @@ function deriveDailyReactionLevels(
   };
 }
 
+type ExecutionCycle = {
+  confirmed: boolean;
+  direction: 'bullish' | 'bearish' | 'neutral';
+  event: 'reversal' | 'breakout' | 'continuation' | 'unconfirmed';
+  origin: number | null;
+  confirmation: number | null;
+  invalidation: number | null;
+  volumeRatio: number | null;
+  reason: string;
+};
+
+function deriveExecutionCycle(
+  intradayBars: Bar[],
+  direction: string | null | undefined,
+): ExecutionCycle {
+  const empty: ExecutionCycle = {
+    confirmed: false,
+    direction: 'neutral',
+    event: 'unconfirmed',
+    origin: null,
+    confirmation: null,
+    invalidation: null,
+    volumeRatio: null,
+    reason: 'Recent intraday price action has not yet confirmed a clean entry event.',
+  };
+  if (direction !== 'bullish' && direction !== 'bearish') return empty;
+
+  const sessionKey = (value: string) => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date(value));
+    const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+    return `${get('year')}-${get('month')}-${get('day')}`;
+  };
+
+  const ordered = [...intradayBars]
+    .filter((bar) =>
+      Number.isFinite(Number(bar.high)) &&
+      Number.isFinite(Number(bar.low)) &&
+      Number.isFinite(Number(bar.close)) &&
+      Number.isFinite(Number(bar.volume))
+    )
+    .sort((a, b) => String(a.bar_time).localeCompare(String(b.bar_time)));
+
+  const sessions = [...new Set(ordered.map((bar) => sessionKey(String(bar.bar_time))))].slice(-5);
+  const bars = ordered.filter((bar) => sessions.includes(sessionKey(String(bar.bar_time))));
+  if (bars.length < 12) return empty;
+
+  const ranges = bars
+    .map((bar) => Number(bar.high) - Number(bar.low))
+    .filter((value) => value > 0)
+    .sort((a, b) => a - b);
+  const volumes = bars
+    .map((bar) => Number(bar.volume))
+    .filter((value) => value > 0)
+    .sort((a, b) => a - b);
+  const medianRange = ranges[Math.floor(ranges.length / 2)] ?? 0;
+  const medianVolume = volumes[Math.floor(volumes.length / 2)] ?? 0;
+  if (!(medianRange > 0)) return empty;
+
+  type Candidate = {
+    event: 'reversal' | 'breakout' | 'continuation';
+    origin: number;
+    confirmation: number;
+    invalidation: number;
+    volumeRatio: number | null;
+    score: number;
+    index: number;
+    reason: string;
+  };
+  const candidates: Candidate[] = [];
+
+  for (let i = 1; i < bars.length - 2; i += 1) {
+    const prev = bars[i - 1];
+    const bar = bars[i];
+    const next = bars[i + 1];
+    const high = Number(bar.high);
+    const low = Number(bar.low);
+    const close = Number(bar.close);
+    const range = Math.max(high - low, medianRange * 0.35);
+
+    if (direction === 'bullish') {
+      const pivot = low <= Number(prev.low) && low <= Number(next.low);
+      if (!pivot) continue;
+
+      const rejection = (close - low) / range;
+      const after = bars.slice(i + 1);
+      const confirmIndex = after.findIndex((candidate, offset) => {
+        const candidateClose = Number(candidate.close);
+        const localHigh = Math.max(high, ...bars.slice(Math.max(0, i - 2), i + 1).map((x) => Number(x.high)));
+        return candidateClose >= localHigh - medianRange * 0.10 ||
+          candidateClose >= close + medianRange * 0.45;
+      });
+      if (confirmIndex < 0) continue;
+
+      const confirmationBar = after[confirmIndex];
+      const confirmation = Number(confirmationBar.close);
+      const volumeRatio = medianVolume > 0 ? Number(confirmationBar.volume) / medianVolume : null;
+      const later = after.slice(confirmIndex + 1);
+      const held = later.length === 0 ||
+        Math.min(...later.map((x) => Number(x.low))) >= low - medianRange * 0.15;
+      const followThrough = later.length === 0 ||
+        Math.max(...later.map((x) => Number(x.close))) >= confirmation + medianRange * 0.15;
+      const substantiated = rejection >= 0.42 && held && followThrough && (volumeRatio === null || volumeRatio >= 0.90);
+      if (!substantiated) continue;
+
+      candidates.push({
+        event: 'reversal',
+        origin: low,
+        confirmation,
+        invalidation: low - medianRange * 0.15,
+        volumeRatio,
+        score: i * 0.12 + rejection * 2 + (volumeRatio ?? 1),
+        index: i,
+        reason: `Buyers rejected ${low.toFixed(2)}, price reclaimed to ${confirmation.toFixed(2)} and the move held${volumeRatio !== null ? ` with confirmation volume at ${volumeRatio.toFixed(2)}x its recent median` : ''}.`,
+      });
+    } else {
+      const pivot = high >= Number(prev.high) && high >= Number(next.high);
+      if (!pivot) continue;
+
+      const rejection = (high - close) / range;
+      const after = bars.slice(i + 1);
+      const confirmIndex = after.findIndex((candidate) => {
+        const candidateClose = Number(candidate.close);
+        const localLow = Math.min(low, ...bars.slice(Math.max(0, i - 2), i + 1).map((x) => Number(x.low)));
+        return candidateClose <= localLow + medianRange * 0.10 ||
+          candidateClose <= close - medianRange * 0.45;
+      });
+      if (confirmIndex < 0) continue;
+
+      const confirmationBar = after[confirmIndex];
+      const confirmation = Number(confirmationBar.close);
+      const volumeRatio = medianVolume > 0 ? Number(confirmationBar.volume) / medianVolume : null;
+      const later = after.slice(confirmIndex + 1);
+      const held = later.length === 0 ||
+        Math.max(...later.map((x) => Number(x.high))) <= high + medianRange * 0.15;
+      const followThrough = later.length === 0 ||
+        Math.min(...later.map((x) => Number(x.close))) <= confirmation - medianRange * 0.15;
+      const substantiated = rejection >= 0.42 && held && followThrough && (volumeRatio === null || volumeRatio >= 0.90);
+      if (!substantiated) continue;
+
+      candidates.push({
+        event: 'reversal',
+        origin: high,
+        confirmation,
+        invalidation: high + medianRange * 0.15,
+        volumeRatio,
+        score: i * 0.12 + rejection * 2 + (volumeRatio ?? 1),
+        index: i,
+        reason: `Sellers rejected ${high.toFixed(2)}, price confirmed lower at ${confirmation.toFixed(2)} and the move held${volumeRatio !== null ? ` with confirmation volume at ${volumeRatio.toFixed(2)}x its recent median` : ''}.`,
+      });
+    }
+  }
+
+  const last = bars.at(-1)!;
+  const lastClose = Number(last.close);
+  const lastVolumeRatio = medianVolume > 0 ? Number(last.volume) / medianVolume : null;
+  const prior = bars.slice(Math.max(0, bars.length - 14), -1);
+  if (prior.length >= 6) {
+    const priorHigh = Math.max(...prior.map((bar) => Number(bar.high)));
+    const priorLow = Math.min(...prior.map((bar) => Number(bar.low)));
+    if (direction === 'bullish' && lastClose > priorHigh && (lastVolumeRatio === null || lastVolumeRatio >= 1.0)) {
+      candidates.push({
+        event: 'breakout', origin: priorHigh, confirmation: lastClose,
+        invalidation: priorHigh - medianRange * 0.20, volumeRatio: lastVolumeRatio,
+        score: bars.length + 4 + (lastVolumeRatio ?? 1), index: bars.length - 1,
+        reason: `Price cleared the recent ${priorHigh.toFixed(2)} barrier and closed above it${lastVolumeRatio !== null ? ` on ${lastVolumeRatio.toFixed(2)}x median intraday volume` : ''}.`,
+      });
+    }
+    if (direction === 'bearish' && lastClose < priorLow && (lastVolumeRatio === null || lastVolumeRatio >= 1.0)) {
+      candidates.push({
+        event: 'breakout', origin: priorLow, confirmation: lastClose,
+        invalidation: priorLow + medianRange * 0.20, volumeRatio: lastVolumeRatio,
+        score: bars.length + 4 + (lastVolumeRatio ?? 1), index: bars.length - 1,
+        reason: `Price broke the recent ${priorLow.toFixed(2)} floor and closed below it${lastVolumeRatio !== null ? ` on ${lastVolumeRatio.toFixed(2)}x median intraday volume` : ''}.`,
+      });
+    }
+  }
+
+  candidates.sort((a, b) => b.index - a.index || b.score - a.score);
+  const best = candidates[0];
+  if (!best) return empty;
+
+  return {
+    confirmed: true,
+    direction,
+    event: best.event,
+    origin: best.origin,
+    confirmation: best.confirmation,
+    invalidation: best.invalidation,
+    volumeRatio: best.volumeRatio,
+    reason: best.reason,
+  };
+}
+
 type EntryPlan = {
   low: number;
   high: number;
   reference: number;
   chaseLimit: number;
   minimumRr: number;
-  state: 'waiting' | 'in_zone' | 'acceptable' | 'extended' | 'invalidated';
+  state: 'no_confirmation' | 'in_zone' | 'entry_passed' | 'reclaim_required' | 'invalidated';
   trigger: string;
   detail: string;
   options: Array<{
@@ -308,11 +504,12 @@ function deriveEntryPlan(args: {
   tacticalResistance: number | null;
   localMoveUnit: number | null;
   medianCloseMove: number | null;
+  executionCycle: ExecutionCycle;
 }): EntryPlan | null {
   const {
     direction, setup, analysisPrice, currentPrice, target, invalidation,
     dailySupport, dailyResistance, tacticalSupport, tacticalResistance,
-    localMoveUnit, medianCloseMove,
+    localMoveUnit, medianCloseMove, executionCycle,
   } = args;
 
   const bullish = direction === 'bullish';
@@ -330,119 +527,74 @@ function deriveEntryPlan(args: {
     analysisPrice * 0.006,
     0.5,
   );
-  const zoneWidth = Math.max(0.15, Math.min(moveUnit * 0.22, Math.max(moveUnit * 0.10, analysisPrice * 0.004)));
   const minimumRr = 1.25;
-
-  // Solving reward/risk = minimumRr for entry gives the execution chase boundary.
   const chaseLimit = (target + minimumRr * invalidation) / (1 + minimumRr);
 
-  const usable = (value: number | null, side: 'support' | 'resistance') =>
-    value !== null &&
-    Number.isFinite(value) &&
-    (bullish
-      ? side === 'support'
-        ? value > invalidation && value < target
-        : value > invalidation && value < target
-      : side === 'resistance'
-        ? value < invalidation && value > target
-        : value < invalidation && value > target);
-
-  let reference = analysisPrice;
-  let trigger = bullish
-    ? 'Wait for price to hold the zone and show buyers stepping back in.'
-    : 'Wait for price to hold below the zone and show sellers taking control again.';
-  let basis = 'the thesis anchor because no stronger nearby execution structure was available';
-
-  if (setup === 'momentum_breakout') {
-    const breakoutLevel = bullish
-      ? (usable(dailyResistance, 'resistance') ? dailyResistance : usable(tacticalResistance, 'resistance') ? tacticalResistance : null)
-      : (usable(dailySupport, 'support') ? dailySupport : usable(tacticalSupport, 'support') ? tacticalSupport : null);
-    if (breakoutLevel !== null) {
-      reference = breakoutLevel;
-      basis = bullish ? 'the nearest validated resistance that price needs to clear' : 'the nearest validated support that price needs to break';
-      trigger = bullish
-        ? 'The cleaner entry is a break through this area followed by a hold or retest, rather than chasing the first spike.'
-        : 'The cleaner entry is a break below this area followed by a hold or retest, rather than chasing the first flush.';
-    }
-  } else if (setup === 'trend_continuation') {
-    const pullbackLevel = bullish
-      ? (usable(dailySupport, 'support') ? dailySupport : usable(tacticalSupport, 'support') ? tacticalSupport : null)
-      : (usable(dailyResistance, 'resistance') ? dailyResistance : usable(tacticalResistance, 'resistance') ? tacticalResistance : null);
-    if (pullbackLevel !== null) {
-      reference = pullbackLevel;
-      basis = bullish ? 'the nearest support where recent price action has found buyers' : 'the nearest resistance where recent price action has found sellers';
-      trigger = bullish
-        ? 'Look for the pullback to hold this area or reclaim it after a brief dip before treating the entry as active.'
-        : 'Look for the bounce to reject this area or lose it again after a brief push before treating the entry as active.';
-    }
-  } else {
-    const continuationLevel = bullish
-      ? (usable(dailySupport, 'support') && Math.abs((dailySupport ?? analysisPrice) - analysisPrice) <= moveUnit ? dailySupport : null)
-      : (usable(dailyResistance, 'resistance') && Math.abs((dailyResistance ?? analysisPrice) - analysisPrice) <= moveUnit ? dailyResistance : null);
-    if (continuationLevel !== null) {
-      reference = continuationLevel;
-      basis = bullish ? 'the nearest fresh reaction support inside the current momentum lane' : 'the nearest fresh reaction resistance inside the current momentum lane';
-    }
+  if (!executionCycle.confirmed ||
+      executionCycle.direction !== direction ||
+      executionCycle.origin === null ||
+      executionCycle.confirmation === null) {
+    return null;
   }
 
+  const origin = executionCycle.origin;
+  const confirmation = executionCycle.confirmation;
+  const cycleInvalidation = executionCycle.invalidation;
+  const confirmationDistance = Math.max(Math.abs(confirmation - origin), moveUnit * 0.12);
+  const zoneWidth = Math.max(0.12, Math.min(moveUnit * 0.20, confirmationDistance * 0.45));
+
+  // Entry is anchored to the point where the directional move became believable,
+  // not to the thesis anchor or to current price. Calls seek the lowest confirmed
+  // bullish participation area; puts seek the highest confirmed bearish area.
   let low: number;
   let high: number;
-  if (setup === 'momentum_breakout') {
-    if (bullish) {
-      low = reference - zoneWidth * 0.20;
-      high = reference + zoneWidth;
-    } else {
-      low = reference - zoneWidth;
-      high = reference + zoneWidth * 0.20;
-    }
-  } else if (bullish) {
-    low = reference - zoneWidth * 0.25;
-    high = reference + zoneWidth * 0.75;
-  } else {
-    low = reference - zoneWidth * 0.75;
-    high = reference + zoneWidth * 0.25;
-  }
-
-  // Keep the preferred zone inside the original trade frame and inside the
-  // execution chase boundary.
-  const epsilon = Math.max(0.01, analysisPrice * 0.0001);
   if (bullish) {
-    low = Math.max(low, invalidation + epsilon);
-    high = Math.min(high, target - epsilon, chaseLimit);
+    low = Math.max(origin + confirmationDistance * 0.28, confirmation - zoneWidth * 0.65);
+    high = confirmation + zoneWidth * 0.20;
+    low = Math.max(low, invalidation + Math.max(0.01, analysisPrice * 0.0001));
+    high = Math.min(high, target - 0.01, chaseLimit);
   } else {
-    low = Math.max(low, target + epsilon, chaseLimit);
-    high = Math.min(high, invalidation - epsilon);
+    high = Math.min(origin - confirmationDistance * 0.28, confirmation + zoneWidth * 0.65);
+    low = confirmation - zoneWidth * 0.20;
+    high = Math.min(high, invalidation - Math.max(0.01, analysisPrice * 0.0001));
+    low = Math.max(low, target + 0.01, chaseLimit);
   }
   if (!(low <= high)) return null;
 
+  const reference = confirmation;
   const price = currentPrice ?? analysisPrice;
   let state: EntryPlan['state'];
   if (bullish ? price <= invalidation : price >= invalidation) {
     state = 'invalidated';
   } else if (price >= low && price <= high) {
     state = 'in_zone';
-  } else if (bullish ? price > chaseLimit : price < chaseLimit) {
-    state = 'extended';
-  } else if (bullish ? price < low : price > high) {
-    state = 'waiting';
+  } else if (bullish ? price > high : price < low) {
+    state = 'entry_passed';
   } else {
-    state = 'acceptable';
+    state = 'reclaim_required';
   }
 
+  const trigger = executionCycle.event === 'breakout'
+    ? (bullish
+        ? 'Use the breakout only after the cleared level holds or is successfully retested.'
+        : 'Use the breakdown only after the lost level stays below or rejects on a retest.')
+    : (bullish
+        ? 'The preferred entry is the confirmation/retest area after buyers proved the reversal, not the absolute bottom.'
+        : 'The preferred entry is the confirmation/retest area after sellers proved the reversal, not the absolute top.');
+
   const stateText = state === 'in_zone'
-    ? 'Price is currently inside the preferred entry zone.'
-    : state === 'extended'
-      ? `Price is beyond the ${minimumRr.toFixed(2)}R chase limit, so the setup may still be valid but the entry is no longer attractive.`
-      : state === 'invalidated'
-        ? 'Price has already crossed the thesis invalidation level, so this entry is no longer valid.'
-        : state === 'waiting'
-          ? 'Price has not reached the preferred entry area yet.'
-          : 'Price is outside the preferred zone but has not crossed the chase limit.';
+    ? 'Price is inside the confirmed entry area now.'
+    : state === 'entry_passed'
+      ? 'The original entry opportunity has already moved away; wait for a clean retest or a new confirmed cycle rather than chasing.'
+      : state === 'reclaim_required'
+        ? (bullish
+            ? 'Price is below the confirmed entry area. A reclaim and hold is required before this becomes actionable again.'
+            : 'Price is above the confirmed entry area. A rejection back below is required before this becomes actionable again.')
+        : 'Price has crossed the stored thesis invalidation, so this entry is no longer valid.';
 
   const detail =
-    `URSORA built this entry around ${basis}. The zone is widened by the stock's recent realized movement so it is not pretending there is one perfect fill price. ` +
-    `The chase limit is ${chaseLimit.toFixed(2)} because entering beyond that point would leave less than ${minimumRr.toFixed(2)}:1 reward-to-risk using this run's target and invalidation. ` +
-    `${stateText} ${trigger}`;
+    `${executionCycle.reason} URSORA places the entry around the confirmation/retest area because this was the earliest point where the move had enough evidence to distinguish it from ordinary noise. ` +
+    `The reversal origin was ${origin.toFixed(2)} and confirmation occurred around ${confirmation.toFixed(2)}. ${stateText}`;
 
   const formatRange = (a: number, b: number) => `${a.toFixed(2)}–${b.toFixed(2)}`;
   const rrAt = (entry: number) => {
@@ -453,51 +605,43 @@ function deriveEntryPlan(args: {
 
   const options: EntryPlan['options'] = [];
 
-  // Preferred pullback / reaction entry
   options.push({
-    label: setup === 'momentum_breakout' ? 'Preferred breakout / retest' : 'Preferred pullback',
+    label: executionCycle.event === 'breakout' ? 'Confirmed breakout / retest' : 'Confirmed reversal / retest',
     range: formatRange(low, high),
     state: state.replaceAll('_', ' '),
-    detail: `${trigger} This is URSORA's preferred location because it offers the best balance of nearby structure and remaining room to the target.`,
+    detail: `${trigger} ${executionCycle.reason}`,
   });
 
-  // Immediate/continuation entry is only shown when current price still has acceptable economics.
-  if (currentPrice !== null && Number.isFinite(currentPrice)) {
-    const currentRr = rrAt(currentPrice);
-    if (currentRr !== null && currentRr >= minimumRr && state !== 'invalidated') {
-      options.push({
-        label: 'Immediate / continuation',
-        range: currentPrice.toFixed(2),
-        state: state === 'extended' ? 'lower quality' : 'available',
-        detail: `Entering near the current price still leaves about ${currentRr.toFixed(2)}:1 reward-to-risk, but it may offer less room than waiting for the preferred zone.`,
-      });
-    }
-  }
+  options.push({
+    label: bullish ? 'Reversal origin' : 'Reversal origin',
+    range: origin.toFixed(2),
+    state: 'structure',
+    detail: bullish
+      ? 'This is where sellers were rejected and the bullish move began. It is not automatically an entry because confirmation had not happened yet.'
+      : 'This is where buyers were rejected and the bearish move began. It is not automatically an entry because confirmation had not happened yet.',
+  });
 
-  // Breakout/retest alternative for non-breakout setups when a fresh reaction barrier exists.
-  const breakoutReference = bullish ? dailyResistance : dailySupport;
-  if (setup !== 'momentum_breakout' && breakoutReference !== null && Number.isFinite(breakoutReference)) {
-    const breakoutLow = bullish ? breakoutReference - zoneWidth * 0.15 : breakoutReference - zoneWidth;
-    const breakoutHigh = bullish ? breakoutReference + zoneWidth : breakoutReference + zoneWidth * 0.15;
-    const breakoutEntry = (breakoutLow + breakoutHigh) / 2;
-    const breakoutRr = rrAt(breakoutEntry);
-    if (breakoutRr !== null && breakoutRr >= minimumRr) {
-      options.push({
-        label: 'Breakout / retest alternative',
-        range: formatRange(Math.min(breakoutLow, breakoutHigh), Math.max(breakoutLow, breakoutHigh)),
-        state: 'conditional',
-        detail: bullish
-          ? 'This becomes attractive only if price clears the current reaction resistance and then proves it can hold that area on a retest.'
-          : 'This becomes attractive only if price breaks the current reaction support and then proves it can stay below that area on a retest.',
-      });
-    }
+  options.push({
+    label: 'Confirmation',
+    range: confirmation.toFixed(2),
+    state: executionCycle.volumeRatio !== null ? `${executionCycle.volumeRatio.toFixed(2)}x vol` : 'price confirmed',
+    detail: 'This is where price action provided enough follow-through to treat the reversal or breakout as substantiated rather than ordinary noise.',
+  });
+
+  if (cycleInvalidation !== null) {
+    options.push({
+      label: 'Cycle failure',
+      range: cycleInvalidation.toFixed(2),
+      state: 'execution invalidation',
+      detail: 'Crossing this level would break the recent confirmation structure even before considering the broader stored thesis invalidation.',
+    });
   }
 
   options.push({
     label: bullish ? 'Max chase' : 'Min chase',
     range: chaseLimit.toFixed(2),
-    state: 'guardrail',
-    detail: `Beyond this price, the remaining reward to target falls below ${minimumRr.toFixed(2)}:1 relative to the stored invalidation.`,
+    state: 'economics guardrail',
+    detail: `This is only an R:R guardrail. It does not create an entry. Beyond it, the stored target/invalidation leave less than ${minimumRr.toFixed(2)}:1 reward-to-risk.`,
   });
 
   return { low, high, reference, chaseLimit, minimumRr, state, trigger, detail, options };
@@ -692,6 +836,7 @@ export const ThesisView: React.FC<{
   const analysisPrice = rawNumber(signal?.stock_price_at_generation);
   const dailyReactionBars = chartBarsByHorizon['1W'] ?? chartBarsByHorizon['1D'] ?? [];
   const dailyReaction = deriveDailyReactionLevels(dailyReactionBars, quote?.price ?? analysisPrice);
+  const executionCycle = deriveExecutionCycle(dailyReactionBars, signal?.direction);
   const isV59 = signal?.engine_version === 'tradecycle-5.9.0';
   const swingSetup = typeof rawAnalysis.swing_setup === 'string' ? rawAnalysis.swing_setup : 'unclassified';
   const swingPriceBand = typeof rawAnalysis.swing_price_band === 'string' ? rawAnalysis.swing_price_band : 'Insufficient';
@@ -712,6 +857,7 @@ export const ThesisView: React.FC<{
     tacticalResistance,
     localMoveUnit,
     medianCloseMove: recentMedianCloseMove5,
+    executionCycle,
   });
   const contractSelectionState = typeof scoreMeta.contract_selection_state === 'string'
     ? scoreMeta.contract_selection_state
