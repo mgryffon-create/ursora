@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   Area, AreaChart, Bar, CartesianGrid, ComposedChart, Line, LineChart, ReferenceDot, ReferenceLine, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
@@ -107,22 +107,51 @@ export const PriceChart: React.FC<{
     priceRange: [Number(b.low), Number(b.high)] as [number, number],
   }));
 
-  // Keep the selected price history readable, but always include every tactical
-  // level in the chart domain. Horizon changes the candles shown, not whether the
-  // trade frame can be seen.
+  // Preserve a readable price scale for the selected history. Tactical levels
+  // still belong to the same Y axis, but when they extend materially beyond the
+  // candle range the chart becomes vertically scrollable instead of flattening the
+  // candles to fit everything into one viewport.
   const barMin = Math.min(...lows);
   const barMax = Math.max(...highs);
-  const levelValues = drawn.map((level) => Number(level.value)).filter(Number.isFinite);
-  const domainMin = Math.min(barMin, ...(levelValues.length ? levelValues : [barMin]));
-  const domainMax = Math.max(barMax, ...(levelValues.length ? levelValues : [barMax]));
-  const domainRange = Math.max(0, domainMax - domainMin);
-  const midpoint = (domainMin + domainMax) / 2;
-  const minimumPad = Math.max(Math.abs(midpoint) * 0.0025, 0.25);
-  const pad = Math.max(domainRange * (horizon === '1D' ? 0.08 : horizon === '1W' ? 0.07 : 0.06), minimumPad);
-  const visibleMin = domainMin - pad;
-  const visibleMax = domainMax + pad;
+  const barRange = Math.max(0, barMax - barMin);
+  const barMidpoint = (barMin + barMax) / 2;
+  const minimumPad = Math.max(Math.abs(barMidpoint) * 0.0025, 0.25);
+  const basePad = Math.max(
+    barRange * (horizon === '1D' ? 0.16 : horizon === '1W' ? 0.12 : 0.10),
+    minimumPad,
+  );
+  const baseMin = barMin - basePad;
+  const baseMax = barMax + basePad;
+  const baseRange = Math.max(baseMax - baseMin, 0.5);
 
+  const levelValues = drawn.map((level) => Number(level.value)).filter(Number.isFinite);
+  const rawDomainMin = Math.min(baseMin, ...(levelValues.length ? levelValues : [baseMin]));
+  const rawDomainMax = Math.max(baseMax, ...(levelValues.length ? levelValues : [baseMax]));
+  const outerPad = Math.max(baseRange * 0.18, minimumPad);
+  const visibleMin = rawDomainMin - outerPad;
+  const visibleMax = rawDomainMax + outerPad;
+  const fullRange = Math.max(visibleMax - visibleMin, baseRange);
+
+  // Keep roughly the same dollars-per-pixel as the selected price history. Cap the
+  // canvas so pathological distant levels do not create an enormous DOM surface.
+  const scaleRatio = Math.max(1, fullRange / baseRange);
+  const chartCanvasHeight = Math.round(Math.min(height * scaleRatio * 0.72, height * 4.5));
   const visibleLevels = drawn;
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const anchorValue = Number(
+    drawn.find((level) => /thesis anchor/i.test(level.label))?.value ?? barMidpoint,
+  );
+
+  useEffect(() => {
+    const viewport = scrollRef.current;
+    if (!viewport || chartCanvasHeight <= height || !Number.isFinite(anchorValue)) return;
+    const normalized = (visibleMax - anchorValue) / fullRange;
+    const anchorY = Math.max(0, Math.min(chartCanvasHeight, normalized * chartCanvasHeight));
+    viewport.scrollTop = Math.max(
+      0,
+      Math.min(chartCanvasHeight - height, anchorY - height / 2),
+    );
+  }, [anchorValue, chartCanvasHeight, fullRange, height, horizon, visibleMax]);
 
   const shortLabel = (label: string) =>
     label
@@ -133,9 +162,16 @@ export const PriceChart: React.FC<{
   return (
     <div>
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_220px]">
-        <div className="min-w-0" style={{ height }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={plotBars} margin={{ top: 8, right: 18, bottom: 0, left: 0 }}>
+        <div className="min-w-0">
+          <div
+            ref={scrollRef}
+            className="overflow-y-auto overscroll-contain rounded-sm"
+            style={{ height }}
+            title={chartCanvasHeight > height ? 'Scroll vertically to inspect tactical levels outside the local price range.' : undefined}
+          >
+            <div style={{ height: chartCanvasHeight, minHeight: height }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={plotBars} margin={{ top: 8, right: 18, bottom: 0, left: 0 }}>
             <CartesianGrid stroke="#1c2027" strokeDasharray="2 4" vertical={false} />
             <XAxis
               dataKey="bar_time"
@@ -188,8 +224,15 @@ export const PriceChart: React.FC<{
                 strokeWidth={1}
               />
             ))}
-            </ComposedChart>
-          </ResponsiveContainer>
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+          {chartCanvasHeight > height && (
+            <div className="mt-1 font-mono text-[8px] uppercase tracking-wider text-zinc-600">
+              scroll vertically to inspect the full tactical range
+            </div>
+          )}
         </div>
 
         <aside className="rounded-sm border border-zinc-800 bg-black/20 p-2.5">
