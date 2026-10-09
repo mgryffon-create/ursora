@@ -92,13 +92,6 @@ export const PriceChart: React.FC<{
 }> = ({
   bars, levels = [], height = 280, horizon = '1M', barLabel,
 }) => {
-  if (!bars.length) {
-    return (
-      <div className="flex h-40 items-center justify-center rounded-sm border border-dashed border-zinc-800">
-        <Unavailable />
-      </div>
-    );
-  }
   const drawn = levels.filter((l) => !isMissing(l.value));
   const lows = bars.map((b) => Number(b.low)).filter(Number.isFinite);
   const highs = bars.map((b) => Number(b.high)).filter(Number.isFinite);
@@ -111,8 +104,8 @@ export const PriceChart: React.FC<{
   // still belong to the same Y axis, but when they extend materially beyond the
   // candle range the chart becomes vertically scrollable instead of flattening the
   // candles to fit everything into one viewport.
-  const barMin = Math.min(...lows);
-  const barMax = Math.max(...highs);
+  const barMin = lows.length ? Math.min(...lows) : 0;
+  const barMax = highs.length ? Math.max(...highs) : 1;
   const barRange = Math.max(0, barMax - barMin);
   const barMidpoint = (barMin + barMax) / 2;
   const minimumPad = Math.max(Math.abs(barMidpoint) * 0.0025, 0.25);
@@ -152,6 +145,14 @@ export const PriceChart: React.FC<{
       Math.min(chartCanvasHeight - height, anchorY - height / 2),
     );
   }, [anchorValue, chartCanvasHeight, fullRange, height, horizon, visibleMax]);
+
+  if (!bars.length) {
+    return (
+      <div className="flex h-40 items-center justify-center rounded-sm border border-dashed border-zinc-800">
+        <Unavailable />
+      </div>
+    );
+  }
 
   const shortLabel = (label: string) =>
     label
