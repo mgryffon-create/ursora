@@ -196,6 +196,13 @@ function contractPoint(
 }
 
 function setupClass(raw: AnyRow, direction: 'bullish' | 'bearish'): string {
+  const cycleDirection = String(raw.cycle_direction ?? '');
+  const cycleEvent = String(raw.cycle_event_type ?? '');
+  if (raw.cycle_confirmed === true && cycleDirection === direction) {
+    if (cycleEvent === 'breakout') return 'momentum_breakout';
+    if (cycleEvent === 'reversal') return 'reversal_continuation';
+    if (cycleEvent === 'continuation') return 'trend_continuation';
+  }
   if (direction === 'bullish' ? raw.breakout_up === true : raw.breakout_down === true) return 'momentum_breakout';
   if (direction === 'bullish' ? raw.price_structure_higher === true : raw.price_structure_lower === true) return 'trend_continuation';
   return 'momentum_continuation';
@@ -318,10 +325,17 @@ Deno.serve(async (req) => {
       // Price/structure is the primary gate. Weak evidence may describe a lean, but it
       // cannot establish a thesis direction. Confirmation/context families therefore
       // have nothing to support or oppose until price reaches Moderate or Strong.
-      const priceDirectional = priceBand === 'Moderate' || priceBand === 'Strong';
-      const direction = priceDirectional
+      const trendDirectional = priceBand === 'Moderate' || priceBand === 'Strong';
+      const trendDirection = trendDirectional
         ? priceOrientation > 0 ? 'bullish' : priceOrientation < 0 ? 'bearish' : 'neutral'
         : 'neutral';
+      const cycleConfirmed = raw.cycle_confirmed === true &&
+        (raw.cycle_direction === 'bullish' || raw.cycle_direction === 'bearish');
+      const cycleDirection = cycleConfirmed ? String(raw.cycle_direction) : 'neutral';
+      // A directional trend is context. A tradeable thesis requires a recent,
+      // substantiated price event in the same direction.
+      const priceDirectional = trendDirectional && cycleConfirmed && cycleDirection === trendDirection;
+      const direction = priceDirectional ? trendDirection : 'neutral';
       const momentumAgrees = direction !== 'neutral' &&
         (momentumBand === 'Moderate' || momentumBand === 'Strong') &&
         Math.sign(momentumOrientation) === Math.sign(priceOrientation);
@@ -337,6 +351,9 @@ Deno.serve(async (req) => {
       const participationStrongOppose = participation?.strength_band === 'Strong' && participation?.thesis_vote === 'OPPOSE';
       const existingTradeBlockers = Array.isArray(score.trade_blockers) ? score.trade_blockers.map(String) : [];
       const tradeBlockers = existingTradeBlockers.filter((message: string) => !/liquidity|spread/i.test(message));
+      if (trendDirectional && !priceDirectional && !tradeBlockers.some((x: string) => /substantiated|cycle|reversal|confirmation/i.test(x))) {
+        tradeBlockers.push('Directional trend exists, but no recent reversal, continuation, or breakout has been sufficiently substantiated for a fresh swing thesis.');
+      }
       if (frame.ratio !== null && frame.ratio < 0.72 && !tradeBlockers.some((x: string) => /reward/i.test(x))) {
         tradeBlockers.push('The current tactical reward does not adequately compensate for the estimated risk.');
       }
@@ -570,6 +587,10 @@ Deno.serve(async (req) => {
         swing_momentum_confirmed: momentumAgrees,
         swing_tactical_frame_valid: frame.valid,
         swing_reward_risk_ratio: frame.ratio,
+        swing_cycle_confirmed: cycleConfirmed,
+        swing_cycle_direction: cycleDirection,
+        swing_cycle_event_type: raw.cycle_event_type ?? 'unconfirmed',
+        swing_cycle_reason: raw.cycle_reason ?? null,
       };
       score.historical_evidence_policy = {
         holding_period: '1–5 days',
@@ -583,7 +604,11 @@ Deno.serve(async (req) => {
         source_signal_id: source.id,
         classified_at: new Date().toISOString(),
         price_direction: direction,
+        trend_direction: trendDirection,
         price_band: priceBand,
+        cycle_confirmed: cycleConfirmed,
+        cycle_direction: cycleDirection,
+        cycle_event_type: raw.cycle_event_type ?? 'unconfirmed',
         momentum_band: momentumBand,
         momentum_agrees: momentumAgrees,
         tactical_frame_valid: frame.valid,
@@ -598,8 +623,10 @@ Deno.serve(async (req) => {
       const decisionNotes = [
         `TradeCycle 5.9 swing classification: ${thesisState}.`,
         direction === 'neutral'
-          ? 'Short-horizon price direction is not established.'
-          : `Short-horizon price direction: ${priceBand} ${direction}.`,
+          ? (trendDirectional
+              ? `Trend context is ${priceBand} ${trendDirection}, but a fresh substantiated cycle event has not confirmed a tradeable thesis.`
+              : 'Short-horizon price direction is not established.')
+          : `Short-horizon price direction: ${priceBand} ${direction}, confirmed by a recent ${String(raw.cycle_event_type ?? 'price')} event.`,
         momentumAgrees
           ? `Momentum confirmation: ${momentumBand} and aligned with price.`
           : momentumOpposes
