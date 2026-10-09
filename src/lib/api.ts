@@ -54,7 +54,7 @@ export async function marketCacheState(symbols: string[]): Promise<MarketCacheSt
   const [{ data: quoteData, error: quoteError }, { data: barData, error: barError }] = await Promise.all([
     db
       .from('quotes')
-      .select('symbol,retrieved_at')
+      .select('symbol,as_of,retrieved_at,source_type')
       .in('symbol', normalized)
       .order('retrieved_at', { ascending: false }),
     db
@@ -90,13 +90,24 @@ export async function marketCacheState(symbols: string[]): Promise<MarketCacheSt
     const quote = quoteBySymbol.get(symbol);
     const bar = barBySymbol.get(symbol);
     const quoteRetrievedAt = quote?.retrieved_at ? String(quote.retrieved_at) : null;
+    const quoteAsOf = quote?.as_of ? String(quote.as_of) : null;
     const historyRetrievedAt = bar?.retrieved_at ? String(bar.retrieved_at) : null;
     const latestBarAt = bar?.bar_time ? String(bar.bar_time) : null;
     const quoteAge = quoteRetrievedAt ? Date.now() - new Date(quoteRetrievedAt).getTime() : Infinity;
+    const quoteAsOfMs = quoteAsOf ? new Date(quoteAsOf).getTime() : NaN;
+    const latestBarMs = latestBarAt ? new Date(latestBarAt).getTime() : NaN;
+    const quoteCoversLatestSession =
+      Number.isFinite(quoteAsOfMs) &&
+      Number.isFinite(latestBarMs) &&
+      quoteAsOfMs >= latestBarMs;
     const historyRetrievedAge = historyRetrievedAt ? Date.now() - new Date(historyRetrievedAt).getTime() : Infinity;
     const latestBarAge = latestBarAt ? Date.now() - new Date(latestBarAt).getTime() : Infinity;
     state[symbol] = {
-      quote_fresh: Number.isFinite(quoteAge) && quoteAge >= 0 && quoteAge <= quoteMaxAgeMs,
+      quote_fresh:
+        Number.isFinite(quoteAge) &&
+        quoteAge >= 0 &&
+        quoteAge <= quoteMaxAgeMs &&
+        quoteCoversLatestSession,
       history_fresh:
         Number.isFinite(historyRetrievedAge) &&
         historyRetrievedAge >= 0 &&
