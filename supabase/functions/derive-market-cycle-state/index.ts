@@ -451,12 +451,32 @@ Deno.serve(async (req) => {
       if (e5) throw e5;
       if (ed) throw ed;
 
-      const state = deriveCycle(
+      let state = deriveCycle(
         symbol,
         [...(bars30 ?? [])].reverse(),
         [...(bars5 ?? [])].reverse(),
         [...(daily ?? [])].reverse(),
       );
+
+      // Provider outages or sparse cache coverage must not turn a previously
+      // substantiated cycle into "unconfirmed" simply because new bars could not
+      // be fetched. Preserve a recent confirmed state until fresh evidence either
+      // updates it or explicitly breaks its invalidation/retest structure.
+      const priorComputedAt = prior?.computed_at ? new Date(prior.computed_at).getTime() : 0;
+      const priorRecent = Number.isFinite(priorComputedAt) && Date.now() - priorComputedAt <= 24 * 3600000;
+      const priorConfirmed = prior && ['reversal_confirmed', 'breakout_confirmed', 'continuation_confirmed'].includes(String(prior.cycle_state));
+      if (state.cycle_state === 'unconfirmed' && priorConfirmed && priorRecent) {
+        state = {
+          ...prior,
+          computed_at: new Date().toISOString(),
+          reason: `${String(prior.reason ?? '')} Current provider/cache data was insufficient to derive a replacement cycle, so the last confirmed state was preserved.`.trim(),
+          details: {
+            ...(prior.details && typeof prior.details === 'object' ? prior.details : {}),
+            preserved_from_prior: true,
+            preservation_reason: 'insufficient replacement intraday evidence',
+          },
+        };
+      }
 
       const changed = fingerprint(prior) !== fingerprint(state);
 
