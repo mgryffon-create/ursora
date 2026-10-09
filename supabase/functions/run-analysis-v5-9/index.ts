@@ -488,10 +488,18 @@ Deno.serve(async (req) => {
           (cycleEventType === 'breakout' && cycleConfidence !== null && cycleConfidence >= 80)
         );
       const confirmationSatisfied = cycleSubstantiated && !momentumOpposes;
+      const cycleConfirmationPrice = n(persistedCycle?.confirmation_price) ?? n(raw.cycle_confirmation);
+      const entryCompatible = frame.valid && cycleConfirmationPrice !== null &&
+        (direction === 'bullish'
+          ? cycleConfirmationPrice > Number(frame.invalidation) && cycleConfirmationPrice < Number(frame.target)
+          : direction === 'bearish'
+            ? cycleConfirmationPrice < Number(frame.invalidation) && cycleConfirmationPrice > Number(frame.target)
+            : false);
       const supported = direction !== 'neutral' &&
         priceDirectional &&
         confirmationSatisfied &&
         frame.valid &&
+        entryCompatible &&
         !participationStrongOppose &&
         tradeBlockers.length === 0;
       if (supported) supportedCount++;
@@ -533,7 +541,9 @@ Deno.serve(async (req) => {
               ? 'A directional cycle is visible, but reversal/breakout confirmation is not yet strong enough to structure as a trade.'
               : !frame.valid
                 ? 'The cycle is substantiated, but recent cached structure cannot yet produce a usable 1–5 day target/invalidation frame.'
-                : participationStrongOppose
+                : !entryCompatible
+                  ? 'The cycle is substantiated, but its confirmed entry area is outside the current tactical frame. Wait for a new retest, reclaim, or breakout confirmation before treating it as a suggested trade.'
+                  : participationStrongOppose
                   ? 'Strong participation evidence contradicts the proposed short-horizon direction.'
                   : tradeBlockers.join(' ') || 'The swing setup does not currently satisfy the suggestion gate.';
 
@@ -779,6 +789,8 @@ Deno.serve(async (req) => {
         tactical_frame_basis: frame.basis,
         cycle_substantiated: cycleSubstantiated,
         confirmation_satisfied: confirmationSatisfied,
+        entry_compatible: entryCompatible,
+        cycle_confirmation_price: cycleConfirmationPrice,
         context_confirmation_count: contextSupportCount,
         executable_contracts: executable,
         note: '5.9 is append-only: source evidence remains immutable and this row is a derived swing classification.',
