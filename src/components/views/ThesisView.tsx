@@ -557,6 +557,7 @@ export const ThesisView: React.FC<{
       value: analysisPrice,
       label: 'Thesis anchor',
       color: '#60a5fa',
+      group: 'setup',
       dash: '3 3',
       detail: analysisPrice !== null
         ? `This is the price URSORA used when this thesis was created. Targets, invalidation and nearby structure are measured from this starting point, so it stays fixed for this stored run even if the market moves later.`
@@ -566,6 +567,7 @@ export const ThesisView: React.FC<{
       value: signal?.target_price,
       label: '1–5 day target',
       color: '#34d399',
+      group: 'setup',
       dash: '6 3',
       detail: signal?.target_price !== null && signal?.target_price !== undefined
         ? `URSORA sees this as a realistic 1–5 day destination based on the nearest reachable structure and the stock's recent move size. ${tacticalTargetBasis ? `For this run, the target came from ${tacticalTargetBasis.toLowerCase()}.` : ''}`
@@ -575,6 +577,7 @@ export const ThesisView: React.FC<{
       value: signal?.invalidation_level,
       label: '1–5 day invalidation',
       color: '#fbbf24',
+      group: 'setup',
       dash: '2 2',
       detail: signal?.invalidation_level !== null && signal?.invalidation_level !== undefined
         ? `This is the point where the current trade idea stops making sense. URSORA places it beyond nearby structure with enough room for normal price noise. ${tacticalInvalidationBasis ? `For this run, it was set using ${tacticalInvalidationBasis.toLowerCase()}.` : ''}`
@@ -583,6 +586,7 @@ export const ThesisView: React.FC<{
     {
       value: dailyReaction.resistance,
       label: `Daily reaction resistance${dailyReaction.resistanceTouches ? ` · ${dailyReaction.resistanceTouches} touches` : ''}`,
+      group: 'structure',
       color: '#22d3ee',
       dash: '4 2',
       detail: dailyReaction.resistanceDetail ?? undefined,
@@ -590,6 +594,7 @@ export const ThesisView: React.FC<{
     {
       value: dailyReaction.support,
       label: `Daily reaction support${dailyReaction.supportTouches ? ` · ${dailyReaction.supportTouches} touches` : ''}`,
+      group: 'structure',
       color: '#c084fc',
       dash: '4 2',
       detail: dailyReaction.supportDetail ?? undefined,
@@ -597,6 +602,7 @@ export const ThesisView: React.FC<{
     {
       value: tacticalResistance,
       label: 'Reachable resistance',
+      group: 'structure',
       color: '#34d399',
       detail: tacticalResistance !== null
         ? `This is the closest resistance URSORA thinks price could realistically reach inside the 1–5 day trade window. It filters broader structure through recent volatility so distant levels do not automatically become tactical targets. ${tacticalResistanceSource ? `This level came from ${tacticalResistanceSource.toLowerCase()}.` : ''}`
@@ -605,6 +611,7 @@ export const ThesisView: React.FC<{
     {
       value: tacticalSupport,
       label: 'Reachable support',
+      group: 'structure',
       color: '#f87171',
       detail: tacticalSupport !== null
         ? `This is the closest support URSORA considers realistically reachable inside the 1–5 day trade window. It is meant to describe the nearby trading lane, not the stock's broad long-term floor. ${tacticalSupportSource ? `This level came from ${tacticalSupportSource.toLowerCase()}.` : ''}`
@@ -613,6 +620,7 @@ export const ThesisView: React.FC<{
     {
       value: contextResistance,
       label: 'Recent swing resistance',
+      group: 'structure',
       color: '#10b981',
       dash: '2 5',
       detail: contextResistance !== null
@@ -622,6 +630,7 @@ export const ThesisView: React.FC<{
     {
       value: contextSupport,
       label: 'Recent swing support',
+      group: 'structure',
       color: '#fb7185',
       dash: '2 5',
       detail: contextSupport !== null
