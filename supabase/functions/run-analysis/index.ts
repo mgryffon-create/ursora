@@ -429,6 +429,171 @@ function deriveStructureFromBars(bars: AnyRow[]): { support: number | null; resi
   };
 }
 
+function deriveCycleEvidence(bars: AnyRow[]) {
+  const ordered = [...bars]
+    .sort((a, b) => String(a.bar_time).localeCompare(String(b.bar_time)))
+    .slice(-10);
+
+  const empty = {
+    cycle_confirmed: false,
+    cycle_direction: 'neutral',
+    cycle_event_type: 'unconfirmed',
+    cycle_origin: null,
+    cycle_confirmation: null,
+    cycle_invalidation: null,
+    cycle_volume_ratio: null,
+    cycle_reason: 'No recent directional price event was sufficiently substantiated.',
+  };
+
+  if (ordered.length < 6) return empty;
+
+  const ranges = ordered
+    .map((bar) => {
+      const high = n(bar.high); const low = n(bar.low);
+      return high !== null && low !== null ? high - low : null;
+    })
+    .filter((v): v is number => v !== null && v > 0)
+    .sort((a, b) => a - b);
+  const volumes = ordered.map((bar) => n(bar.volume)).filter((v): v is number => v !== null && v > 0).sort((a, b) => a - b);
+  const medianRange = ranges.length ? ranges[Math.floor(ranges.length / 2)] : null;
+  const medianVolume = volumes.length ? volumes[Math.floor(volumes.length / 2)] : null;
+  if (medianRange === null || medianRange <= 0) return empty;
+
+  type Candidate = {
+    direction: 'bullish' | 'bearish';
+    event: 'reversal' | 'continuation' | 'breakout';
+    origin: number;
+    confirmation: number;
+    invalidation: number;
+    volumeRatio: number | null;
+    score: number;
+    index: number;
+    reason: string;
+  };
+  const candidates: Candidate[] = [];
+
+  for (let i = Math.max(1, ordered.length - 6); i < ordered.length - 1; i++) {
+    const prev = ordered[i - 1];
+    const bar = ordered[i];
+    const next = ordered[i + 1];
+    const high = n(bar.high); const low = n(bar.low); const close = n(bar.close);
+    const prevHigh = n(prev.high); const prevLow = n(prev.low);
+    const nextHigh = n(next.high); const nextLow = n(next.low);
+    if ([high, low, close, prevHigh, prevLow, nextHigh, nextLow].some((v) => v === null)) continue;
+
+    const range = Math.max((high as number) - (low as number), medianRange * 0.25);
+    const after = ordered.slice(i + 1);
+    const afterCloses = after.map((x) => n(x.close)).filter((v): v is number => v !== null);
+    const afterLows = after.map((x) => n(x.low)).filter((v): v is number => v !== null);
+    const afterHighs = after.map((x) => n(x.high)).filter((v): v is number => v !== null);
+    if (!afterCloses.length) continue;
+
+    const pivotLow = (low as number) <= (prevLow as number) && (low as number) <= (nextLow as number);
+    if (pivotLow) {
+      const rejection = ((close as number) - (low as number)) / range;
+      const confirmationBar = after.find((x) => {
+        const xClose = n(x.close);
+        return xClose !== null && xClose >= Math.max(close as number, (high as number) - medianRange * 0.15);
+      });
+      const confirmation = confirmationBar ? n(confirmationBar.close) : null;
+      const confirmationVolume = confirmationBar ? n(confirmationBar.volume) : null;
+      const volumeRatio = confirmationVolume !== null && medianVolume
+        ? confirmationVolume / medianVolume
+        : null;
+      const held = afterLows.length ? Math.min(...afterLows) >= (low as number) - medianRange * 0.12 : false;
+      const followThrough = Math.max(...afterCloses) >= (close as number) + medianRange * 0.35;
+      const volumeOkay = volumeRatio === null || volumeRatio >= 0.90;
+      if (rejection >= 0.45 && confirmation !== null && held && followThrough && volumeOkay) {
+        const score = rejection * 2 + (volumeRatio ?? 1) + (ordered.length - i) * -0.08;
+        candidates.push({
+          direction: 'bullish',
+          event: 'reversal',
+          origin: low as number,
+          confirmation,
+          invalidation: (low as number) - medianRange * 0.12,
+          volumeRatio,
+          score,
+          index: i,
+          reason: `Bullish reversal confirmed after a recent low rejected, held on the retest, and produced follow-through${volumeRatio !== null ? ` on ${volumeRatio.toFixed(2)}x median volume` : ''}.`,
+        });
+      }
+    }
+
+    const pivotHigh = (high as number) >= (prevHigh as number) && (high as number) >= (nextHigh as number);
+    if (pivotHigh) {
+      const rejection = ((high as number) - (close as number)) / range;
+      const confirmationBar = after.find((x) => {
+        const xClose = n(x.close);
+        return xClose !== null && xClose <= Math.min(close as number, (low as number) + medianRange * 0.15);
+      });
+      const confirmation = confirmationBar ? n(confirmationBar.close) : null;
+      const confirmationVolume = confirmationBar ? n(confirmationBar.volume) : null;
+      const volumeRatio = confirmationVolume !== null && medianVolume
+        ? confirmationVolume / medianVolume
+        : null;
+      const held = afterHighs.length ? Math.max(...afterHighs) <= (high as number) + medianRange * 0.12 : false;
+      const followThrough = Math.min(...afterCloses) <= (close as number) - medianRange * 0.35;
+      const volumeOkay = volumeRatio === null || volumeRatio >= 0.90;
+      if (rejection >= 0.45 && confirmation !== null && held && followThrough && volumeOkay) {
+        const score = rejection * 2 + (volumeRatio ?? 1) + (ordered.length - i) * -0.08;
+        candidates.push({
+          direction: 'bearish',
+          event: 'reversal',
+          origin: high as number,
+          confirmation,
+          invalidation: (high as number) + medianRange * 0.12,
+          volumeRatio,
+          score,
+          index: i,
+          reason: `Bearish reversal confirmed after a recent high rejected, held on the retest, and produced follow-through${volumeRatio !== null ? ` on ${volumeRatio.toFixed(2)}x median volume` : ''}.`,
+        });
+      }
+    }
+  }
+
+  const last = ordered.at(-1)!;
+  const lastClose = n(last.close);
+  const lastHigh = n(last.high);
+  const lastLow = n(last.low);
+  const lastVolume = n(last.volume);
+  const prior = ordered.slice(0, -1);
+  const priorHigh = maxOf(prior.map((bar) => n(bar.high)).filter((v): v is number => v !== null));
+  const priorLow = minOf(prior.map((bar) => n(bar.low)).filter((v): v is number => v !== null));
+  const lastVolumeRatio = lastVolume !== null && medianVolume ? lastVolume / medianVolume : null;
+
+  if (lastClose !== null && lastHigh !== null && priorHigh !== null && lastClose > priorHigh && (lastVolumeRatio === null || lastVolumeRatio >= 1.0)) {
+    candidates.push({
+      direction: 'bullish', event: 'breakout', origin: priorHigh, confirmation: lastClose,
+      invalidation: priorHigh - medianRange * 0.18, volumeRatio: lastVolumeRatio,
+      score: 4 + (lastVolumeRatio ?? 1), index: ordered.length - 1,
+      reason: `Bullish breakout confirmed above recent structure${lastVolumeRatio !== null ? ` on ${lastVolumeRatio.toFixed(2)}x median volume` : ''}.`,
+    });
+  }
+  if (lastClose !== null && lastLow !== null && priorLow !== null && lastClose < priorLow && (lastVolumeRatio === null || lastVolumeRatio >= 1.0)) {
+    candidates.push({
+      direction: 'bearish', event: 'breakout', origin: priorLow, confirmation: lastClose,
+      invalidation: priorLow + medianRange * 0.18, volumeRatio: lastVolumeRatio,
+      score: 4 + (lastVolumeRatio ?? 1), index: ordered.length - 1,
+      reason: `Bearish breakdown confirmed below recent structure${lastVolumeRatio !== null ? ` on ${lastVolumeRatio.toFixed(2)}x median volume` : ''}.`,
+    });
+  }
+
+  candidates.sort((a, b) => b.index - a.index || b.score - a.score);
+  const best = candidates[0];
+  if (!best) return empty;
+
+  return {
+    cycle_confirmed: true,
+    cycle_direction: best.direction,
+    cycle_event_type: best.event,
+    cycle_origin: best.origin,
+    cycle_confirmation: best.confirmation,
+    cycle_invalidation: best.invalidation,
+    cycle_volume_ratio: best.volumeRatio,
+    cycle_reason: best.reason,
+  };
+}
+
 function deriveTacticalSwingLevels(
   bars: AnyRow[],
   price: number | null,
@@ -634,7 +799,7 @@ Deno.serve(async (req) => {
     try {
       const { data } = await db
         .from('ohlcv_bars')
-        .select('symbol,bar_time,high,low,close,volume')
+        .select('symbol,bar_time,open,high,low,close,volume')
         .eq('timeframe', '1d')
         .order('bar_time', { ascending: false })
         .limit(6500);
@@ -813,6 +978,7 @@ Deno.serve(async (req) => {
       const highs = symbolBars.map((bar) => n(bar.high)).filter((v): v is number => v !== null);
       const lows = symbolBars.map((bar) => n(bar.low)).filter((v): v is number => v !== null);
       const volumes = symbolBars.map((bar) => n(bar.volume)).filter((v): v is number => v !== null);
+      const cycleEvidence = deriveCycleEvidence(symbolBars);
       const lastClose = price ?? closes.at(-1) ?? null;
 
       const calcSma20 = sma20 ?? smaLast(closes, 20);
@@ -1895,6 +2061,7 @@ Deno.serve(async (req) => {
             long_bear_context: longBearContext,
             breakout_up: breakoutUp,
             breakout_down: breakoutDown,
+            ...cycleEvidence,
             reward_risk_ratio: estimatedRatio,
             structural_support: support,
             structural_resistance: resistance,
