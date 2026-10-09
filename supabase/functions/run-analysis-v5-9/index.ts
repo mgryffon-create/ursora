@@ -309,7 +309,7 @@ Deno.serve(async (req) => {
     if (!sourceSignals?.length) return json({ error: `No stored signals were found for run ${sourceRunId}.` }, 404);
 
     const cycleBySymbol = new Map<string, AnyRow>();
-    if (!reclassifyOnly) {
+    {
       const symbols = [...new Set(sourceSignals.map((row: AnyRow) => String(row.symbol ?? '').toUpperCase()).filter(Boolean))];
       if (symbols.length) {
         const { data: cycleRows, error: cycleError } = await db
@@ -319,8 +319,12 @@ Deno.serve(async (req) => {
         if (cycleError) throw cycleError;
         for (const row of cycleRows ?? []) {
           const computedAt = row.computed_at ? new Date(row.computed_at).getTime() : 0;
-          const fresh = Number.isFinite(computedAt) && Date.now() - computedAt <= 6 * 3600000;
-          if (fresh) cycleBySymbol.set(String(row.symbol).toUpperCase(), row);
+          const sourceBarAt = row.source_bar_time ? new Date(row.source_bar_time).getTime() : 0;
+          const computedFresh = Number.isFinite(computedAt) && Date.now() - computedAt <= 24 * 3600000;
+          // Outside market hours, an older completed-session bar can still be the
+          // freshest legitimate market evidence. Do not require a same-hour provider pull.
+          const barUsable = Number.isFinite(sourceBarAt) && Date.now() - sourceBarAt <= 7 * 86400000;
+          if (computedFresh && barUsable) cycleBySymbol.set(String(row.symbol).toUpperCase(), row);
         }
       }
     }
@@ -344,15 +348,12 @@ Deno.serve(async (req) => {
         ? trendOrientation > 0 ? 'bullish' : trendOrientation < 0 ? 'bearish' : 'neutral'
         : 'neutral';
 
-      const persistedCycle = reclassifyOnly
-        ? null
-        : cycleBySymbol.get(String(source.symbol ?? '').toUpperCase()) ?? null;
+      const persistedCycle = cycleBySymbol.get(String(source.symbol ?? '').toUpperCase()) ?? null;
       const cycleConfirmed = persistedCycle
         ? ['reversal_confirmed', 'breakout_confirmed', 'continuation_confirmed'].includes(String(persistedCycle.cycle_state)) &&
           (persistedCycle.direction === 'bullish' || persistedCycle.direction === 'bearish') &&
           persistedCycle.retest_status !== 'failed'
-        : reclassifyOnly &&
-          raw.cycle_confirmed === true &&
+        : raw.cycle_confirmed === true &&
           (raw.cycle_direction === 'bullish' || raw.cycle_direction === 'bearish');
       const cycleDirection = cycleConfirmed
         ? String(persistedCycle?.direction ?? raw.cycle_direction)
