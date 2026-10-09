@@ -4,6 +4,7 @@ import {
   callEdge,
   EDGE_FUNCTIONS,
   fetchSignal as fetchSignalBase,
+  fetchChartBars,
   marketCacheState,
   type EdgeFunctionSlug,
   type FreshAnalysisResult,
@@ -172,7 +173,7 @@ export async function runFreshAnalysis(
     for (const symbol of selectedSymbols) {
       for (const horizon of ['1W', '1D'] as const) {
         try {
-          await callEdge(EDGE_FUNCTIONS.chartBars, { symbol, horizon });
+          await fetchChartBars(symbol, horizon);
         } catch (error) {
           warnings.push(warning(`${symbol} ${horizon} intraday history`, error));
         }
