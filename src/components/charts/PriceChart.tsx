@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Area, AreaChart, Bar, CartesianGrid, ComposedChart, Line, LineChart, ReferenceDot, ReferenceLine, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
@@ -12,6 +12,7 @@ export interface KeyLevel {
   label: string;
   color: string;
   dash?: string;
+  detail?: string;
 }
 
 const axisStyle = { fill: '#71717a', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' };
@@ -130,7 +131,22 @@ export const PriceChart: React.FC<{
   const scaleRatio = Math.max(1, fullRange / baseRange);
   const chartCanvasHeight = Math.round(Math.min(height * scaleRatio * 0.72, height * 4.5));
   const visibleLevels = drawn;
+
+  // Use a continuous price ladder instead of sparse auto-generated labels. Tight
+  // trading ranges get $0.50 increments; wider ranges step up to preserve legibility.
+  const tickStep = baseRange <= 15 ? 0.5
+    : baseRange <= 40 ? 1
+      : baseRange <= 100 ? 2
+        : 5;
+  const tickStart = Math.floor(visibleMin / tickStep) * tickStep;
+  const tickEnd = Math.ceil(visibleMax / tickStep) * tickStep;
+  const yTicks: number[] = [];
+  for (let value = tickStart; value <= tickEnd + tickStep * 0.25; value += tickStep) {
+    yTicks.push(Number(value.toFixed(4)));
+  }
+
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [expandedLevel, setExpandedLevel] = useState<string | null>(null);
   const anchorValue = Number(
     drawn.find((level) => /thesis anchor/i.test(level.label))?.value ?? barMidpoint,
   );
@@ -206,8 +222,9 @@ export const PriceChart: React.FC<{
               tick={axisStyle}
               tickLine={false}
               axisLine={{ stroke: '#1c2027' }}
-              width={54}
-              tickFormatter={(v: number) => v.toFixed(v > 100 ? 0 : 1)}
+              width={62}
+              ticks={yTicks}
+              tickFormatter={(v: number) => v.toFixed(tickStep < 1 ? 2 : tickStep === 1 ? 1 : 0)}
             />
             <Tooltip content={<TooltipBox horizon={horizon} />} />
             <Bar
@@ -243,6 +260,7 @@ export const PriceChart: React.FC<{
           <div className="mt-2 space-y-1.5">
             {drawn.map((l) => {
               const value = Number(l.value);
+              const expanded = expandedLevel === l.label;
               return (
                 <div key={`${l.label}-rail`} className="rounded-sm border border-zinc-800/80 bg-[#0f1216] px-2 py-1.5">
                   <div className="flex items-center justify-between gap-2">
@@ -254,6 +272,23 @@ export const PriceChart: React.FC<{
                       {value.toFixed(2)}
                     </span>
                   </div>
+                  {l.detail && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedLevel(expanded ? null : l.label)}
+                        aria-expanded={expanded}
+                        className="mt-1 font-mono text-[8px] uppercase tracking-wider text-sky-400/80 transition-colors hover:text-sky-300"
+                      >
+                        {expanded ? 'hide method' : 'why this level?'}
+                      </button>
+                      {expanded && (
+                        <div className="mt-1.5 border-t border-zinc-800 pt-1.5 text-[9px] leading-relaxed text-zinc-500">
+                          {l.detail}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               );
             })}
