@@ -70,7 +70,7 @@ const SentimentGauge: React.FC<{ reading: SentimentReading | undefined; title: s
 
 
 function deriveDailyReactionLevels(
-  bars: Bar[],
+  intradayBars: Bar[],
   referencePrice: number | null,
 ): {
   support: number | null;
@@ -78,88 +78,130 @@ function deriveDailyReactionLevels(
   supportTouches: number;
   resistanceTouches: number;
 } {
-  if (!bars.length || referencePrice === null) {
+  if (!intradayBars.length || referencePrice === null) {
     return { support: null, resistance: null, supportTouches: 0, resistanceTouches: 0 };
   }
 
-  const ordered = [...bars]
-    .filter((bar) => Number.isFinite(Number(bar.high)) && Number.isFinite(Number(bar.low)) && Number.isFinite(Number(bar.close)))
-    .sort((a, b) => String(a.bar_time).localeCompare(String(b.bar_time)))
-    .slice(-10);
+  const sessionKey = (value: string) => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date(value));
+    const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+    return `${get('year')}-${get('month')}-${get('day')}`;
+  };
 
-  if (ordered.length < 4) {
+  const ordered = [...intradayBars]
+    .filter((bar) =>
+      Number.isFinite(Number(bar.high)) &&
+      Number.isFinite(Number(bar.low)) &&
+      Number.isFinite(Number(bar.close))
+    )
+    .sort((a, b) => String(a.bar_time).localeCompare(String(b.bar_time)));
+
+  const sessions = [...new Set(ordered.map((bar) => sessionKey(String(bar.bar_time))))].slice(-3);
+  const recent = ordered.filter((bar) => sessions.includes(sessionKey(String(bar.bar_time))));
+  if (recent.length < 8) {
     return { support: null, resistance: null, supportTouches: 0, resistanceTouches: 0 };
   }
 
-  const ranges = ordered
+  const barRanges = recent
     .map((bar) => Number(bar.high) - Number(bar.low))
     .filter((value) => Number.isFinite(value) && value > 0)
     .sort((a, b) => a - b);
-  const medianRange = ranges.length
-    ? ranges[Math.floor(ranges.length / 2)]
-    : Math.max(referencePrice * 0.01, 0.5);
-  const tolerance = Math.max(referencePrice * 0.0025, medianRange * 0.12, 0.15);
+  const medianBarRange = barRanges.length
+    ? barRanges[Math.floor(barRanges.length / 2)]
+    : Math.max(referencePrice * 0.002, 0.25);
+  const tolerance = Math.max(referencePrice * 0.0015, medianBarRange * 0.45, 0.12);
 
-  const cluster = (
-    field: 'high' | 'low',
+  const pivots: Array<{
+    kind: 'high' | 'low';
+    value: number;
+    index: number;
+    rejected: boolean;
+  }> = [];
+
+  for (let i = 1; i < recent.length - 1; i += 1) {
+    const prev = recent[i - 1];
+    const bar = recent[i];
+    const next = recent[i + 1];
+    const high = Number(bar.high);
+    const low = Number(bar.low);
+    const close = Number(bar.close);
+    const prevHigh = Number(prev.high);
+    const nextHigh = Number(next.high);
+    const prevLow = Number(prev.low);
+    const nextLow = Number(next.low);
+    const sessionRange = Math.max(high - low, tolerance);
+
+    if (high >= prevHigh && high >= nextHigh) {
+      pivots.push({
+        kind: 'high',
+        value: high,
+        index: i,
+        rejected: high - close >= Math.max(sessionRange * 0.22, tolerance * 0.5),
+      });
+    }
+    if (low <= prevLow && low <= nextLow) {
+      pivots.push({
+        kind: 'low',
+        value: low,
+        index: i,
+        rejected: close - low >= Math.max(sessionRange * 0.22, tolerance * 0.5),
+      });
+    }
+  }
+
+  const bestCluster = (
+    kind: 'high' | 'low',
     side: 'above' | 'below',
   ): { level: number | null; touches: number } => {
-    const values = ordered.map((bar, index) => ({
-      index,
-      value: Number(bar[field]),
-      open: Number(bar.open),
-      close: Number(bar.close),
-      high: Number(bar.high),
-      low: Number(bar.low),
-    }));
+    const candidates = pivots.filter((pivot) =>
+      pivot.kind === kind &&
+      (side === 'above' ? pivot.value > referencePrice : pivot.value < referencePrice)
+    );
 
-    const candidates: Array<{ level: number; touches: number; rejections: number; distance: number }> = [];
+    const clusters: Array<{
+      level: number;
+      touches: number;
+      rejections: number;
+      distance: number;
+      recency: number;
+    }> = [];
 
-    for (const seed of values) {
-      if (!Number.isFinite(seed.value)) continue;
-      if (side === 'above' && seed.value <= referencePrice) continue;
-      if (side === 'below' && seed.value >= referencePrice) continue;
+    for (const seed of candidates) {
+      const members = candidates.filter((pivot) => Math.abs(pivot.value - seed.value) <= tolerance);
+      const uniqueIndexes = new Set(members.map((pivot) => pivot.index));
+      if (uniqueIndexes.size < 2) continue;
 
-      const members = values.filter((item) => Math.abs(item.value - seed.value) <= tolerance);
-      const uniqueSessions = new Set(members.map((item) => item.index));
-      if (uniqueSessions.size < 2) continue;
-
-      const level = members.reduce((sum, item) => sum + item.value, 0) / members.length;
-      let rejections = 0;
-
-      for (const item of members) {
-        const sessionRange = Math.max(item.high - item.low, tolerance);
-        if (field === 'high') {
-          const rejectionDepth = item.high - item.close;
-          if (rejectionDepth >= Math.max(sessionRange * 0.22, tolerance * 0.5)) rejections += 1;
-        } else {
-          const rejectionDepth = item.close - item.low;
-          if (rejectionDepth >= Math.max(sessionRange * 0.22, tolerance * 0.5)) rejections += 1;
-        }
-      }
-
+      const rejections = members.filter((pivot) => pivot.rejected).length;
       if (rejections < 1) continue;
 
-      candidates.push({
+      const level = members.reduce((sum, pivot) => sum + pivot.value, 0) / members.length;
+      clusters.push({
         level,
-        touches: uniqueSessions.size,
+        touches: uniqueIndexes.size,
         rejections,
         distance: Math.abs(level - referencePrice),
+        recency: Math.max(...members.map((pivot) => pivot.index)),
       });
     }
 
-    candidates.sort((a, b) =>
+    clusters.sort((a, b) =>
       b.touches - a.touches ||
       b.rejections - a.rejections ||
+      b.recency - a.recency ||
       a.distance - b.distance
     );
 
-    const best = candidates[0];
+    const best = clusters[0];
     return best ? { level: best.level, touches: best.touches } : { level: null, touches: 0 };
   };
 
-  const resistance = cluster('high', 'above');
-  const support = cluster('low', 'below');
+  const resistance = bestCluster('high', 'above');
+  const support = bestCluster('low', 'below');
 
   return {
     support: support.level,
@@ -278,10 +320,17 @@ export const ThesisView: React.FC<{
         });
 
         setChartLoading(true);
-        void fetchChartBars(sig.symbol, '1M')
-          .then((initialChart) => {
+        void Promise.all([
+          fetchChartBars(sig.symbol, '1M'),
+          fetchChartBars(sig.symbol, '1W'),
+        ])
+          .then(([initialChart, reactionChart]) => {
             if (!active) return;
-            setChartBarsByHorizon((current) => ({ ...current, '1M': initialChart.bars }));
+            setChartBarsByHorizon((current) => ({
+              ...current,
+              '1M': initialChart.bars,
+              '1W': reactionChart.bars,
+            }));
           })
           .catch((chartLoadError) => {
             if (!active) return;
@@ -344,7 +393,8 @@ export const ThesisView: React.FC<{
   const recentMedianCloseMove5 = rawNumber(rawAnalysis.recent_median_abs_close_move_5);
   const chartBars = chartBarsByHorizon[chartHorizon] ?? bars.slice(-23);
   const analysisPrice = rawNumber(signal?.stock_price_at_generation);
-  const dailyReaction = deriveDailyReactionLevels(bars, quote?.price ?? analysisPrice);
+  const dailyReactionBars = chartBarsByHorizon['1W'] ?? chartBarsByHorizon['1D'] ?? [];
+  const dailyReaction = deriveDailyReactionLevels(dailyReactionBars, quote?.price ?? analysisPrice);
   const isV59 = signal?.engine_version === 'tradecycle-5.9.0';
   const swingSetup = typeof rawAnalysis.swing_setup === 'string' ? rawAnalysis.swing_setup : 'unclassified';
   const swingPriceBand = typeof rawAnalysis.swing_price_band === 'string' ? rawAnalysis.swing_price_band : 'Insufficient';
@@ -1165,8 +1215,8 @@ export const ThesisView: React.FC<{
             <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               <Metric label="Reachable support" value={num(tacticalSupport)} valueClass="text-red-300" />
               <Metric label="Reachable resistance" value={num(tacticalResistance)} valueClass="text-emerald-300" />
-              <Metric label="Current daily reaction support" value={num(dailyReaction.support)} hint={dailyReaction.supportTouches ? `${dailyReaction.supportTouches} touches / recent rejections` : undefined} valueClass="text-violet-300" />
-              <Metric label="Current daily reaction resistance" value={num(dailyReaction.resistance)} hint={dailyReaction.resistanceTouches ? `${dailyReaction.resistanceTouches} touches / recent rejections` : undefined} valueClass="text-cyan-300" />
+              <Metric label="Current daily reaction support" value={num(dailyReaction.support)} hint={dailyReaction.supportTouches ? `${dailyReaction.supportTouches} intraday touches · last 3 sessions` : undefined} valueClass="text-violet-300" />
+              <Metric label="Current daily reaction resistance" value={num(dailyReaction.resistance)} hint={dailyReaction.resistanceTouches ? `${dailyReaction.resistanceTouches} intraday touches · last 3 sessions` : undefined} valueClass="text-cyan-300" />
               <Metric label="Recent swing support" value={num(contextSupport)} valueClass="text-zinc-400" />
               <Metric label="Recent swing resistance" value={num(contextResistance)} valueClass="text-zinc-400" />
             </div>
