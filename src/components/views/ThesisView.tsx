@@ -836,7 +836,36 @@ export const ThesisView: React.FC<{
   const analysisPrice = rawNumber(signal?.stock_price_at_generation);
   const dailyReactionBars = chartBarsByHorizon['1W'] ?? chartBarsByHorizon['1D'] ?? [];
   const dailyReaction = deriveDailyReactionLevels(dailyReactionBars, quote?.price ?? analysisPrice);
-  const executionCycle = deriveExecutionCycle(dailyReactionBars, signal?.direction);
+  const persistedCycleRaw = rawAnalysis.market_cycle_state && typeof rawAnalysis.market_cycle_state === 'object'
+    ? rawAnalysis.market_cycle_state as Record<string, unknown>
+    : null;
+  const persistedCycleDirection = persistedCycleRaw?.direction === 'bullish' || persistedCycleRaw?.direction === 'bearish'
+    ? persistedCycleRaw.direction as 'bullish' | 'bearish'
+    : 'neutral';
+  const persistedCycleState = String(persistedCycleRaw?.cycle_state ?? 'unconfirmed');
+  const persistedExecutionCycle: ExecutionCycle | null = persistedCycleRaw
+    ? {
+        confirmed: ['reversal_confirmed', 'breakout_confirmed', 'continuation_confirmed'].includes(persistedCycleState) &&
+          persistedCycleDirection !== 'neutral' &&
+          persistedCycleRaw.retest_status !== 'failed',
+        direction: persistedCycleDirection,
+        event: persistedCycleRaw.event_type === 'breakout'
+          ? 'breakout'
+          : persistedCycleRaw.event_type === 'continuation'
+            ? 'continuation'
+            : persistedCycleRaw.event_type === 'reversal'
+              ? 'reversal'
+              : 'unconfirmed',
+        origin: rawNumber(persistedCycleRaw.reversal_origin),
+        confirmation: rawNumber(persistedCycleRaw.confirmation_price),
+        invalidation: rawNumber(persistedCycleRaw.cycle_invalidation),
+        volumeRatio: rawNumber(persistedCycleRaw.volume_confirmation_ratio),
+        reason: typeof persistedCycleRaw.reason === 'string'
+          ? persistedCycleRaw.reason
+          : 'The persisted market-cycle state did not include an explanation.',
+      }
+    : null;
+  const executionCycle = persistedExecutionCycle ?? deriveExecutionCycle(dailyReactionBars, signal?.direction);
   const isV59 = signal?.engine_version === 'tradecycle-5.9.0';
   const swingSetup = typeof rawAnalysis.swing_setup === 'string' ? rawAnalysis.swing_setup : 'unclassified';
   const swingPriceBand = typeof rawAnalysis.swing_price_band === 'string' ? rawAnalysis.swing_price_band : 'Insufficient';
