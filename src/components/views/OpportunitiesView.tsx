@@ -1,12 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertOctagon, Loader2, RefreshCw, Search, Star, X,
 } from 'lucide-react';
 import db from '@/lib/db';
 import {
   fetchActiveAnalyses, fetchLatestQuotes, fetchRuns, fetchSymbolAnalysisMemory, fetchTickers, fetchTodaySignals,
-  runFreshAnalysis, track,
+  track,
 } from '@/lib/api';
+import { reclassifyStoredAnalysis, runFreshAnalysis } from '@/lib/api-v59';
 import type { ActiveAnalysis, AnalysisRun, Quote, Signal, Ticker } from '@/lib/types';
 import { changeColor, money, pct, stampET } from '@/lib/format';
 import { useAuth } from '@/contexts/AuthContext';
@@ -253,6 +254,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pipelineWarnings, setPipelineWarnings] = useState<string[]>([]);
+  const cachedRestructureAttempted = useRef(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -261,7 +263,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
         fetchTodaySignals(),
         fetchLatestQuotes(),
         fetchTickers(),
-        fetchRuns(6),
+        fetchRuns(12),
         fetchActiveAnalyses(),
         fetchSymbolAnalysisMemory(),
       ]);
@@ -271,6 +273,41 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
       setTickers(Object.fromEntries(tickerRows.map((ticker) => [ticker.symbol, ticker])));
       setRuns(runRows);
       setActiveAnalyses(activeRows);
+
+      // If provider limits prevent a new refresh, do not leave Suggested Trades
+      // empty when recent stored evidence can still be structured under the current
+      // TradeCycle rules. Reclassify the newest immutable 5.8 evidence run once per
+      // page session; v5.9 will consume recent persisted market-cycle state and
+      // rebuild active_analyses without touching the market-data provider.
+      if (!activeRows.length && !cachedRestructureAttempted.current) {
+        const recentSourceRun = runRows.find((run) =>
+          String(run.notes ?? '').includes('TradeCycle v5.8.0 swing analysis')
+        );
+        if (recentSourceRun?.run_id) {
+          cachedRestructureAttempted.current = true;
+          try {
+            await reclassifyStoredAnalysis(String(recentSourceRun.run_id));
+            const [restructuredSignals, restructuredActive] = await Promise.all([
+              fetchTodaySignals(),
+              fetchActiveAnalyses(),
+            ]);
+            setSignals(restructuredSignals);
+            setActiveAnalyses(restructuredActive);
+
+            const restructuredIds = [...new Set(restructuredActive.map((item) => item.signal_id).filter(Boolean))];
+            if (restructuredIds.length) {
+              const { data, error: activeSignalError } = await db.from('signals').select('*').in('id', restructuredIds);
+              if (activeSignalError) throw activeSignalError;
+              const restructuredMap: Record<string, Signal> = {};
+              for (const signal of (data as Signal[]) ?? []) restructuredMap[signal.symbol] = signal;
+              setActiveSignals(restructuredMap);
+            }
+            return;
+          } catch (restructureError) {
+            console.warn('URSORA cached-evidence restructure did not complete:', restructureError);
+          }
+        }
+      }
 
       const activeIds = [...new Set(activeRows.map((item) => item.signal_id).filter(Boolean))];
       if (activeIds.length) {
@@ -401,9 +438,9 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
       });
       setPipelineWarnings(result.warnings);
 
-      if (result.engine_version && result.engine_version !== 'tradecycle-5.8.0') {
+      if (result.engine_version && result.engine_version !== 'tradecycle-5.9.0') {
         setError(
-          `Analysis service returned ${result.engine_version}; expected tradecycle-5.8.0. Supabase is still serving an older run-analysis deployment.`,
+          `Analysis service returned ${result.engine_version}; expected tradecycle-5.9.0.`,
         );
       }
 
