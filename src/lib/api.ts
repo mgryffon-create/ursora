@@ -744,12 +744,22 @@ export async function fetchRisk(signalId: number): Promise<RiskAssessment | null
   return (data as RiskAssessment[])?.[0] ?? null;
 }
 
-export async function fetchNews(symbol?: string, limit = 40): Promise<NewsItem[]> {
+export async function fetchNews(symbol?: string, limit = 40, maxAgeHours?: number): Promise<NewsItem[]> {
   let q = db.from('news_items').select('*').order('published_at', { ascending: false }).limit(limit);
   if (symbol) q = q.eq('symbol', symbol);
+  if (maxAgeHours && Number.isFinite(maxAgeHours) && maxAgeHours > 0) {
+    q = q.gte('published_at', new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString());
+  }
   const { data, error } = await q;
   if (error) throw error;
-  return rows<NewsItem>(data as NewsItem[]);
+
+  const seen = new Set<string>();
+  return rows<NewsItem>(data as NewsItem[]).filter((item) => {
+    const key = String(item.url ?? item.headline ?? '').trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export async function fetchFilings(symbol?: string): Promise<Filing[]> {
