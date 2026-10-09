@@ -68,7 +68,12 @@ const SentimentGauge: React.FC<{ reading: SentimentReading | undefined; title: s
   );
 };
 
-export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({ signalId, onBack }) => {
+export const ThesisView: React.FC<{
+  signalId: number;
+  initialTab?: string;
+  focusNewsId?: number | null;
+  onBack: () => void;
+}> = ({ signalId, initialTab = 'score', focusNewsId = null, onBack }) => {
   useAuth();
   const [signal, setSignal] = useState<Signal | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -91,7 +96,20 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
   const [loading, setLoading] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
   const [showAllNews, setShowAllNews] = useState(false);
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [signalId, initialTab, focusNewsId]);
+
+  useEffect(() => {
+    if (activeTab !== 'news' || !focusNewsId || !news.length) return;
+    const id = window.setTimeout(() => {
+      document.getElementById(`news-item-${focusNewsId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 80);
+    return () => window.clearTimeout(id);
+  }, [activeTab, focusNewsId, news]);
 
   useEffect(() => {
     let active = true;
@@ -139,7 +157,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         // Secondary evidence should never hold the entire trade-analysis page hostage.
         void Promise.all([
           fetchSnapshot(),
-          fetchNews(sig.symbol, 3),
+          fetchNews(sig.symbol, 12, 72),
           fetchFilings(sig.symbol),
           fetchTranscripts(sig.symbol),
           fetchSentiment(sig.symbol),
@@ -274,6 +292,14 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
           return Number.isFinite(published) && published >= runNewsCutoffMs && published <= signalGeneratedMs;
         })
         .slice(0, contractNewsCount !== null && contractNewsCount >= 0 ? contractNewsCount : undefined);
+  const runEvidenceNewsIds = new Set(runBoundNews.map((item) => item.id));
+  const newsForDisplay = focusNewsId
+    ? [
+        ...news.filter((item) => item.id === focusNewsId),
+        ...news.filter((item) => item.id !== focusNewsId),
+      ]
+    : news;
+  const visibleNews = showAllNews ? newsForDisplay : newsForDisplay.slice(0, 4);
 
   const scopedMarketRegime = snapshot?.regime
     ? snapshot.market_status === 'equity-only context'
@@ -478,7 +504,7 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         <div className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-[12px] text-red-200">{error}</div>
       )}
 
-      <Tabs defaultValue="score" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="flex h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto bg-[#14171c] p-1">
           {[
             { v: 'score', l: 'Score rationale', Icon: Gauge },
@@ -1186,76 +1212,95 @@ export const ThesisView: React.FC<{ signalId: number; onBack: () => void }> = ({
         <TabsContent value="news" className="mt-3 space-y-3">
           <Panel
             title="News & market events"
-            subtitle="Verified symbol-level news from the same 72-hour evidence window used by this analysis. Newer items carry more weight."
-            right={runBoundNews.length
-              ? (runBoundNews.some((item) => item.is_demo) ? <DemoBadge /> : <DataBadge kind="observed" label="VERIFIED NEWS · RUN EVIDENCE" />)
+            subtitle="Current verified symbol-level news from the last 72 hours. Articles marked RUN EVIDENCE were available to this analysis; newer or separately refreshed items are current context only and do not retroactively change the stored run."
+            right={news.length
+              ? (news.some((item) => item.is_demo) ? <DemoBadge /> : <DataBadge kind="observed" label="VERIFIED NEWS · CURRENT CONTEXT" />)
               : undefined}
           >
             <ul className="grid gap-2 xl:grid-cols-2">
-              {(showAllNews ? runBoundNews : runBoundNews.slice(0, 4)).map((n) => (
-                <li key={n.id} className="min-w-0 rounded-sm border border-zinc-800 bg-black/20 p-2.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-sm border border-zinc-700 px-1.5 py-[1px] font-mono text-[9px] uppercase tracking-wide text-zinc-400">
-                      {n.category ?? 'uncategorised'}
-                    </span>
-                    {n.impact && (
+              {visibleNews.map((n) => {
+                const wasRunEvidence = runEvidenceNewsIds.has(n.id);
+                const focused = focusNewsId === n.id;
+                return (
+                  <li
+                    id={`news-item-${n.id}`}
+                    key={n.id}
+                    className={cn(
+                      'min-w-0 rounded-sm border bg-black/20 p-2.5 transition-colors',
+                      focused ? 'border-sky-500/60 bg-sky-500/[0.05]' : 'border-zinc-800',
+                    )}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-sm border border-zinc-700 px-1.5 py-[1px] font-mono text-[9px] uppercase tracking-wide text-zinc-400">
+                        {n.category ?? 'uncategorised'}
+                      </span>
                       <span className={cn(
                         'rounded-sm border px-1.5 py-[1px] font-mono text-[9px] uppercase tracking-wide',
-                        n.impact === 'critical' ? 'border-red-500/40 text-red-300'
-                          : n.impact === 'high' ? 'border-amber-500/40 text-amber-300'
-                            : 'border-zinc-600 text-zinc-400',
+                        wasRunEvidence
+                          ? 'border-violet-500/40 bg-violet-500/10 text-violet-300'
+                          : 'border-sky-500/30 bg-sky-500/[0.06] text-sky-300',
                       )}>
-                        {n.impact} impact
+                        {wasRunEvidence ? 'run evidence' : 'current context · not in run'}
                       </span>
-                    )}
-                    {n.sentiment && <DirectionTag direction={n.sentiment} />}
-                    <span className="ml-auto flex items-center gap-2 font-mono text-[10px] text-zinc-500">
-                      recency weight
-                      <span className="inline-block h-1 w-16 overflow-hidden rounded-full bg-zinc-800">
-                        <span className="block h-full bg-sky-500" style={{ width: `${Math.round((n.recency_weight ?? 0) * 100)}%` }} />
+                      {n.impact && (
+                        <span className={cn(
+                          'rounded-sm border px-1.5 py-[1px] font-mono text-[9px] uppercase tracking-wide',
+                          n.impact === 'critical' ? 'border-red-500/40 text-red-300'
+                            : n.impact === 'high' ? 'border-amber-500/40 text-amber-300'
+                              : 'border-zinc-600 text-zinc-400',
+                        )}>
+                          {n.impact} impact
+                        </span>
+                      )}
+                      {n.sentiment && <DirectionTag direction={n.sentiment} />}
+                      <span className="ml-auto flex items-center gap-2 font-mono text-[10px] text-zinc-500">
+                        recency weight
+                        <span className="inline-block h-1 w-16 overflow-hidden rounded-full bg-zinc-800">
+                          <span className="block h-full bg-sky-500" style={{ width: `${Math.round((n.recency_weight ?? 0) * 100)}%` }} />
+                        </span>
+                        {n.recency_weight?.toFixed(2) ?? 'n/a'}
                       </span>
-                      {n.recency_weight?.toFixed(2) ?? 'n/a'}
-                    </span>
-                  </div>
-                  <h4 className="mt-2 text-[13px] font-semibold leading-snug text-zinc-100">
-                    {n.url ? (
-                      <a href={n.url} target="_blank" rel="noreferrer" className="transition-colors hover:text-sky-300">
-                        {n.headline}
+                    </div>
+                    <h4 className="mt-2 text-[13px] font-semibold leading-snug text-zinc-100">
+                      {n.url ? (
+                        <a href={n.url} target="_blank" rel="noreferrer" className="transition-colors hover:text-sky-300">
+                          {n.headline}
+                        </a>
+                      ) : n.headline}
+                    </h4>
+                    <p className="mt-1 text-[12px] leading-relaxed text-zinc-400">
+                      {n.summary ?? 'Brief summary unavailable from this source.'}
+                    </p>
+                    {n.url && (
+                      <a
+                        href={n.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1.5 inline-block font-mono text-[10px] uppercase tracking-wider text-sky-400 hover:text-sky-300"
+                      >
+                        Read full source
                       </a>
-                    ) : n.headline}
-                  </h4>
-                  <p className="mt-1 text-[12px] leading-relaxed text-zinc-400">
-                    {n.summary ?? 'Brief summary unavailable from this source.'}
-                  </p>
-                  {n.url && (
-                    <a
-                      href={n.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-1.5 inline-block font-mono text-[10px] uppercase tracking-wider text-sky-400 hover:text-sky-300"
-                    >
-                      Read source
-                    </a>
-                  )}
-                  <Provenance
-                    sourceName={n.source_name}
-                    sourceType={n.source_type}
-                    publishedAt={n.published_at}
-                    retrievedAt={n.retrieved_at}
-                    url={n.url}
-                    confidence={n.confidence}
-                  />
-                </li>
-              ))}
+                    )}
+                    <Provenance
+                      sourceName={n.source_name}
+                      sourceType={n.source_type}
+                      publishedAt={n.published_at}
+                      retrievedAt={n.retrieved_at}
+                      url={n.url}
+                      confidence={n.confidence}
+                    />
+                  </li>
+                );
+              })}
               {!news.length && <EmptyState title="No recent news available" body="URSORA does not currently have dated news for this symbol and does not substitute an assumed event." />}
             </ul>
-            {runBoundNews.length > 4 && (
+            {newsForDisplay.length > 4 && (
               <button
                 type="button"
                 onClick={() => setShowAllNews((value) => !value)}
                 className="mt-3 font-mono text-[10px] uppercase tracking-wider text-sky-400 transition-colors hover:text-sky-300"
               >
-                {showAllNews ? 'Show fewer articles' : `View ${runBoundNews.length - 4} more articles`}
+                {showAllNews ? 'Show fewer articles' : `View ${newsForDisplay.length - 4} more articles`}
               </button>
             )}
           </Panel>
