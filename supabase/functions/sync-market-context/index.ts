@@ -283,7 +283,11 @@ Deno.serve(async (req) => {
 
     if (!force && latestSnapshot?.retrieved_at) {
       const ageMs = Date.now() - new Date(latestSnapshot.retrieved_at).getTime();
-      if (ageMs >= 0 && ageMs < 15 * 60 * 1000) {
+      const legacyBrokenContext =
+        String(latestSnapshot?.regime_note ?? '').includes('cross-asset macro feeds are not connected') ||
+        String(latestSnapshot?.macro_note ?? '').includes('Partial refresh warnings:') ||
+        (Array.isArray(latestSnapshot?.sector_performance) && latestSnapshot.sector_performance.length === 0);
+      if (ageMs >= 0 && ageMs < 15 * 60 * 1000 && !legacyBrokenContext) {
         return json({ success: true, cached: true, snapshot_id: latestSnapshot.id });
       }
     }
