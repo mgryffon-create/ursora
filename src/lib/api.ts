@@ -143,6 +143,7 @@ export const EDGE_FUNCTIONS = {
   marketContextSync: 'sync-market-context',
   historicalPlayback: 'historical-session-playback',
   chartBars: 'sync-chart-bars',
+  marketCycle: 'derive-market-cycle-state',
   snapTradeRegister: 'snaptrade-register-user-v2',
   snapTradePortal: 'snaptrade-connection-portal-v2',
   snapTradeSync: 'sync-snaptrade-accounts-v2',
