@@ -278,6 +278,170 @@ function deriveDailyReactionLevels(
   };
 }
 
+type EntryPlan = {
+  low: number;
+  high: number;
+  reference: number;
+  chaseLimit: number;
+  minimumRr: number;
+  state: 'waiting' | 'in_zone' | 'acceptable' | 'extended' | 'invalidated';
+  trigger: string;
+  detail: string;
+};
+
+function deriveEntryPlan(args: {
+  direction: string | null | undefined;
+  setup: string;
+  analysisPrice: number | null;
+  currentPrice: number | null;
+  target: number | null;
+  invalidation: number | null;
+  dailySupport: number | null;
+  dailyResistance: number | null;
+  tacticalSupport: number | null;
+  tacticalResistance: number | null;
+  localMoveUnit: number | null;
+  medianCloseMove: number | null;
+}): EntryPlan | null {
+  const {
+    direction, setup, analysisPrice, currentPrice, target, invalidation,
+    dailySupport, dailyResistance, tacticalSupport, tacticalResistance,
+    localMoveUnit, medianCloseMove,
+  } = args;
+
+  const bullish = direction === 'bullish';
+  const bearish = direction === 'bearish';
+  if ((!bullish && !bearish) || analysisPrice === null || target === null || invalidation === null) return null;
+
+  const frameValid = bullish
+    ? target > analysisPrice && invalidation < analysisPrice
+    : target < analysisPrice && invalidation > analysisPrice;
+  if (!frameValid) return null;
+
+  const moveUnit = Math.max(
+    localMoveUnit ?? 0,
+    medianCloseMove ?? 0,
+    analysisPrice * 0.006,
+    0.5,
+  );
+  const zoneWidth = Math.max(0.15, Math.min(moveUnit * 0.22, Math.max(moveUnit * 0.10, analysisPrice * 0.004)));
+  const minimumRr = 1.25;
+
+  // Solving reward/risk = minimumRr for entry gives the execution chase boundary.
+  const chaseLimit = (target + minimumRr * invalidation) / (1 + minimumRr);
+
+  const usable = (value: number | null, side: 'support' | 'resistance') =>
+    value !== null &&
+    Number.isFinite(value) &&
+    (bullish
+      ? side === 'support'
+        ? value > invalidation && value < target
+        : value > invalidation && value < target
+      : side === 'resistance'
+        ? value < invalidation && value > target
+        : value < invalidation && value > target);
+
+  let reference = analysisPrice;
+  let trigger = bullish
+    ? 'Wait for price to hold the zone and show buyers stepping back in.'
+    : 'Wait for price to hold below the zone and show sellers taking control again.';
+  let basis = 'the thesis anchor because no stronger nearby execution structure was available';
+
+  if (setup === 'momentum_breakout') {
+    const breakoutLevel = bullish
+      ? (usable(dailyResistance, 'resistance') ? dailyResistance : usable(tacticalResistance, 'resistance') ? tacticalResistance : null)
+      : (usable(dailySupport, 'support') ? dailySupport : usable(tacticalSupport, 'support') ? tacticalSupport : null);
+    if (breakoutLevel !== null) {
+      reference = breakoutLevel;
+      basis = bullish ? 'the nearest validated resistance that price needs to clear' : 'the nearest validated support that price needs to break';
+      trigger = bullish
+        ? 'The cleaner entry is a break through this area followed by a hold or retest, rather than chasing the first spike.'
+        : 'The cleaner entry is a break below this area followed by a hold or retest, rather than chasing the first flush.';
+    }
+  } else if (setup === 'trend_continuation') {
+    const pullbackLevel = bullish
+      ? (usable(dailySupport, 'support') ? dailySupport : usable(tacticalSupport, 'support') ? tacticalSupport : null)
+      : (usable(dailyResistance, 'resistance') ? dailyResistance : usable(tacticalResistance, 'resistance') ? tacticalResistance : null);
+    if (pullbackLevel !== null) {
+      reference = pullbackLevel;
+      basis = bullish ? 'the nearest support where recent price action has found buyers' : 'the nearest resistance where recent price action has found sellers';
+      trigger = bullish
+        ? 'Look for the pullback to hold this area or reclaim it after a brief dip before treating the entry as active.'
+        : 'Look for the bounce to reject this area or lose it again after a brief push before treating the entry as active.';
+    }
+  } else {
+    const continuationLevel = bullish
+      ? (usable(dailySupport, 'support') && Math.abs((dailySupport ?? analysisPrice) - analysisPrice) <= moveUnit ? dailySupport : null)
+      : (usable(dailyResistance, 'resistance') && Math.abs((dailyResistance ?? analysisPrice) - analysisPrice) <= moveUnit ? dailyResistance : null);
+    if (continuationLevel !== null) {
+      reference = continuationLevel;
+      basis = bullish ? 'the nearest fresh reaction support inside the current momentum lane' : 'the nearest fresh reaction resistance inside the current momentum lane';
+    }
+  }
+
+  let low: number;
+  let high: number;
+  if (setup === 'momentum_breakout') {
+    if (bullish) {
+      low = reference - zoneWidth * 0.20;
+      high = reference + zoneWidth;
+    } else {
+      low = reference - zoneWidth;
+      high = reference + zoneWidth * 0.20;
+    }
+  } else if (bullish) {
+    low = reference - zoneWidth * 0.25;
+    high = reference + zoneWidth * 0.75;
+  } else {
+    low = reference - zoneWidth * 0.75;
+    high = reference + zoneWidth * 0.25;
+  }
+
+  // Keep the preferred zone inside the original trade frame and inside the
+  // execution chase boundary.
+  const epsilon = Math.max(0.01, analysisPrice * 0.0001);
+  if (bullish) {
+    low = Math.max(low, invalidation + epsilon);
+    high = Math.min(high, target - epsilon, chaseLimit);
+  } else {
+    low = Math.max(low, target + epsilon, chaseLimit);
+    high = Math.min(high, invalidation - epsilon);
+  }
+  if (!(low <= high)) return null;
+
+  const price = currentPrice ?? analysisPrice;
+  let state: EntryPlan['state'];
+  if (bullish ? price <= invalidation : price >= invalidation) {
+    state = 'invalidated';
+  } else if (price >= low && price <= high) {
+    state = 'in_zone';
+  } else if (bullish ? price > chaseLimit : price < chaseLimit) {
+    state = 'extended';
+  } else if (bullish ? price < low : price > high) {
+    state = 'waiting';
+  } else {
+    state = 'acceptable';
+  }
+
+  const stateText = state === 'in_zone'
+    ? 'Price is currently inside the preferred entry zone.'
+    : state === 'extended'
+      ? `Price is beyond the ${minimumRr.toFixed(2)}R chase limit, so the setup may still be valid but the entry is no longer attractive.`
+      : state === 'invalidated'
+        ? 'Price has already crossed the thesis invalidation level, so this entry is no longer valid.'
+        : state === 'waiting'
+          ? 'Price has not reached the preferred entry area yet.'
+          : 'Price is outside the preferred zone but has not crossed the chase limit.';
+
+  const detail =
+    `URSORA built this entry around ${basis}. The zone is widened by the stock's recent realized movement so it is not pretending there is one perfect fill price. ` +
+    `The chase limit is ${chaseLimit.toFixed(2)} because entering beyond that point would leave less than ${minimumRr.toFixed(2)}:1 reward-to-risk using this run's target and invalidation. ` +
+    `${stateText} ${trigger}`;
+
+  return { low, high, reference, chaseLimit, minimumRr, state, trigger, detail };
+}
+
+
 export const ThesisView: React.FC<{
   signalId: number;
   initialTab?: string;
@@ -473,6 +637,20 @@ export const ThesisView: React.FC<{
   const swingMomentumConfirmed = rawAnalysis.swing_momentum_confirmed === true;
   const swingFrameValid = rawAnalysis.swing_tactical_frame_valid === true;
   const swingRewardRisk = rawNumber(rawAnalysis.swing_reward_risk_ratio);
+  const entryPlan = deriveEntryPlan({
+    direction: signal?.direction,
+    setup: swingSetup,
+    analysisPrice,
+    currentPrice: rawNumber(quote?.price),
+    target: rawNumber(signal?.target_price),
+    invalidation: rawNumber(signal?.invalidation_level),
+    dailySupport: dailyReaction.support,
+    dailyResistance: dailyReaction.resistance,
+    tacticalSupport,
+    tacticalResistance,
+    localMoveUnit,
+    medianCloseMove: recentMedianCloseMove5,
+  });
   const contractSelectionState = typeof scoreMeta.contract_selection_state === 'string'
     ? scoreMeta.contract_selection_state
     : 'not_applicable';
@@ -561,6 +739,28 @@ export const ThesisView: React.FC<{
       dash: '3 3',
       detail: analysisPrice !== null
         ? `This is the price URSORA used when this thesis was created. Targets, invalidation and nearby structure are measured from this starting point, so it stays fixed for this stored run even if the market moves later.`
+        : undefined,
+    },
+    {
+      value: entryPlan?.reference ?? null,
+      rangeLow: entryPlan?.low ?? null,
+      rangeHigh: entryPlan?.high ?? null,
+      displayValue: entryPlan ? `${entryPlan.low.toFixed(2)}–${entryPlan.high.toFixed(2)}` : undefined,
+      label: entryPlan
+        ? `Preferred entry · ${entryPlan.state.replaceAll('_', ' ')}`
+        : 'Preferred entry',
+      color: '#a78bfa',
+      group: 'setup',
+      detail: entryPlan?.detail,
+    },
+    {
+      value: entryPlan?.chaseLimit ?? null,
+      label: signal?.direction === 'bearish' ? 'Do not chase below' : 'Max chase',
+      color: '#f59e0b',
+      group: 'setup',
+      dash: '5 3',
+      detail: entryPlan
+        ? `This is the execution guardrail, not a thesis invalidation. Beyond ${entryPlan.chaseLimit.toFixed(2)}, the remaining reward to the stored target falls below ${entryPlan.minimumRr.toFixed(2)}:1 relative to the stored invalidation.`
         : undefined,
     },
     {
