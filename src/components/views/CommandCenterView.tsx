@@ -37,7 +37,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
   const [lastPoll, setLastPoll] = useState<string>(new Date().toISOString());
 
   const loadStatic = useCallback(async () => {
-    const [snap, mv, sig, nw] = await Promise.all([fetchSnapshot(), fetchMovers(), fetchTodaySignals(), fetchNews(undefined, 12)]);
+    const [snap, mv, sig, nw] = await Promise.all([fetchSnapshot(), fetchMovers(), fetchTodaySignals(), fetchNews(undefined, 12, 72)]);
     setSnapshot(snap);
     setMovers(mv);
     setSignals(sig);
@@ -458,7 +458,7 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
             )}
           </Panel>
 
-        <Panel title="Recent market-moving events" help="Recent company or market news that may change the evidence behind a thesis. These items provide context and are not treated as trade instructions by themselves." subtitle="Recent dated events and announcements across tracked symbols." right={newsBadge}>
+        <Panel title="Recent market-moving events" help="Recent company or market news that may change the evidence behind a thesis. These items provide context and are not treated as trade instructions by themselves." subtitle="Verified symbol-level news published within the last 72 hours." right={newsBadge}>
             <ul className="space-y-2">
               {news.slice(0, 6).map((n) => (
                 <li key={n.id} className="border-b border-zinc-800/60 pb-2 last:border-0">
