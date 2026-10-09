@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Area, AreaChart, Bar, CartesianGrid, ComposedChart, Line, LineChart, ReferenceDot, ReferenceLine, ResponsiveContainer,
+  Area, AreaChart, Bar, CartesianGrid, ComposedChart, Line, LineChart, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from 'recharts';
 import type { Bar, ChartHorizon } from '@/lib/types';
@@ -14,6 +14,9 @@ export interface KeyLevel {
   dash?: string;
   detail?: string;
   group?: 'setup' | 'structure';
+  rangeLow?: number | null;
+  rangeHigh?: number | null;
+  displayValue?: string;
 }
 
 const axisStyle = { fill: '#71717a', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' };
@@ -119,7 +122,11 @@ export const PriceChart: React.FC<{
   const baseMax = barMax + basePad;
   const baseRange = Math.max(baseMax - baseMin, 0.5);
 
-  const levelValues = drawn.map((level) => Number(level.value)).filter(Number.isFinite);
+  const levelValues = drawn.flatMap((level) => [
+    Number(level.value),
+    Number(level.rangeLow),
+    Number(level.rangeHigh),
+  ]).filter(Number.isFinite);
   const rawDomainMin = Math.min(baseMin, ...(levelValues.length ? levelValues : [baseMin]));
   const rawDomainMax = Math.max(baseMax, ...(levelValues.length ? levelValues : [baseMax]));
   const outerPad = Math.max(baseRange * 0.18, minimumPad);
@@ -182,6 +189,9 @@ export const PriceChart: React.FC<{
 
   const LevelCard = ({ level, compact = false }: { level: KeyLevel; compact?: boolean }) => {
     const value = Number(level.value);
+    const rangeLow = Number(level.rangeLow);
+    const rangeHigh = Number(level.rangeHigh);
+    const hasRange = Number.isFinite(rangeLow) && Number.isFinite(rangeHigh);
     const expanded = expandedLevel === level.label;
     return (
       <div className="rounded-sm border border-zinc-800/80 bg-[#0f1216] px-2.5 py-2">
@@ -191,7 +201,7 @@ export const PriceChart: React.FC<{
             <span className="truncate">{shortLabel(level.label)}</span>
           </span>
           <span className="font-mono text-[10px] tabular-nums" style={{ color: level.color }}>
-            {value.toFixed(2)}
+            {level.displayValue ?? (hasRange ? `${rangeLow.toFixed(2)}–${rangeHigh.toFixed(2)}` : value.toFixed(2))}
           </span>
         </div>
         {level.detail && (
@@ -274,15 +284,33 @@ export const PriceChart: React.FC<{
               shape={<CandleShape />}
               isAnimationActive={false}
             />
-            {visibleLevels.map((l) => (
-              <ReferenceLine
-                key={l.label}
-                y={Number(l.value)}
-                stroke={l.color}
-                strokeDasharray={l.dash ?? '4 3'}
-                strokeWidth={1}
-              />
-            ))}
+            {visibleLevels.map((l) => {
+              const rangeLow = Number(l.rangeLow);
+              const rangeHigh = Number(l.rangeHigh);
+              const hasRange = Number.isFinite(rangeLow) && Number.isFinite(rangeHigh);
+              if (hasRange) {
+                return (
+                  <ReferenceArea
+                    key={l.label}
+                    y1={Math.min(rangeLow, rangeHigh)}
+                    y2={Math.max(rangeLow, rangeHigh)}
+                    stroke={l.color}
+                    strokeOpacity={0.8}
+                    fill={l.color}
+                    fillOpacity={0.08}
+                  />
+                );
+              }
+              return (
+                <ReferenceLine
+                  key={l.label}
+                  y={Number(l.value)}
+                  stroke={l.color}
+                  strokeDasharray={l.dash ?? '4 3'}
+                  strokeWidth={1}
+                />
+              );
+            })}
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
