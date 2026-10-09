@@ -308,6 +308,23 @@ Deno.serve(async (req) => {
     if (signalError) throw signalError;
     if (!sourceSignals?.length) return json({ error: `No stored signals were found for run ${sourceRunId}.` }, 404);
 
+    const cycleBySymbol = new Map<string, AnyRow>();
+    if (!reclassifyOnly) {
+      const symbols = [...new Set(sourceSignals.map((row: AnyRow) => String(row.symbol ?? '').toUpperCase()).filter(Boolean))];
+      if (symbols.length) {
+        const { data: cycleRows, error: cycleError } = await db
+          .from('market_cycle_states')
+          .select('*')
+          .in('symbol', symbols);
+        if (cycleError) throw cycleError;
+        for (const row of cycleRows ?? []) {
+          const computedAt = row.computed_at ? new Date(row.computed_at).getTime() : 0;
+          const fresh = Number.isFinite(computedAt) && Date.now() - computedAt <= 6 * 3600000;
+          if (fresh) cycleBySymbol.set(String(row.symbol).toUpperCase(), row);
+        }
+      }
+    }
+
     const derivedRunId = crypto.randomUUID();
     const signalMap: Array<{ source_id: number; derived_id: number; symbol: string }> = [];
     let supportedCount = 0;
@@ -329,11 +346,26 @@ Deno.serve(async (req) => {
       const trendDirection = trendDirectional
         ? priceOrientation > 0 ? 'bullish' : priceOrientation < 0 ? 'bearish' : 'neutral'
         : 'neutral';
-      const cycleConfirmed = raw.cycle_confirmed === true &&
-        (raw.cycle_direction === 'bullish' || raw.cycle_direction === 'bearish');
-      const cycleDirection = cycleConfirmed ? String(raw.cycle_direction) : 'neutral';
-      // A directional trend is context. A tradeable thesis requires a recent,
-      // substantiated price event in the same direction.
+
+      const persistedCycle = reclassifyOnly
+        ? null
+        : cycleBySymbol.get(String(source.symbol ?? '').toUpperCase()) ?? null;
+      const cycleConfirmed = persistedCycle
+        ? ['reversal_confirmed', 'breakout_confirmed', 'continuation_confirmed'].includes(String(persistedCycle.cycle_state)) &&
+          (persistedCycle.direction === 'bullish' || persistedCycle.direction === 'bearish') &&
+          persistedCycle.retest_status !== 'failed'
+        : reclassifyOnly &&
+          raw.cycle_confirmed === true &&
+          (raw.cycle_direction === 'bullish' || raw.cycle_direction === 'bearish');
+      const cycleDirection = cycleConfirmed
+        ? String(persistedCycle?.direction ?? raw.cycle_direction)
+        : 'neutral';
+      const cycleEventType = String(persistedCycle?.event_type ?? raw.cycle_event_type ?? 'unconfirmed');
+      const cycleReason = persistedCycle?.reason ? String(persistedCycle.reason) : raw.cycle_reason ?? null;
+
+      // Trend describes context. Fresh trade eligibility requires a persisted,
+      // recently derived intraday cycle event in the same direction. Historical
+      // reclassification preserves the cycle evidence that existed in that run.
       const priceDirectional = trendDirectional && cycleConfirmed && cycleDirection === trendDirection;
       const direction = priceDirectional ? trendDirection : 'neutral';
       const momentumAgrees = direction !== 'neutral' &&
@@ -346,7 +378,15 @@ Deno.serve(async (req) => {
       const frame = direction === 'neutral'
         ? { target: null, invalidation: null, ratio: null, valid: false }
         : swingFrame(source, raw, direction);
-      const setup = direction === 'neutral' ? 'unclassified' : setupClass(raw, direction);
+      const setupRaw = persistedCycle
+        ? {
+            ...raw,
+            cycle_confirmed: cycleConfirmed,
+            cycle_direction: cycleDirection,
+            cycle_event_type: cycleEventType,
+          }
+        : raw;
+      const setup = direction === 'neutral' ? 'unclassified' : setupClass(setupRaw, direction);
       const participation = factorByKey(score, 'participation');
       const participationStrongOppose = participation?.strength_band === 'Strong' && participation?.thesis_vote === 'OPPOSE';
       const existingTradeBlockers = Array.isArray(score.trade_blockers) ? score.trade_blockers.map(String) : [];
@@ -589,8 +629,28 @@ Deno.serve(async (req) => {
         swing_reward_risk_ratio: frame.ratio,
         swing_cycle_confirmed: cycleConfirmed,
         swing_cycle_direction: cycleDirection,
-        swing_cycle_event_type: raw.cycle_event_type ?? 'unconfirmed',
-        swing_cycle_reason: raw.cycle_reason ?? null,
+        swing_cycle_event_type: cycleEventType,
+        swing_cycle_reason: cycleReason,
+        market_cycle_state: persistedCycle ? {
+          cycle_state: persistedCycle.cycle_state,
+          direction: persistedCycle.direction,
+          event_type: persistedCycle.event_type,
+          reversal_origin: persistedCycle.reversal_origin,
+          confirmation_price: persistedCycle.confirmation_price,
+          confirmation_at: persistedCycle.confirmation_at,
+          retest_price: persistedCycle.retest_price,
+          retest_at: persistedCycle.retest_at,
+          retest_status: persistedCycle.retest_status,
+          cycle_invalidation: persistedCycle.cycle_invalidation,
+          volume_confirmation_ratio: persistedCycle.volume_confirmation_ratio,
+          range_position_5d: persistedCycle.range_position_5d,
+          range_position_20d: persistedCycle.range_position_20d,
+          move_extension: persistedCycle.move_extension,
+          bars_since_confirmation: persistedCycle.bars_since_confirmation,
+          confidence_score: persistedCycle.confidence_score,
+          reason: persistedCycle.reason,
+          computed_at: persistedCycle.computed_at,
+        } : null,
       };
       score.historical_evidence_policy = {
         holding_period: '1–5 days',
@@ -608,7 +668,10 @@ Deno.serve(async (req) => {
         price_band: priceBand,
         cycle_confirmed: cycleConfirmed,
         cycle_direction: cycleDirection,
-        cycle_event_type: raw.cycle_event_type ?? 'unconfirmed',
+        cycle_event_type: cycleEventType,
+        cycle_state: persistedCycle?.cycle_state ?? (cycleConfirmed ? 'historical_confirmed' : 'unconfirmed'),
+        cycle_confidence_score: persistedCycle?.confidence_score ?? null,
+        cycle_retest_status: persistedCycle?.retest_status ?? null,
         momentum_band: momentumBand,
         momentum_agrees: momentumAgrees,
         tactical_frame_valid: frame.valid,
@@ -626,7 +689,7 @@ Deno.serve(async (req) => {
           ? (trendDirectional
               ? `Trend context is ${priceBand} ${trendDirection}, but a fresh substantiated cycle event has not confirmed a tradeable thesis.`
               : 'Short-horizon price direction is not established.')
-          : `Short-horizon price direction: ${priceBand} ${direction}, confirmed by a recent ${String(raw.cycle_event_type ?? 'price')} event.`,
+          : `Short-horizon price direction: ${priceBand} ${direction}, confirmed by a recent ${cycleEventType} event.`,
         momentumAgrees
           ? `Momentum confirmation: ${momentumBand} and aligned with price.`
           : momentumOpposes
