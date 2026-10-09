@@ -68,6 +68,107 @@ const SentimentGauge: React.FC<{ reading: SentimentReading | undefined; title: s
   );
 };
 
+
+function deriveDailyReactionLevels(
+  bars: Bar[],
+  referencePrice: number | null,
+): {
+  support: number | null;
+  resistance: number | null;
+  supportTouches: number;
+  resistanceTouches: number;
+} {
+  if (!bars.length || referencePrice === null) {
+    return { support: null, resistance: null, supportTouches: 0, resistanceTouches: 0 };
+  }
+
+  const ordered = [...bars]
+    .filter((bar) => Number.isFinite(Number(bar.high)) && Number.isFinite(Number(bar.low)) && Number.isFinite(Number(bar.close)))
+    .sort((a, b) => String(a.bar_time).localeCompare(String(b.bar_time)))
+    .slice(-10);
+
+  if (ordered.length < 4) {
+    return { support: null, resistance: null, supportTouches: 0, resistanceTouches: 0 };
+  }
+
+  const ranges = ordered
+    .map((bar) => Number(bar.high) - Number(bar.low))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => a - b);
+  const medianRange = ranges.length
+    ? ranges[Math.floor(ranges.length / 2)]
+    : Math.max(referencePrice * 0.01, 0.5);
+  const tolerance = Math.max(referencePrice * 0.0025, medianRange * 0.12, 0.15);
+
+  const cluster = (
+    field: 'high' | 'low',
+    side: 'above' | 'below',
+  ): { level: number | null; touches: number } => {
+    const values = ordered.map((bar, index) => ({
+      index,
+      value: Number(bar[field]),
+      open: Number(bar.open),
+      close: Number(bar.close),
+      high: Number(bar.high),
+      low: Number(bar.low),
+    }));
+
+    const candidates: Array<{ level: number; touches: number; rejections: number; distance: number }> = [];
+
+    for (const seed of values) {
+      if (!Number.isFinite(seed.value)) continue;
+      if (side === 'above' && seed.value <= referencePrice) continue;
+      if (side === 'below' && seed.value >= referencePrice) continue;
+
+      const members = values.filter((item) => Math.abs(item.value - seed.value) <= tolerance);
+      const uniqueSessions = new Set(members.map((item) => item.index));
+      if (uniqueSessions.size < 2) continue;
+
+      const level = members.reduce((sum, item) => sum + item.value, 0) / members.length;
+      let rejections = 0;
+
+      for (const item of members) {
+        const sessionRange = Math.max(item.high - item.low, tolerance);
+        if (field === 'high') {
+          const rejectionDepth = item.high - item.close;
+          if (rejectionDepth >= Math.max(sessionRange * 0.22, tolerance * 0.5)) rejections += 1;
+        } else {
+          const rejectionDepth = item.close - item.low;
+          if (rejectionDepth >= Math.max(sessionRange * 0.22, tolerance * 0.5)) rejections += 1;
+        }
+      }
+
+      if (rejections < 1) continue;
+
+      candidates.push({
+        level,
+        touches: uniqueSessions.size,
+        rejections,
+        distance: Math.abs(level - referencePrice),
+      });
+    }
+
+    candidates.sort((a, b) =>
+      b.touches - a.touches ||
+      b.rejections - a.rejections ||
+      a.distance - b.distance
+    );
+
+    const best = candidates[0];
+    return best ? { level: best.level, touches: best.touches } : { level: null, touches: 0 };
+  };
+
+  const resistance = cluster('high', 'above');
+  const support = cluster('low', 'below');
+
+  return {
+    support: support.level,
+    resistance: resistance.level,
+    supportTouches: support.touches,
+    resistanceTouches: resistance.touches,
+  };
+}
+
 export const ThesisView: React.FC<{
   signalId: number;
   initialTab?: string;
@@ -243,6 +344,7 @@ export const ThesisView: React.FC<{
   const recentMedianCloseMove5 = rawNumber(rawAnalysis.recent_median_abs_close_move_5);
   const chartBars = chartBarsByHorizon[chartHorizon] ?? bars.slice(-23);
   const analysisPrice = rawNumber(signal?.stock_price_at_generation);
+  const dailyReaction = deriveDailyReactionLevels(bars, quote?.price ?? analysisPrice);
   const isV59 = signal?.engine_version === 'tradecycle-5.9.0';
   const swingSetup = typeof rawAnalysis.swing_setup === 'string' ? rawAnalysis.swing_setup : 'unclassified';
   const swingPriceBand = typeof rawAnalysis.swing_price_band === 'string' ? rawAnalysis.swing_price_band : 'Insufficient';
@@ -333,10 +435,12 @@ export const ThesisView: React.FC<{
     { value: analysisPrice, label: 'Thesis anchor', color: '#60a5fa', dash: '3 3' },
     { value: signal?.target_price, label: '1–5 day target', color: '#34d399', dash: '6 3' },
     { value: signal?.invalidation_level, label: '1–5 day invalidation', color: '#fbbf24', dash: '2 2' },
+    { value: dailyReaction.resistance, label: `Daily reaction resistance${dailyReaction.resistanceTouches ? ` · ${dailyReaction.resistanceTouches} touches` : ''}`, color: '#22d3ee', dash: '4 2' },
+    { value: dailyReaction.support, label: `Daily reaction support${dailyReaction.supportTouches ? ` · ${dailyReaction.supportTouches} touches` : ''}`, color: '#c084fc', dash: '4 2' },
     { value: tacticalResistance, label: 'Reachable resistance', color: '#34d399' },
     { value: tacticalSupport, label: 'Reachable support', color: '#f87171' },
-    { value: contextResistance, label: 'Daily pivot resistance', color: '#10b981', dash: '2 5' },
-    { value: contextSupport, label: 'Daily pivot support', color: '#fb7185', dash: '2 5' },
+    { value: contextResistance, label: 'Recent swing resistance', color: '#10b981', dash: '2 5' },
+    { value: contextSupport, label: 'Recent swing support', color: '#fb7185', dash: '2 5' },
   ];
 
   const selectChartHorizon = async (horizon: ChartHorizon) => {
@@ -1058,11 +1162,13 @@ export const ThesisView: React.FC<{
               <Metric label="Median 5-session range" value={num(recentMedianRange5)} />
               <Metric label="Median 5-session close move" value={num(recentMedianCloseMove5)} />
             </div>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               <Metric label="Reachable support" value={num(tacticalSupport)} valueClass="text-red-300" />
               <Metric label="Reachable resistance" value={num(tacticalResistance)} valueClass="text-emerald-300" />
-              <Metric label="Nearest daily pivot support" value={num(contextSupport)} valueClass="text-zinc-400" />
-              <Metric label="Nearest daily pivot resistance" value={num(contextResistance)} valueClass="text-zinc-400" />
+              <Metric label="Current daily reaction support" value={num(dailyReaction.support)} hint={dailyReaction.supportTouches ? `${dailyReaction.supportTouches} touches / recent rejections` : undefined} valueClass="text-violet-300" />
+              <Metric label="Current daily reaction resistance" value={num(dailyReaction.resistance)} hint={dailyReaction.resistanceTouches ? `${dailyReaction.resistanceTouches} touches / recent rejections` : undefined} valueClass="text-cyan-300" />
+              <Metric label="Recent swing support" value={num(contextSupport)} valueClass="text-zinc-400" />
+              <Metric label="Recent swing resistance" value={num(contextResistance)} valueClass="text-zinc-400" />
             </div>
           </Panel>
           <Panel
