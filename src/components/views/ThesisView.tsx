@@ -259,8 +259,8 @@ function deriveDailyReactionLevels(
         ? 'last interaction 1 session ago'
         : `last interaction ${sessionsAgo} sessions ago`;
     const detail =
-      `5-session intraday window · ${best.touches} touches · ${best.rejections} meaningful rejection${best.rejections === 1 ? '' : 's'} · ${recencyText}. ` +
-      `URSORA clusters nearby 30-minute swing ${kind === 'high' ? 'highs' : 'lows'}, weights recent reactions most heavily, then ranks zones by repeated tests, rejection strength, recency and distance from current price.`;
+      `Price has reacted around this area ${best.touches} times in the last five sessions, with ${best.rejections} clear rejection${best.rejections === 1 ? '' : 's'}; ${recencyText}. ` +
+      `URSORA chose this zone because nearby 30-minute ${kind === 'high' ? 'highs' : 'lows'} kept clustering here, and the more recent reactions carried the most weight.`;
 
     return { level: best.level, touches: best.touches, detail };
   };
@@ -453,6 +453,10 @@ export const ThesisView: React.FC<{
   const contextSupport = rawNumber(rawAnalysis.context_support);
   const contextResistance = rawNumber(rawAnalysis.context_resistance);
   const tacticalLookback = rawNumber(rawAnalysis.tactical_lookback_sessions);
+  const tacticalSupportSource = typeof rawAnalysis.tactical_support_source === 'string' ? rawAnalysis.tactical_support_source : null;
+  const tacticalResistanceSource = typeof rawAnalysis.tactical_resistance_source === 'string' ? rawAnalysis.tactical_resistance_source : null;
+  const contextSupportSource = typeof rawAnalysis.context_support_source === 'string' ? rawAnalysis.context_support_source : null;
+  const contextResistanceSource = typeof rawAnalysis.context_resistance_source === 'string' ? rawAnalysis.context_resistance_source : null;
   const tacticalTargetBasis = typeof rawAnalysis.tactical_target_basis === 'string' ? rawAnalysis.tactical_target_basis : null;
   const tacticalInvalidationBasis = typeof rawAnalysis.tactical_invalidation_basis === 'string' ? rawAnalysis.tactical_invalidation_basis : null;
   const localMoveUnit = rawNumber(rawAnalysis.local_move_unit);
@@ -549,15 +553,81 @@ export const ThesisView: React.FC<{
       };
 
   const chartLevels = [
-    { value: analysisPrice, label: 'Thesis anchor', color: '#60a5fa', dash: '3 3' },
-    { value: signal?.target_price, label: '1–5 day target', color: '#34d399', dash: '6 3' },
-    { value: signal?.invalidation_level, label: '1–5 day invalidation', color: '#fbbf24', dash: '2 2' },
-    { value: dailyReaction.resistance, label: `Daily reaction resistance${dailyReaction.resistanceTouches ? ` · ${dailyReaction.resistanceTouches} touches` : ''}`, color: '#22d3ee', dash: '4 2', detail: dailyReaction.resistanceDetail ?? undefined },
-    { value: dailyReaction.support, label: `Daily reaction support${dailyReaction.supportTouches ? ` · ${dailyReaction.supportTouches} touches` : ''}`, color: '#c084fc', dash: '4 2', detail: dailyReaction.supportDetail ?? undefined },
-    { value: tacticalResistance, label: 'Reachable resistance', color: '#34d399' },
-    { value: tacticalSupport, label: 'Reachable support', color: '#f87171' },
-    { value: contextResistance, label: 'Recent swing resistance', color: '#10b981', dash: '2 5' },
-    { value: contextSupport, label: 'Recent swing support', color: '#fb7185', dash: '2 5' },
+    {
+      value: analysisPrice,
+      label: 'Thesis anchor',
+      color: '#60a5fa',
+      dash: '3 3',
+      detail: analysisPrice !== null
+        ? `This is the price URSORA used when this thesis was created. Targets, invalidation and nearby structure are measured from this starting point, so it stays fixed for this stored run even if the market moves later.`
+        : undefined,
+    },
+    {
+      value: signal?.target_price,
+      label: '1–5 day target',
+      color: '#34d399',
+      dash: '6 3',
+      detail: signal?.target_price !== null && signal?.target_price !== undefined
+        ? `URSORA sees this as a realistic 1–5 day destination based on the nearest reachable structure and the stock's recent move size. ${tacticalTargetBasis ? `For this run, the target came from ${tacticalTargetBasis.toLowerCase()}.` : ''}`
+        : undefined,
+    },
+    {
+      value: signal?.invalidation_level,
+      label: '1–5 day invalidation',
+      color: '#fbbf24',
+      dash: '2 2',
+      detail: signal?.invalidation_level !== null && signal?.invalidation_level !== undefined
+        ? `This is the point where the current trade idea stops making sense. URSORA places it beyond nearby structure with enough room for normal price noise. ${tacticalInvalidationBasis ? `For this run, it was set using ${tacticalInvalidationBasis.toLowerCase()}.` : ''}`
+        : undefined,
+    },
+    {
+      value: dailyReaction.resistance,
+      label: `Daily reaction resistance${dailyReaction.resistanceTouches ? ` · ${dailyReaction.resistanceTouches} touches` : ''}`,
+      color: '#22d3ee',
+      dash: '4 2',
+      detail: dailyReaction.resistanceDetail ?? undefined,
+    },
+    {
+      value: dailyReaction.support,
+      label: `Daily reaction support${dailyReaction.supportTouches ? ` · ${dailyReaction.supportTouches} touches` : ''}`,
+      color: '#c084fc',
+      dash: '4 2',
+      detail: dailyReaction.supportDetail ?? undefined,
+    },
+    {
+      value: tacticalResistance,
+      label: 'Reachable resistance',
+      color: '#34d399',
+      detail: tacticalResistance !== null
+        ? `This is the closest resistance URSORA thinks price could realistically reach inside the 1–5 day trade window. It filters broader structure through recent volatility so distant levels do not automatically become tactical targets. ${tacticalResistanceSource ? `This level came from ${tacticalResistanceSource.toLowerCase()}.` : ''}`
+        : undefined,
+    },
+    {
+      value: tacticalSupport,
+      label: 'Reachable support',
+      color: '#f87171',
+      detail: tacticalSupport !== null
+        ? `This is the closest support URSORA considers realistically reachable inside the 1–5 day trade window. It is meant to describe the nearby trading lane, not the stock's broad long-term floor. ${tacticalSupportSource ? `This level came from ${tacticalSupportSource.toLowerCase()}.` : ''}`
+        : undefined,
+    },
+    {
+      value: contextResistance,
+      label: 'Recent swing resistance',
+      color: '#10b981',
+      dash: '2 5',
+      detail: contextResistance !== null
+        ? `This is an older structural high that still matters as context. Unlike Daily Reaction resistance, it can remain unchanged for several sessions until price forms a newer swing. ${contextResistanceSource ? `URSORA identified it from ${contextResistanceSource.toLowerCase()}.` : ''}`
+        : undefined,
+    },
+    {
+      value: contextSupport,
+      label: 'Recent swing support',
+      color: '#fb7185',
+      dash: '2 5',
+      detail: contextSupport !== null
+        ? `This is an older structural low that still matters as context. It is intentionally slower-moving than the Daily Reaction level and can stay in place until a newer swing forms. ${contextSupportSource ? `URSORA identified it from ${contextSupportSource.toLowerCase()}.` : ''}`
+        : undefined,
+    },
   ];
 
   const selectChartHorizon = async (horizon: ChartHorizon) => {
