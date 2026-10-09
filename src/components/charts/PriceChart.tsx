@@ -136,9 +136,10 @@ export const PriceChart: React.FC<{
 
   return (
     <div>
-      <div style={{ height }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={plotBars} margin={{ top: 8, right: 56, bottom: 0, left: 0 }}>
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_220px]">
+        <div className="min-w-0" style={{ height }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={plotBars} margin={{ top: 8, right: 18, bottom: 0, left: 0 }}>
             <CartesianGrid stroke="#1c2027" strokeDasharray="2 4" vertical={false} />
             <XAxis
               dataKey="bar_time"
@@ -189,47 +190,48 @@ export const PriceChart: React.FC<{
                 stroke={l.color}
                 strokeDasharray={l.dash ?? '4 3'}
                 strokeWidth={1}
-                label={{
-                  value: `${shortLabel(l.label)} ${Number(l.value).toFixed(2)}`,
-                  position: 'insideTopRight',
-                  fill: l.color,
-                  fontSize: 9,
-                  fontFamily: 'JetBrains Mono, monospace',
-                }}
               />
             ))}
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px] text-zinc-500">
-        {visibleLevels.map((l) => (
-          <span key={l.label} className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-[2px] w-4" style={{ backgroundColor: l.color }} />
-            {shortLabel(l.label)} {Number(l.value).toFixed(2)}
-          </span>
-        ))}
-        <span>{bars.length} {barLabel ?? (horizon === '1D' ? '5-minute bars' : horizon === '1W' ? '30-minute bars' : 'daily bars')} · {horizon}</span>
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+
+        <aside className="rounded-sm border border-zinc-800 bg-black/20 p-2.5">
+          <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-zinc-500">
+            Tactical frame
+          </div>
+          <div className="mt-2 space-y-1.5">
+            {drawn.map((l) => {
+              const value = Number(l.value);
+              const isOffscreen = value < visibleMin || value > visibleMax;
+              const direction = value > visibleMax ? 'above chart' : value < visibleMin ? 'below chart' : 'on chart';
+              return (
+                <div key={`${l.label}-rail`} className="rounded-sm border border-zinc-800/80 bg-[#0f1216] px-2 py-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-zinc-400">
+                      <span className="inline-block h-[2px] w-3 shrink-0" style={{ backgroundColor: l.color }} />
+                      <span className="truncate">{shortLabel(l.label)}</span>
+                    </span>
+                    <span className="font-mono text-[10px] tabular-nums" style={{ color: l.color }}>
+                      {value.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 font-mono text-[8px] uppercase tracking-wider text-zinc-600">
+                    {isOffscreen ? direction : 'visible in selected history'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-2 border-t border-zinc-800 pt-2 font-mono text-[9px] leading-relaxed text-zinc-600">
+            Levels stay fixed to this TradeCycle run. Changing the history view only changes the candles.
+          </div>
+        </aside>
       </div>
 
-      {offscreenLevels.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {offscreenLevels.map((l) => {
-            const value = Number(l.value);
-            const direction = value > visibleMax ? 'above view' : 'below view';
-            return (
-              <span
-                key={`${l.label}-offscreen`}
-                className="inline-flex items-center gap-1.5 rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[9px] uppercase tracking-wider"
-                style={{ color: l.color }}
-              >
-                <span>{value > visibleMax ? '↑' : '↓'}</span>
-                <span>{shortLabel(l.label)} {value.toFixed(2)}</span>
-                <span className="text-zinc-600">· {direction}</span>
-              </span>
-            );
-          })}
-        </div>
-      )}
+      <div className="mt-2 font-mono text-[10px] text-zinc-500">
+        {bars.length} {barLabel ?? (horizon === '1D' ? '5-minute bars' : horizon === '1W' ? '30-minute bars' : 'daily bars')} · {horizon}
+      </div>
     </div>
   );
 };
