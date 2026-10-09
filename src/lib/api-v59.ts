@@ -164,6 +164,28 @@ export async function runFreshAnalysis(
     }
   }
 
+  // Fresh swing decisions need the same intraday cycle evidence the entry layer
+  // uses. Hydrate 30m/5m bars for explicitly analyzed symbols before deriving the
+  // shared market-cycle state. Avoid doing this for an unscoped whole-universe run
+  // so a manual refresh cannot burst through the provider's request limits.
+  if (selectedSymbols.length) {
+    for (const symbol of selectedSymbols) {
+      for (const horizon of ['1W', '1D'] as const) {
+        try {
+          await callEdge(EDGE_FUNCTIONS.chartBars, { symbol, horizon });
+        } catch (error) {
+          warnings.push(warning(`${symbol} ${horizon} intraday history`, error));
+        }
+      }
+    }
+
+    try {
+      await callEdge(EDGE_FUNCTIONS.marketCycle, { symbols: selectedSymbols });
+    } catch (error) {
+      warnings.push(warning('market cycle state', error));
+    }
+  }
+
   const stages: Array<{ label: string; slug: EdgeFunctionSlug; payload: Record<string, unknown> }> = [
     { label: 'Massive options chain', slug: EDGE_FUNCTIONS.optionsSync, payload: selectedPayload },
     { label: 'market context', slug: EDGE_FUNCTIONS.marketContextSync, payload: { force: false } },
