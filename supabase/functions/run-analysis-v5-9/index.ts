@@ -335,16 +335,13 @@ Deno.serve(async (req) => {
         : {};
       const raw: AnyRow = score.raw && typeof score.raw === 'object' ? score.raw : {};
 
-      const priceOrientation = derivePriceOrientation(raw);
+      const trendOrientation = derivePriceOrientation(raw);
+      const trendBand = band(trendOrientation);
       const momentumOrientation = deriveMomentumOrientation(raw);
-      const priceBand = band(priceOrientation);
       const momentumBand = band(momentumOrientation);
-      // Price/structure is the primary gate. Weak evidence may describe a lean, but it
-      // cannot establish a thesis direction. Confirmation/context families therefore
-      // have nothing to support or oppose until price reaches Moderate or Strong.
-      const trendDirectional = priceBand === 'Moderate' || priceBand === 'Strong';
+      const trendDirectional = trendBand === 'Moderate' || trendBand === 'Strong';
       const trendDirection = trendDirectional
-        ? priceOrientation > 0 ? 'bullish' : priceOrientation < 0 ? 'bearish' : 'neutral'
+        ? trendOrientation > 0 ? 'bullish' : trendOrientation < 0 ? 'bearish' : 'neutral'
         : 'neutral';
 
       const persistedCycle = reclassifyOnly
@@ -362,12 +359,26 @@ Deno.serve(async (req) => {
         : 'neutral';
       const cycleEventType = String(persistedCycle?.event_type ?? raw.cycle_event_type ?? 'unconfirmed');
       const cycleReason = persistedCycle?.reason ? String(persistedCycle.reason) : raw.cycle_reason ?? null;
+      const persistedCycleConfidence = n(persistedCycle?.confidence_score);
+      const historicalCycleConfidence = n(raw.cycle_confidence_score) ?? n(raw.swing_cycle_confidence_score);
+      const cycleConfidence = persistedCycleConfidence ?? historicalCycleConfidence;
 
-      // Trend describes context. Fresh trade eligibility requires a persisted,
-      // recently derived intraday cycle event in the same direction. Historical
-      // reclassification preserves the cycle evidence that existed in that run.
-      const priceDirectional = trendDirectional && cycleConfirmed && cycleDirection === trendDirection;
-      const direction = priceDirectional ? trendDirection : 'neutral';
+      // The confirmed market-cycle event is the primary short-horizon price signal.
+      // The slower trend model is context: it can strengthen or weaken conviction,
+      // but it does not have to flip before a fresh reversal becomes tradeable.
+      const cycleStrength = cycleConfirmed
+        ? (cycleConfidence !== null && cycleConfidence >= 80 ? 80 : 56)
+        : 0;
+      const priceOrientation = cycleConfirmed
+        ? (cycleDirection === 'bullish' ? cycleStrength : -cycleStrength)
+        : reclassifyOnly
+          ? trendOrientation
+          : 0;
+      const priceBand = band(priceOrientation);
+      const priceDirectional = cycleConfirmed && (priceBand === 'Moderate' || priceBand === 'Strong');
+      const direction = priceDirectional ? cycleDirection : 'neutral';
+      const trendAlignsCycle = priceDirectional && trendDirectional && trendDirection === direction;
+      const trendOpposesCycle = priceDirectional && trendDirectional && trendDirection !== direction;
       const momentumAgrees = direction !== 'neutral' &&
         (momentumBand === 'Moderate' || momentumBand === 'Strong') &&
         Math.sign(momentumOrientation) === Math.sign(priceOrientation);
@@ -391,8 +402,8 @@ Deno.serve(async (req) => {
       const participationStrongOppose = participation?.strength_band === 'Strong' && participation?.thesis_vote === 'OPPOSE';
       const existingTradeBlockers = Array.isArray(score.trade_blockers) ? score.trade_blockers.map(String) : [];
       const tradeBlockers = existingTradeBlockers.filter((message: string) => !/liquidity|spread/i.test(message));
-      if (trendDirectional && !priceDirectional && !tradeBlockers.some((x: string) => /substantiated|cycle|reversal|confirmation/i.test(x))) {
-        tradeBlockers.push('Directional trend exists, but no recent reversal, continuation, or breakout has been sufficiently substantiated for a fresh swing thesis.');
+      if (!cycleConfirmed && !reclassifyOnly && !tradeBlockers.some((x: string) => /substantiated|cycle|reversal|confirmation/i.test(x))) {
+        tradeBlockers.push('No recent reversal, continuation, or breakout has been sufficiently substantiated for a fresh swing thesis.');
       }
       if (frame.ratio !== null && frame.ratio < 0.72 && !tradeBlockers.some((x: string) => /reward/i.test(x))) {
         tradeBlockers.push('The current tactical reward does not adequately compensate for the estimated risk.');
@@ -406,7 +417,7 @@ Deno.serve(async (req) => {
         factorByKey(score, 'market_alignment'),
         factorByKey(score, 'catalysts_news'),
       ].filter((factor) => factor && factor.thesis_vote === 'SUPPORT' && (factor.strength_band === 'Moderate' || factor.strength_band === 'Strong')).length;
-      const strong = supported && priceBand === 'Strong' && momentumBand === 'Strong' && contextSupportCount >= 1;
+      const strong = supported && priceBand === 'Strong' && momentumBand === 'Strong' && contextSupportCount >= 1 && !trendOpposesCycle;
       const thesisState = strong ? 'Strongly Supported' : supported ? 'Supported' : momentumOpposes ? (momentumBand === 'Strong' ? 'Rejected' : 'Opposed') : 'Insufficient Evidence';
 
       const executable = supported
@@ -422,7 +433,8 @@ Deno.serve(async (req) => {
       const priceScore = priceBand === 'Strong' ? 86 : priceBand === 'Moderate' ? 72 : 56;
       const momentumScore = momentumBand === 'Strong' ? 88 : momentumBand === 'Moderate' ? 74 : 40;
       const rrScore = frame.ratio === null ? 45 : clamp(50 + (frame.ratio - 1) * 28, 35, 88);
-      const contextAdjustment = Math.min(6, contextSupportCount * 2);
+      const trendAdjustment = trendAlignsCycle ? 4 : trendOpposesCycle ? -5 : 0;
+      const contextAdjustment = Math.min(6, contextSupportCount * 2) + trendAdjustment;
       const swingConfidence = supported
         ? Math.round(clamp(priceScore * 0.35 + momentumScore * 0.45 + rrScore * 0.20 + contextAdjustment, 50, 92))
         : Number(source.confidence_score ?? 0);
@@ -430,7 +442,7 @@ Deno.serve(async (req) => {
       const noTradeReason = supported
         ? null
         : direction === 'neutral' || !priceDirectional
-          ? 'Short-horizon price action has not established a usable directional swing lean.'
+          ? 'No recent substantiated market-cycle event has established a usable directional swing setup.'
           : momentumOpposes
             ? `Momentum is ${momentumBand.toLowerCase()} and opposes the ${direction} price direction.`
             : !momentumAgrees
@@ -631,6 +643,7 @@ Deno.serve(async (req) => {
         swing_cycle_direction: cycleDirection,
         swing_cycle_event_type: cycleEventType,
         swing_cycle_reason: cycleReason,
+        swing_cycle_confidence_score: cycleConfidence,
         market_cycle_state: persistedCycle ? {
           cycle_state: persistedCycle.cycle_state,
           direction: persistedCycle.direction,
@@ -672,6 +685,9 @@ Deno.serve(async (req) => {
         cycle_state: persistedCycle?.cycle_state ?? (cycleConfirmed ? 'historical_confirmed' : 'unconfirmed'),
         cycle_confidence_score: persistedCycle?.confidence_score ?? null,
         cycle_retest_status: persistedCycle?.retest_status ?? null,
+        trend_band: trendBand,
+        trend_aligns_cycle: trendAlignsCycle,
+        trend_opposes_cycle: trendOpposesCycle,
         momentum_band: momentumBand,
         momentum_agrees: momentumAgrees,
         tactical_frame_valid: frame.valid,
@@ -686,10 +702,8 @@ Deno.serve(async (req) => {
       const decisionNotes = [
         `TradeCycle 5.9 swing classification: ${thesisState}.`,
         direction === 'neutral'
-          ? (trendDirectional
-              ? `Trend context is ${priceBand} ${trendDirection}, but a fresh substantiated cycle event has not confirmed a tradeable thesis.`
-              : 'Short-horizon price direction is not established.')
-          : `Short-horizon price direction: ${priceBand} ${direction}, confirmed by a recent ${cycleEventType} event.`,
+          ? 'No recent substantiated market-cycle event has established a tradeable short-horizon direction.'
+          : `Short-horizon price direction: ${priceBand} ${direction}, established by a recent ${cycleEventType} event. Slower trend context is ${trendBand.toLowerCase()} ${trendDirection}${trendAlignsCycle ? ' and aligned' : trendOpposesCycle ? ' and currently opposing the new cycle' : ''}.`,
         momentumAgrees
           ? `Momentum confirmation: ${momentumBand} and aligned with price.`
           : momentumOpposes
