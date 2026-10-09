@@ -212,9 +212,33 @@ export const TraderProfileView: React.FC<{ onboarding?: boolean; onSaved?: () =>
       setConnectedAccounts([]);
       return () => { active = false; };
     }
-    void fetchSnapTradeAccounts()
-      .then((accounts) => { if (active) setConnectedAccounts(accounts); })
-      .catch(() => { if (active) setConnectedAccounts([]); });
+
+    const loadAccounts = async () => {
+      try {
+        let accounts = await fetchSnapTradeAccounts();
+
+        // Do not assume an empty local table means SnapTrade is disconnected.
+        // Ask the registered SnapTrade user once and hydrate local rows if the
+        // connection exists upstream.
+        if (!accounts.length) {
+          try {
+            const result = await syncSnapTradeAccounts(false);
+            if ((result.accounts ?? 0) > 0) {
+              accounts = await fetchSnapTradeAccounts();
+            }
+          } catch {
+            // No registration or no upstream authorization: leave the normal
+            // connection prompt visible.
+          }
+        }
+
+        if (active) setConnectedAccounts(accounts);
+      } catch {
+        if (active) setConnectedAccounts([]);
+      }
+    };
+
+    void loadAccounts();
     return () => { active = false; };
   }, [user]);
 
