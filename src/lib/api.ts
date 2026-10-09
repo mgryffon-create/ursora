@@ -127,6 +127,7 @@ export const EDGE_FUNCTIONS = {
   tradeStructure: 'build-trade-structure',
   tradeLifecycle: 'sync-tradecycle-lifecycle',
   alphaNewsSync: 'sync-alpha-news',
+  marketauxNewsSync: 'sync-marketaux-news',
   alphaEarningsSync: 'sync-alpha-earnings',
   marketContextSync: 'sync-market-context',
   historicalPlayback: 'historical-session-playback',
