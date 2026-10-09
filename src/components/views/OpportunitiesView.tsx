@@ -313,8 +313,51 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
       if (activeIds.length) {
         const { data, error: signalError } = await db.from('signals').select('*').in('id', activeIds);
         if (signalError) throw signalError;
+        const activeSignalRows = (data as Signal[]) ?? [];
+
+        const needsCurrentSuggestionGate = activeSignalRows.some((signal) => {
+          const decision = signal.score_breakdown?.v59_decision as Record<string, unknown> | undefined;
+          return decision?.entry_compatible === undefined;
+        });
+
+        if (needsCurrentSuggestionGate && !cachedRestructureAttempted.current) {
+          const sourceRunId = activeSignalRows
+            .map((signal) => {
+              const decision = signal.score_breakdown?.v59_decision as Record<string, unknown> | undefined;
+              return typeof decision?.source_run_id === 'string' ? decision.source_run_id : null;
+            })
+            .find(Boolean);
+
+          if (sourceRunId) {
+            cachedRestructureAttempted.current = true;
+            try {
+              await reclassifyStoredAnalysis(sourceRunId);
+              const [restructuredSignals, restructuredActive] = await Promise.all([
+                fetchTodaySignals(),
+                fetchActiveAnalyses(),
+              ]);
+              setSignals(restructuredSignals);
+              setActiveAnalyses(restructuredActive);
+
+              const restructuredIds = [...new Set(restructuredActive.map((item) => item.signal_id).filter(Boolean))];
+              if (restructuredIds.length) {
+                const { data: refreshedData, error: refreshedError } = await db.from('signals').select('*').in('id', restructuredIds);
+                if (refreshedError) throw refreshedError;
+                const refreshedMap: Record<string, Signal> = {};
+                for (const signal of (refreshedData as Signal[]) ?? []) refreshedMap[signal.symbol] = signal;
+                setActiveSignals(refreshedMap);
+              } else {
+                setActiveSignals({});
+              }
+              return;
+            } catch (restructureError) {
+              console.warn('URSORA suggestion-gate restructure did not complete:', restructureError);
+            }
+          }
+        }
+
         const map: Record<string, Signal> = {};
-        for (const signal of (data as Signal[]) ?? []) map[signal.symbol] = signal;
+        for (const signal of activeSignalRows) map[signal.symbol] = signal;
         setActiveSignals(map);
       } else {
         setActiveSignals({});
@@ -669,7 +712,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
             <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-emerald-300">Suggested trades</div>
             <h2 className="mt-1 text-base font-semibold text-zinc-100">Supported theses</h2>
             <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
-              Only setups that cleared the full evidence gate appear here. They remain stored through their swing-analysis validity window instead of disappearing on unrelated runs.
+              URSORA suggests a swing only when a recent price-cycle event is substantiated, confirmation is not materially opposed, the 1–5 day target/invalidation frame is usable, and the confirmed entry path still fits inside that frame. Opportunity and confidence scores rank setups that clear those gates; a high score alone cannot create a suggestion.
             </p>
           </div>
 
