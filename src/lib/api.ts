@@ -486,11 +486,38 @@ export async function fetchQuote(symbol: string): Promise<Quote | null> {
     .select('*')
     .eq('symbol', symbol)
     .eq('is_demo', false)
-    .order('retrieved_at', { ascending: false })
     .order('as_of', { ascending: false })
-    .limit(1);
+    .order('retrieved_at', { ascending: false })
+    .limit(20);
   if (error) throw error;
-  return (data as Quote[])?.[0] ?? null;
+
+  const candidates = rows<Quote>(data as Quote[]);
+  const internallyConsistent = (quote: Quote) => {
+    const prevClose = Number(quote.prev_close);
+    const prevHigh = Number(quote.prev_day_high);
+    const prevLow = Number(quote.prev_day_low);
+    if (
+      Number.isFinite(prevClose) &&
+      Number.isFinite(prevHigh) &&
+      prevClose > prevHigh + 1e-9
+    ) return false;
+    if (
+      Number.isFinite(prevClose) &&
+      Number.isFinite(prevLow) &&
+      prevClose < prevLow - 1e-9
+    ) return false;
+    return true;
+  };
+
+  const valid = candidates.filter(internallyConsistent);
+  if (!valid.length) return candidates[0] ?? null;
+
+  if (!easternRegularSessionNow()) {
+    const eod = valid.find((quote) => quote.source_type === 'market_data_eod');
+    if (eod) return eod;
+  }
+
+  return valid[0] ?? null;
 }
 
 export async function fetchSnapshot(): Promise<MarketSnapshot | null> {
