@@ -17,7 +17,9 @@ async function checkForNewDeployment() {
 
     const payload = await response.json() as { buildId?: string };
     if (payload.buildId && payload.buildId !== CURRENT_BUILD_ID) {
-      window.location.reload();
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.set('__ursora_build', payload.buildId.slice(0, 12));
+      window.location.replace(nextUrl.toString());
     }
   } catch {
     // A failed version check should never interrupt the application.
@@ -37,6 +39,12 @@ if (import.meta.env.PROD) {
 
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) void checkForNewDeployment();
+  });
+
+  // Chrome may restore an old document from the back/forward cache without doing
+  // a network navigation. Re-check immediately whenever a page is shown again.
+  window.addEventListener('pageshow', () => {
+    void checkForNewDeployment();
   });
 }
 
