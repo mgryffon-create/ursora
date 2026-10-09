@@ -104,6 +104,12 @@ export const PriceChart: React.FC<{
   bars, levels = [], height = 280, horizon = '1M', barLabel,
 }) => {
   const drawn = levels.filter((l) => !isMissing(l.value));
+  const cardLevels = levels.filter((level) =>
+    !isMissing(level.value) ||
+    Boolean(level.displayValue) ||
+    Boolean(level.entryOptions?.length) ||
+    Boolean(level.detail)
+  );
   const lows = bars.map((b) => Number(b.low)).filter(Number.isFinite);
   const highs = bars.map((b) => Number(b.high)).filter(Number.isFinite);
   const plotBars = bars.map((b) => ({
@@ -190,14 +196,16 @@ export const PriceChart: React.FC<{
       .replace(/^Broader /i, 'Broad ')
       .replace(/^Recent swing /i, 'Swing ');
 
-  const setupLevels = drawn.filter((level) => (level.group ?? 'structure') === 'setup');
-  const structureLevels = drawn.filter((level) => (level.group ?? 'structure') === 'structure');
+  const setupLevels = cardLevels.filter((level) => (level.group ?? 'structure') === 'setup');
+  const structureLevels = cardLevels.filter((level) => (level.group ?? 'structure') === 'structure');
 
   const LevelCard = ({ level, compact = false }: { level: KeyLevel; compact?: boolean }) => {
     const value = Number(level.value);
     const rangeLow = Number(level.rangeLow);
     const rangeHigh = Number(level.rangeHigh);
-    const hasRange = Number.isFinite(rangeLow) && Number.isFinite(rangeHigh);
+    const hasValue = !isMissing(level.value) && Number.isFinite(value);
+    const hasRange = !isMissing(level.rangeLow) && !isMissing(level.rangeHigh) &&
+      Number.isFinite(rangeLow) && Number.isFinite(rangeHigh);
     const expanded = expandedLevel === level.label;
     return (
       <div className="rounded-sm border border-zinc-800/80 bg-[#0f1216] px-2.5 py-2">
@@ -207,7 +215,7 @@ export const PriceChart: React.FC<{
             <span className="truncate">{shortLabel(level.label)}</span>
           </span>
           <span className="font-mono text-[10px] tabular-nums" style={{ color: level.color }}>
-            {level.displayValue ?? (hasRange ? `${rangeLow.toFixed(2)}–${rangeHigh.toFixed(2)}` : value.toFixed(2))}
+            {level.displayValue ?? (hasRange ? `${rangeLow.toFixed(2)}–${rangeHigh.toFixed(2)}` : hasValue ? value.toFixed(2) : 'WAIT')}
           </span>
         </div>
         {(level.detail || level.entryOptions?.length) && (
