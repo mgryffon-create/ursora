@@ -23,7 +23,9 @@ const SEVERITY_STYLE: Record<string, string> = {
   alert: 'border-l-sky-500',
 };
 
-export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }> = ({ onOpenThesis }) => {
+export const CommandCenterView: React.FC<{
+  onOpenThesis: (id: number, options?: { tab?: string; newsId?: number }) => void;
+}> = ({ onOpenThesis }) => {
   const { watchlist } = useAuth();
   const [snapshot, setSnapshot] = useState<MarketSnapshot | null>(null);
   const [movers, setMovers] = useState<MarketMover[]>([]);
@@ -188,9 +190,9 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
     return new Map(ranked.map((signal, index) => [signal.symbol, index + 1]));
   }, [signals]);
 
-  const openTicker = useCallback((symbol: string) => {
+  const openTicker = useCallback((symbol: string, options?: { tab?: string; newsId?: number }) => {
     const signal = signalBySymbol.get(symbol);
-    if (signal) onOpenThesis(signal.id);
+    if (signal) onOpenThesis(signal.id, options);
   }, [onOpenThesis, signalBySymbol]);
 
   const tickerCell = useCallback((symbol: string, detail?: string | null) => {
@@ -458,18 +460,42 @@ export const CommandCenterView: React.FC<{ onOpenThesis: (id: number) => void }>
             )}
           </Panel>
 
-        <Panel title="Recent market-moving events" help="Recent company or market news that may change the evidence behind a thesis. These items provide context and are not treated as trade instructions by themselves." subtitle="Verified symbol-level news published within the last 72 hours." right={newsBadge}>
+        <Panel title="Recent market-moving events" help="Recent company or market news that may change the evidence behind a thesis. These items provide context and are not treated as trade instructions by themselves." subtitle="Verified symbol-level news published within the last 72 hours. Select a company headline to open its analysis directly in News & Market Events." right={newsBadge}>
             <ul className="space-y-2">
-              {news.slice(0, 6).map((n) => (
-                <li key={n.id} className="border-b border-zinc-800/60 pb-2 last:border-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {n.symbol ? tickerCell(n.symbol) : <span className="font-mono text-[11px] font-semibold text-zinc-100">MACRO</span>}
-                    <SourceBadge type={n.source_type} />
-                    <span className="font-mono text-[10px] text-zinc-500">{clockET(n.published_at)}</span>
-                  </div>
-                  <p className="mt-1 text-[12px] leading-snug text-zinc-300">{n.headline}</p>
-                </li>
-              ))}
+              {news.slice(0, 6).map((n) => {
+                const signal = n.symbol ? signalBySymbol.get(n.symbol) : null;
+                const summary = n.summary?.trim();
+                return (
+                  <li key={n.id} className="border-b border-zinc-800/60 pb-2 last:border-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {n.symbol ? tickerCell(n.symbol) : <span className="font-mono text-[11px] font-semibold text-zinc-100">MACRO</span>}
+                      <SourceBadge type={n.source_type} />
+                      <span className="font-mono text-[10px] text-zinc-500">{clockET(n.published_at)}</span>
+                    </div>
+                    {signal ? (
+                      <button
+                        type="button"
+                        onClick={() => openTicker(n.symbol!, { tab: 'news', newsId: n.id })}
+                        className="mt-1 block w-full text-left"
+                      >
+                        <span className="block text-[12px] font-medium leading-snug text-zinc-200 transition-colors hover:text-sky-300">
+                          {n.headline}
+                        </span>
+                        {summary && (
+                          <span className="mt-1 block line-clamp-2 text-[11px] leading-relaxed text-zinc-500">
+                            {summary}
+                          </span>
+                        )}
+                      </button>
+                    ) : (
+                      <>
+                        <p className="mt-1 text-[12px] font-medium leading-snug text-zinc-200">{n.headline}</p>
+                        {summary && <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-zinc-500">{summary}</p>}
+                      </>
+                    )}
+                  </li>
+                );
+              })}
               {!news.length && <Unavailable />}
             </ul>
         </Panel>
