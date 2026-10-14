@@ -91,6 +91,18 @@ export interface HistoricalTradeReview {
   range_position_20d: number | null;
   volume_confirmation_ratio: number | null;
   move_extension_at_entry: number | null;
+  confirmation_to_entry_minutes: number | null;
+  confirmation_to_entry_pct: number | null;
+  move_consumed_to_target_pct: number | null;
+  remaining_room_to_target_pct: number | null;
+  retest_before_entry: boolean | null;
+  retest_at: string | null;
+  momentum_state_at_entry: string | null;
+  pre_entry_giveback_pct: number | null;
+  entry_quality_label: string | null;
+  entry_quality_score: number | null;
+  guidance_summary: string | null;
+  decision_timeline: Array<{ kind: string; at: string; price: number | null }>;
   mfe_underlying_pct: number | null;
   mae_underlying_pct: number | null;
   post_invalidation_minutes: number | null;
