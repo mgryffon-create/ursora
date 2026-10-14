@@ -472,6 +472,18 @@ export async function fetchTradeRecords(userId: string | null): Promise<TradeRec
 }
 
 
+export async function fetchHistoricalTradeReviews(userId: string | null): Promise<HistoricalTradeReview[]> {
+  if (!userId) return [];
+  const { data, error } = await db
+    .from('historical_trade_reviews')
+    .select('*')
+    .eq('user_id', userId)
+    .order('entry_at', { ascending: false })
+    .limit(1000);
+  if (error) throw new Error(errorMessage(error, 'Historical trade reviews could not be read.'));
+  return list<HistoricalTradeReview>(data);
+}
+
 export async function fetchTradeCycleThesisEvents(userId: string | null, tradeId?: number): Promise<TradeCycleThesisEvent[]> {
   if (!userId) return [];
   let q = db
