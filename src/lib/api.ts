@@ -389,6 +389,20 @@ export interface HistoricalPlaybackLevel {
   detail: string;
 }
 
+export interface HistoricalPlaybackInstrument {
+  asset_type: string | null;
+  symbol: string;
+  option_symbol: string | null;
+  option_type: string | null;
+  strike: number | null;
+  expiration: string | null;
+  entry_option_price: number | null;
+  exit_option_price: number | null;
+  entry_activity_at: string | null;
+  exit_activity_at: string | null;
+  source: 'timestamped_snaptrade_activity' | 'normalized_episode';
+}
+
 export interface HistoricalPlaybackResponse {
   success: boolean;
   trade_id: number;
@@ -398,6 +412,7 @@ export interface HistoricalPlaybackResponse {
   markers: HistoricalPlaybackMarker[];
   levels: HistoricalPlaybackLevel[];
   review: HistoricalTradeReview | null;
+  instrument: HistoricalPlaybackInstrument | null;
   episode: {
     entry_at: string;
     exit_at: string | null;
