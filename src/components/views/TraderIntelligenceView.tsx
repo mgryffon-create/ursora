@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, BarChart3, BookOpen, Brain, CheckCircle2, FlaskConical, Gauge,
   History, Loader2, Microscope, ShieldCheck, Sparkles, XCircle,
@@ -11,7 +11,7 @@ import PatternCard, { ConfidenceTag } from '@/components/trader/PatternCard';
 import { classifyError, reportError } from '@/lib/errors';
 import { dateLabel, minutesLabel, multiple, signedMoney, timeLabel } from '@/lib/format';
 
-import { fetchTraderProfile, track } from '@/lib/api';
+import { fetchTraderProfile, reconstructHistoricalTrades, track } from '@/lib/api';
 import {
   ALERT_CATEGORIES, MODEL_VERSION, SENSITIVITY, TRADE_ORIGINS, bandTone,
   type Sensitivity,
@@ -22,12 +22,12 @@ import {
 import { deriveProfileContext, type ProfileContextInsight } from '@/lib/behavioral/profile-context';
 import {
   DEFAULT_BEHAVIORAL_PREFS, enabledCategories, fetchBehavioralPrefs, fetchLiterature,
-  fetchBrokerageTradeRecords, fetchModifications, fetchTradeCycleThesisEvents, fetchTradePlans, saveBehavioralPrefs, setTradeOrigin,
+  fetchBrokerageTradeRecords, fetchHistoricalTradeReviews, fetchModifications, fetchTradeCycleThesisEvents, fetchTradePlans, saveBehavioralPrefs, setTradeOrigin,
   type BehavioralPrefs,
 } from '@/lib/behavioral/api';
 import { generateProfile, PROFILES, type ProfileKey } from '@/lib/behavioral/synthetic';
 import { runBehavioralTests, summariseTests, type TestResult } from '@/lib/behavioral/tests';
-import type { LitConstruct, LitLink, LitStudy, TradeCycleThesisEvent, TradeModification, TradePlan, TradeRecord } from '@/lib/behavioral/types';
+import type { HistoricalTradeReview, LitConstruct, LitLink, LitStudy, TradeCycleThesisEvent, TradeModification, TradePlan, TradeRecord } from '@/lib/behavioral/types';
 import type { TraderProfile } from '@/lib/types';
 
 type Tab = 'today' | 'baseline' | 'patterns' | 'process' | 'performance' | 'research';
@@ -169,6 +169,9 @@ export const TraderIntelligenceView: React.FC<{
   const [prefs, setPrefs] = useState<BehavioralPrefs>(DEFAULT_BEHAVIORAL_PREFS);
   const [traderProfile, setTraderProfile] = useState<TraderProfile | null>(null);
   const [thesisEvents, setThesisEvents] = useState<TradeCycleThesisEvent[]>([]);
+  const [historicalReviews, setHistoricalReviews] = useState<HistoricalTradeReview[]>([]);
+  const [historicalReviewBusy, setHistoricalReviewBusy] = useState(false);
+  const historicalBackfillKey = useRef('');
   const [lit, setLit] = useState<{ constructs: LitConstruct[]; studies: LitStudy[]; links: LitLink[] }>({ constructs: [], studies: [], links: [] });
   const [demoProfile, setDemoProfile] = useState<ProfileKey | null>(null);
   const [tests, setTests] = useState<TestResult[] | null>(null);
@@ -182,7 +185,7 @@ export const TraderIntelligenceView: React.FC<{
     setError(null);
     setErrorState(null);
 
-    const [tradeResult, planResult, modResult, prefResult, litResult, profileResult, thesisResult] = await Promise.allSettled([
+    const [tradeResult, planResult, modResult, prefResult, litResult, profileResult, thesisResult, historicalReviewResult] = await Promise.allSettled([
       fetchBrokerageTradeRecords(user?.id ?? null),
       fetchTradePlans(user?.id ?? null),
       fetchModifications(user?.id ?? null),
@@ -190,6 +193,7 @@ export const TraderIntelligenceView: React.FC<{
       fetchLiterature(),
       user ? fetchTraderProfile() : Promise.resolve(null),
       user ? fetchTradeCycleThesisEvents(user.id) : Promise.resolve([]),
+      user ? fetchHistoricalTradeReviews(user.id) : Promise.resolve([]),
     ]);
 
     if (tradeResult.status === 'fulfilled') {
@@ -207,6 +211,7 @@ export const TraderIntelligenceView: React.FC<{
     setLit(litResult.status === 'fulfilled' ? litResult.value : { constructs: [], studies: [], links: [] });
     setTraderProfile(profileResult.status === 'fulfilled' ? profileResult.value : null);
     setThesisEvents(thesisResult.status === 'fulfilled' ? thesisResult.value : []);
+    setHistoricalReviews(historicalReviewResult.status === 'fulfilled' ? historicalReviewResult.value : []);
 
     for (const [name, result] of [
       ['plans', planResult],
@@ -215,6 +220,7 @@ export const TraderIntelligenceView: React.FC<{
       ['literature', litResult],
       ['profile', profileResult],
       ['thesis-events', thesisResult],
+      ['historical-trade-reviews', historicalReviewResult],
     ] as const) {
       if (result.status === 'rejected') {
         console.warn('Trader Intelligence optional source unavailable:', name, result.reason);
@@ -225,6 +231,38 @@ export const TraderIntelligenceView: React.FC<{
   }, [user?.id]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (!user || !trades.length) return;
+
+    const reviewIds = new Set(historicalReviews.map((review) => Number(review.brokerage_episode_id)));
+    const missingIds = trades
+      .filter((trade) => trade.broker === 'SnapTrade' && trade.id < 0 && Boolean(trade.exit_at ?? trade.closed_at))
+      .map((trade) => Math.abs(trade.id))
+      .filter((id) => !reviewIds.has(id));
+
+    if (!missingIds.length) return;
+    const key = missingIds.slice().sort((a, b) => a - b).join(',');
+    if (historicalBackfillKey.current === key) return;
+    historicalBackfillKey.current = key;
+
+    let active = true;
+    setHistoricalReviewBusy(true);
+    void reconstructHistoricalTrades(missingIds)
+      .then(async () => {
+        if (!active) return;
+        const next = await fetchHistoricalTradeReviews(user.id);
+        if (active) setHistoricalReviews(next);
+      })
+      .catch((reviewError) => {
+        console.warn('Historical Trader Intelligence reconstruction did not complete:', reviewError);
+      })
+      .finally(() => {
+        if (active) setHistoricalReviewBusy(false);
+      });
+
+    return () => { active = false; };
+  }, [historicalReviews, trades, user]);
 
   const activeTrades = useMemo<TradeRecord[]>(
     () => (demoProfile ? generateProfile(demoProfile) : trades),
@@ -241,6 +279,35 @@ export const TraderIntelligenceView: React.FC<{
   );
 
   const { baseline, sessions, today, risk, patterns, observations } = intel;
+
+  const historicalReviewSummary = useMemo(() => {
+    const reviewed = historicalReviews.length;
+    const confirmed = historicalReviews.filter((review) => review.retro_direction !== 'neutral');
+    const aligned = confirmed.filter((review) => review.directional_agreement === 'aligned');
+    const opposed = confirmed.filter((review) => review.directional_agreement === 'opposed');
+    const confirmedRetests = historicalReviews.filter((review) => review.entry_relationship === 'confirmed_retest');
+    const chased = historicalReviews.filter((review) => review.entry_relationship === 'chased_extension');
+    const invalidated = historicalReviews.filter((review) => Boolean(review.invalidation_at));
+    const heldAfterInvalidation = invalidated.filter((review) => (review.post_invalidation_minutes ?? 0) > 0);
+    const targetsReached = historicalReviews.filter((review) => Boolean(review.target_hit_at));
+
+    const pct = (num: number, den: number) => den > 0 ? Math.round((num / den) * 100) : null;
+    return {
+      reviewed,
+      confirmed: confirmed.length,
+      aligned: aligned.length,
+      opposed: opposed.length,
+      confirmedRetests: confirmedRetests.length,
+      chased: chased.length,
+      invalidated: invalidated.length,
+      heldAfterInvalidation: heldAfterInvalidation.length,
+      targetsReached: targetsReached.length,
+      alignedPct: pct(aligned.length, confirmed.length),
+      retestPct: pct(confirmedRetests.length, reviewed),
+      chasePct: pct(chased.length, reviewed),
+      postInvalidationPct: pct(heldAfterInvalidation.length, invalidated.length),
+    };
+  }, [historicalReviews]);
   const profileContext = useMemo(
     () => deriveProfileContext(traderProfile, activeTrades, baseline, thesisEvents),
     [traderProfile, activeTrades, baseline, thesisEvents],
@@ -762,6 +829,65 @@ export const TraderIntelligenceView: React.FC<{
       {/* --------------------------------- PATTERNS -------------------------------- */}
       {tab === 'patterns' && (
         <div className="space-y-3">
+          {!emptyForNewUser && (
+            <Panel
+              title="Historical thesis replay"
+              subtitle="TradeCycle reconstructs what the market had actually confirmed at each brokerage entry using only evidence available at that time. Post-entry price is used only to evaluate what happened next."
+              right={historicalReviewBusy
+                ? <span className="inline-flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-sky-400"><Loader2 className="h-3 w-3 animate-spin" />building reviews</span>
+                : historicalReviewSummary.reviewed > 0 && onOpenHistoricalEvidence
+                  ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenHistoricalEvidence(historicalReviews.map((review) => -Math.abs(review.brokerage_episode_id)))}
+                      className="inline-flex items-center gap-1 rounded-sm border border-sky-500/30 bg-sky-500/[0.06] px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-sky-300 hover:border-sky-400/60"
+                    >
+                      <History className="h-3 w-3" />
+                      View replays
+                    </button>
+                  )
+                  : undefined}
+            >
+              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 xl:grid-cols-6">
+                <Stat
+                  label="Reviewed trades"
+                  value={historicalReviewSummary.reviewed || (historicalReviewBusy ? 'building…' : '—')}
+                  hint={historicalReviewSummary.confirmed ? `${historicalReviewSummary.confirmed} had confirmed direction` : 'no-lookahead replays'}
+                />
+                <Stat
+                  label="Thesis alignment"
+                  value={historicalReviewSummary.alignedPct === null ? '—' : `${historicalReviewSummary.alignedPct}%`}
+                  hint={historicalReviewSummary.confirmed ? `${historicalReviewSummary.aligned} aligned / ${historicalReviewSummary.opposed} opposed` : 'confirmed-thesis trades only'}
+                />
+                <Stat
+                  label="Confirmed retests"
+                  value={historicalReviewSummary.retestPct === null ? '—' : `${historicalReviewSummary.retestPct}%`}
+                  hint={`${historicalReviewSummary.confirmedRetests} entries`}
+                />
+                <Stat
+                  label="Extended entries"
+                  value={historicalReviewSummary.chasePct === null ? '—' : `${historicalReviewSummary.chasePct}%`}
+                  hint={`${historicalReviewSummary.chased} entered after extension`}
+                  tone={historicalReviewSummary.chased > 0 ? 'text-amber-300' : undefined}
+                />
+                <Stat
+                  label="Held after invalidation"
+                  value={historicalReviewSummary.postInvalidationPct === null ? '—' : `${historicalReviewSummary.postInvalidationPct}%`}
+                  hint={historicalReviewSummary.invalidated ? `${historicalReviewSummary.heldAfterInvalidation} of ${historicalReviewSummary.invalidated} invalidated positions` : 'no observed invalidations'}
+                  tone={historicalReviewSummary.heldAfterInvalidation > 0 ? 'text-red-300' : undefined}
+                />
+                <Stat
+                  label="Targets reached"
+                  value={historicalReviewSummary.reviewed ? historicalReviewSummary.targetsReached : '—'}
+                  hint="while position was open"
+                />
+              </div>
+              <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
+                These measurements describe execution relative to reconstructed market evidence. They do not infer intent from profit or loss, and a profitable trade can still have been entered against the confirmed thesis or held through invalidation.
+              </p>
+            </Panel>
+          )}
+
           {traderProfile && (
             <Panel
               title="MyURSORA pattern checks"
