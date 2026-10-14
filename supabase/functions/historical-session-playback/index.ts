@@ -396,6 +396,7 @@ Deno.serve(async (req) => {
         source: entryActivity ? 'timestamped_snaptrade_activity' : 'normalized_episode',
       } : null,
       levels: historicalReview ? [
+        n(historicalReview.reversal_origin) !== null ? { kind: 'reversal', label: 'Reversal origin', value: n(historicalReview.reversal_origin), detail: 'Pre-entry level where the reconstructed directional cycle originated.' } : null,
         n(historicalReview.confirmation_price) !== null ? { kind: 'confirmation', label: 'Confirmation', value: n(historicalReview.confirmation_price), detail: 'Price level where the historical cycle became substantiated before entry.' } : null,
         n(historicalReview.target_price) !== null ? { kind: 'target', label: 'Target', value: n(historicalReview.target_price), detail: 'Nearest defensible tactical objective using only pre-entry structure.' } : null,
         n(historicalReview.invalidation_price) !== null ? { kind: 'invalidation', label: 'Invalidation', value: n(historicalReview.invalidation_price), detail: 'Level that would break the reconstructed directional premise.' } : null,
