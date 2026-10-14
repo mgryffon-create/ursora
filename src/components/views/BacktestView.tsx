@@ -462,7 +462,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
         const episodeId = Math.abs(selectedTradeId);
         const reconstructionKey = String(episodeId);
 
-        const needsDecisionEvidence = !result.review || result.review.engine_version !== 'historical-cycle-1.4';
+        const needsDecisionEvidence = result.bars.length > 0 && (!result.review || result.review.engine_version !== 'historical-cycle-1.4');
         if (canonicalEpisode && needsDecisionEvidence && reconstructedKey.current !== reconstructionKey) {
           reconstructedKey.current = reconstructionKey;
           setReconstructionBusy(true);
@@ -693,6 +693,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
               <div className="space-y-3">
                 <div>
                   <h2 className="text-[15px] font-semibold leading-snug text-zinc-100">{historicalEntryHeadline(playback, selectedTrade?.direction)}</h2>
+                  {playback.underlying_symbol && playback.underlying_symbol !== playback.symbol && <div className="mt-1 text-[10px] text-zinc-500">Underlying chart: {playback.underlying_symbol.replace(/^I:/, '')} · contract root: {playback.symbol}</div>}
                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-zinc-400">
                     <span>{playback.instrument?.asset_type === 'option' ? `${playback.instrument.symbol} ${playback.instrument.strike ?? '—'} ${String(playback.instrument.option_type ?? '').toUpperCase()} · ${dateET(playback.instrument.expiration)}` : playback.symbol}</span>
                     <span>Entry {playback.instrument?.entry_option_price?.toFixed(2) ?? selectedTrade?.entry_price ?? '—'} · {timeET(playback.episode.entry_at)}</span>
@@ -703,7 +704,12 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
 
               <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_330px]">
                 <div className="min-w-0">
-                  <SessionPlaybackChart
+                  {!playback.bars.length ? (
+                    <div role="status" className="rounded-md border border-amber-500/30 bg-amber-500/[0.04] p-4">
+                      <div className="text-[13px] font-semibold text-amber-200">Historical market replay unavailable</div>
+                      <p className="mt-2 text-[11px] leading-relaxed text-zinc-400">{playback.data_availability?.message ?? 'No historical market prices were returned for this trade window. Brokerage executions are available, but there is not enough market data to reconstruct the lookback.'}</p>
+                    </div>
+                  ) : <SessionPlaybackChart
                     bars={playback.bars}
                     markers={playback.markers}
                     levels={playback.levels}
@@ -723,7 +729,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                         onRangeChange={onRangeChange}
                       />
                     )}
-                  />
+                  />}
                 </div>
 
                 <aside className="space-y-2 xl:sticky xl:top-3 xl:self-start">

@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { historicalMarketSymbol } from '../_shared/historical-market-symbol.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -95,7 +96,10 @@ async function massiveGet(path: string, params: Record<string, string | number |
   let body: any = raw;
   try { body = raw ? JSON.parse(raw) : null; } catch {}
   if (!response.ok) {
-    throw new Error(`Massive returned HTTP ${response.status}: ${typeof body === 'string' ? body : JSON.stringify(body)}`);
+    const indexRequest = path.includes('I%3A');
+    throw new Error(response.status === 403
+      ? `Historical ${indexRequest ? 'index ' : ''}data access was denied by Massive. The connected subscription does not cover this symbol or requested history.`
+      : `Historical market data returned HTTP ${response.status}. Please retry later.`);
   }
   return body;
 }
@@ -190,6 +194,7 @@ Deno.serve(async (req) => {
     const sessionDate = etDate(entryAt);
     const symbol = String(trade.symbol ?? '').toUpperCase();
     if (!symbol) return json({ error: 'Trade has no symbol.' }, 422);
+    const marketSymbol = historicalMarketSymbol(symbol);
 
     let historicalReview: Record<string, any> | null = null;
     if (brokerageEpisode) {
@@ -216,13 +221,13 @@ Deno.serve(async (req) => {
     if (brokerageEpisode) {
       const { data: cachedPlayback, error: cacheError } = await db
         .from('historical_trade_playback_cache')
-        .select('bars,context_start,entry_session,exit_session,fetched_at,source')
+        .select('symbol,bars,context_start,entry_session,exit_session,fetched_at,source')
         .eq('user_id', user.id)
         .eq('brokerage_episode_id', Math.abs(tradeId))
         .maybeSingle();
       if (cacheError) throw cacheError;
 
-      if (cachedPlayback && Array.isArray(cachedPlayback.bars) && cachedPlayback.bars.length) {
+      if (cachedPlayback && cachedPlayback.symbol === marketSymbol && Array.isArray(cachedPlayback.bars) && cachedPlayback.bars.length) {
         bars = cachedPlayback.bars;
         playbackDataSource = 'persisted_historical_cache';
       }
@@ -230,8 +235,8 @@ Deno.serve(async (req) => {
 
     if (!bars.length) {
       const payload = await massiveGet(
-        `/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/5/minute/${playbackStartDate}/${exitSessionDate}`,
-        { adjusted: true, sort: 'asc', limit: 50000 },
+        `/v2/aggs/ticker/${encodeURIComponent(marketSymbol)}/range/5/minute/${playbackStartDate}/${exitSessionDate}`,
+        marketSymbol.startsWith('I:') ? { sort: 'asc', limit: 50000 } : { adjusted: true, sort: 'asc', limit: 50000 },
       );
 
       bars = (Array.isArray(payload?.results) ? payload.results : [])
@@ -254,7 +259,7 @@ Deno.serve(async (req) => {
           .upsert({
             user_id: user.id,
             brokerage_episode_id: Math.abs(tradeId),
-            symbol,
+            symbol: marketSymbol,
             timeframe: '5m',
             context_start: playbackStartDate,
             entry_session: sessionDate,
@@ -464,6 +469,11 @@ Deno.serve(async (req) => {
       trade_id: tradeId,
       symbol,
       session_date: sessionDate,
+      underlying_symbol: marketSymbol,
+      data_availability: {
+        status: bars.length ? 'available' : 'unavailable',
+        message: bars.length ? null : `No historical ${marketSymbol.startsWith('I:') ? 'index prices' : 'prices'} were returned for ${marketSymbol.replace(/^I:/, '')} from ${playbackStartDate} through ${exitSessionDate}. Trade executions are available, but the market replay and thesis assessment cannot be reconstructed for this window.`,
+      },
       playback_window: {
         context_start: playbackStartDate,
         entry_session: sessionDate,

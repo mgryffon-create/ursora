@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { historicalMarketSymbol } from '../_shared/historical-market-symbol.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -39,8 +40,9 @@ function massiveKey() {
 }
 
 async function massiveAggs(symbol: string, from: string, to: string) {
-  const url = new URL(`https://api.massive.com/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/5/minute/${from}/${to}`);
-  url.searchParams.set('adjusted', 'true');
+  const marketSymbol = historicalMarketSymbol(symbol);
+  const url = new URL(`https://api.massive.com/v2/aggs/ticker/${encodeURIComponent(marketSymbol)}/range/5/minute/${from}/${to}`);
+  if (!marketSymbol.startsWith('I:')) url.searchParams.set('adjusted', 'true');
   url.searchParams.set('sort', 'asc');
   url.searchParams.set('limit', '50000');
   const response = await fetch(url, {
@@ -49,7 +51,9 @@ async function massiveAggs(symbol: string, from: string, to: string) {
   const raw = await response.text();
   let body: any = raw;
   try { body = raw ? JSON.parse(raw) : null; } catch {}
-  if (!response.ok) throw new Error(`Historical market data returned HTTP ${response.status}.`);
+  if (!response.ok) throw new Error(response.status === 403
+    ? 'Historical market data access was denied by Massive for this symbol or requested history.'
+    : `Historical market data returned HTTP ${response.status}.`);
   return (Array.isArray(body?.results) ? body.results : []).map((bar: any) => ({
     bar_time: new Date(Number(bar.t)).toISOString(),
     open: Number(bar.o),
@@ -1054,14 +1058,15 @@ Deno.serve(async (req) => {
     // the episode. Reuse that exact persisted evidence before considering Massive.
     const { data: playbackCaches, error: playbackCacheError } = await db
       .from('historical_trade_playback_cache')
-      .select('brokerage_episode_id,bars')
+      .select('brokerage_episode_id,symbol,bars')
       .eq('user_id', user.id)
       .in('brokerage_episode_id', pendingIds);
     if (playbackCacheError) throw playbackCacheError;
 
     const cachedBarsByEpisode = new Map<number, AnyRow[]>(
       (playbackCaches ?? [])
-        .filter((row: AnyRow) => Array.isArray(row.bars) && row.bars.length)
+        .filter((row: AnyRow) => Array.isArray(row.bars) && row.bars.length
+          && row.symbol === historicalMarketSymbol(String(pending.find((episode: AnyRow) => Number(episode.id) === Number(row.brokerage_episode_id))?.symbol ?? '')))
         .map((row: AnyRow) => [Number(row.brokerage_episode_id), row.bars as AnyRow[]]),
     );
 
@@ -1095,6 +1100,7 @@ Deno.serve(async (req) => {
         const from = new Date(minEntry - 8 * 86400000).toISOString().slice(0, 10);
         const to = new Date(maxExit + 86400000).toISOString().slice(0, 10);
         const bars = await massiveAggs(symbol, from, to);
+        if (!bars.length) throw new Error(`No historical prices were returned for ${historicalMarketSymbol(symbol)} from ${from} through ${to}.`);
 
         for (const episode of symbolEpisodes) {
           try {

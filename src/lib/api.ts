@@ -432,6 +432,8 @@ export interface HistoricalPlaybackInstrument {
 }
 
 export interface HistoricalPlaybackResponse {
+  underlying_symbol?: string;
+  data_availability?: { status: 'available' | 'unavailable'; message: string | null };
   success: boolean;
   trade_id: number;
   symbol: string;
