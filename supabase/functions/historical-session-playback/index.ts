@@ -61,6 +61,10 @@ function etDate(iso: string): string {
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
+function dateDaysBefore(iso: string, days: number): string {
+  return new Date(new Date(iso).getTime() - days * 86400000).toISOString().slice(0, 10);
+}
+
 function etMinutes(iso: string): number {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York',
@@ -175,8 +179,14 @@ Deno.serve(async (req) => {
 
     const exitAtForRange = trade.exit_at ?? trade.closed_at ?? entryAt;
     const exitSessionDate = etDate(exitAtForRange);
+
+    // Historical playback must show the evidence context the reconstruction used,
+    // not only the period after the user entered. An 8-calendar-day buffer reliably
+    // captures at least the prior five regular trading sessions around normal weekends.
+    // The full holding period remains visible through the actual exit session.
+    const playbackStartDate = dateDaysBefore(entryAt, 8);
     const payload = await massiveGet(
-      `/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/5/minute/${sessionDate}/${exitSessionDate}`,
+      `/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/5/minute/${playbackStartDate}/${exitSessionDate}`,
       { adjusted: true, sort: 'asc', limit: 50000 },
     );
 
@@ -285,6 +295,12 @@ Deno.serve(async (req) => {
       trade_id: tradeId,
       symbol,
       session_date: sessionDate,
+      playback_window: {
+        context_start: playbackStartDate,
+        entry_session: sessionDate,
+        exit_session: exitSessionDate,
+        context_rule: 'prior 5 trading sessions plus the complete holding period',
+      },
       bars,
       markers,
       episode: {
