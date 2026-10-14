@@ -484,14 +484,15 @@ const markerColor = (kind: SessionPlaybackMarker['kind']) =>
             : '#60a5fa';
 
 export interface SessionPlaybackLevel {
-  kind: 'confirmation' | 'target' | 'invalidation' | 'support' | 'resistance';
+  kind: 'reversal' | 'confirmation' | 'target' | 'invalidation' | 'support' | 'resistance';
   label: string;
   value: number;
   detail?: string;
 }
 
 const playbackLevelColor = (kind: SessionPlaybackLevel['kind']) =>
-  kind === 'confirmation' ? '#38bdf8'
+  kind === 'reversal' ? '#c084fc'
+    : kind === 'confirmation' ? '#38bdf8'
     : kind === 'target' ? '#34d399'
       : kind === 'invalidation' ? '#f59e0b'
         : kind === 'support' ? '#a78bfa'
@@ -509,7 +510,8 @@ export const SessionPlaybackChart: React.FC<{
   markers: SessionPlaybackMarker[];
   levels?: SessionPlaybackLevel[];
   height?: number;
-}> = ({ bars, markers, levels = [], height = 360 }) => {
+  showStructureCards?: boolean;
+}> = ({ bars, markers, levels = [], height = 360, showStructureCards = true }) => {
   const [chartStyle, setChartStyle] = usePriceChartStyle();
   if (!bars.length) {
     return (
@@ -621,7 +623,7 @@ export const SessionPlaybackChart: React.FC<{
         </ResponsiveContainer>
       </div>
 
-      {levels.length > 0 && (
+      {showStructureCards && levels.length > 0 && (
         <div className="mt-3">
           <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-600">Historical trade structure</div>
           <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
