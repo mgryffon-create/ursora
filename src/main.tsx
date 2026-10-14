@@ -5,6 +5,42 @@ import { prepareBrokerageBootstrap, startBrokerageDailyRefresh } from '@/lib/bro
 
 const CURRENT_BUILD_ID = import.meta.env.VITE_BUILD_ID;
 
+function showFatalBrowserError(error: unknown) {
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === 'string'
+      ? error
+      : (() => { try { return JSON.stringify(error); } catch { return 'Unknown browser error'; } })();
+  const stack = error instanceof Error && error.stack ? error.stack : '';
+
+  let panel = document.getElementById('ursora-fatal-browser-error');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'ursora-fatal-browser-error';
+    panel.style.position = 'fixed';
+    panel.style.inset = '16px';
+    panel.style.zIndex = '2147483647';
+    panel.style.background = '#0b0d10';
+    panel.style.border = '1px solid rgba(239,68,68,.6)';
+    panel.style.borderRadius = '8px';
+    panel.style.padding = '16px';
+    panel.style.color = '#e4e4e7';
+    panel.style.fontFamily = 'monospace';
+    panel.style.whiteSpace = 'pre-wrap';
+    panel.style.overflow = 'auto';
+    document.body.appendChild(panel);
+  }
+  panel.textContent = `URSORA browser error\n\n${message}${stack ? `\n\n${stack}` : ''}`;
+}
+
+window.addEventListener('error', (event) => {
+  showFatalBrowserError(event.error ?? event.message);
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  showFatalBrowserError(event.reason);
+});
+
 async function checkForNewDeployment() {
   if (!import.meta.env.PROD || !CURRENT_BUILD_ID) return;
 
