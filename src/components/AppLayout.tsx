@@ -293,11 +293,17 @@ export const AppLayout: React.FC = () => {
   }, [favorites, loading, user]);
 
   useEffect(() => {
-    if (!entered && !user) return;
-    const accountKey = user ? `ursora_onboarding_v2_${user.id}` : 'ursora_onboarding_v2_demo';
+    // Orientation is account onboarding, not part of the signed-out/demo flow.
+    // Never render it while auth is resolving or after logout.
+    if (loading || !user) {
+      setShowOnboarding(false);
+      return;
+    }
+
+    const accountKey = `ursora_onboarding_v2_${user.id}`;
     const legacySeen = window.localStorage.getItem('ursora_onboarding_v1') === 'seen';
     const accountSeen = window.localStorage.getItem(accountKey) === 'seen';
-    const profileSeen = Boolean(user?.user_metadata?.ursora_onboarding_completed);
+    const profileSeen = Boolean(user.user_metadata?.ursora_onboarding_completed);
 
     if (legacySeen || accountSeen || profileSeen) {
       window.localStorage.setItem(accountKey, 'seen');
@@ -306,7 +312,7 @@ export const AppLayout: React.FC = () => {
     }
 
     setShowOnboarding(true);
-  }, [entered, user]);
+  }, [loading, user]);
 
   useEffect(() => {
     setExpandedGroup(groupForView(view));
@@ -475,7 +481,12 @@ export const AppLayout: React.FC = () => {
             {user ? (
               <button
                 type="button"
-                onClick={signOut}
+                onClick={() => {
+                  setShowOnboarding(false);
+                  setEntered(false);
+                  setAuthMode(null);
+                  void signOut();
+                }}
                 className="inline-flex items-center gap-1.5 rounded-sm border border-zinc-800 px-2 py-1.5 font-mono text-[10px] uppercase tracking-wider text-zinc-400 transition-colors hover:border-red-500/40 hover:text-red-300"
               >
                 <LogOut className="h-3 w-3" aria-hidden="true" />
@@ -600,25 +611,27 @@ export const AppLayout: React.FC = () => {
         </div>
       )}
 
-      {showOnboarding && (
+      {user && showOnboarding && (
         <OnboardingTour
           onSetupTraderProfile={() => {
-            const accountKey = user ? `ursora_onboarding_v2_${user.id}` : 'ursora_onboarding_v2_demo';
+            if (!user) return;
+            const accountKey = `ursora_onboarding_v2_${user.id}`;
             window.localStorage.setItem('ursora_onboarding_v1', 'seen');
             window.localStorage.setItem(accountKey, 'seen');
             setShowOnboarding(false);
-            if (user && !user.user_metadata?.ursora_onboarding_completed) {
+            if (!user.user_metadata?.ursora_onboarding_completed) {
               void db.auth.updateUser({ data: { ursora_onboarding_completed: true } });
             }
             go('profile');
           }}
           onFinish={() => {
-            const accountKey = user ? `ursora_onboarding_v2_${user.id}` : 'ursora_onboarding_v2_demo';
+            if (!user) return;
+            const accountKey = `ursora_onboarding_v2_${user.id}`;
             window.localStorage.setItem('ursora_onboarding_v1', 'seen');
             window.localStorage.setItem(accountKey, 'seen');
             setShowOnboarding(false);
 
-            if (user && !user.user_metadata?.ursora_onboarding_completed) {
+            if (!user.user_metadata?.ursora_onboarding_completed) {
               void db.auth.updateUser({
                 data: { ursora_onboarding_completed: true },
               });
