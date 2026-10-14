@@ -415,6 +415,17 @@ export async function fetchHistoricalPlayback(tradeId: number): Promise<Historic
   return callEdge<HistoricalPlaybackResponse>(EDGE_FUNCTIONS.historicalPlayback, { trade_id: tradeId });
 }
 
+export async function normalizeStoredBrokerageTrades(): Promise<{
+  success: boolean;
+  activities_considered: number;
+  episodes: number;
+  closed: number;
+  open: number;
+  synced_at: string;
+}> {
+  return callEdge(EDGE_FUNCTIONS.snapTradeNormalize, {});
+}
+
 export async function reconstructHistoricalTrades(episodeIds: number[] = []): Promise<{
   success: boolean;
   reviewed: number;
