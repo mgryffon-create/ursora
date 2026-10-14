@@ -293,76 +293,7 @@ Deno.serve(async (req) => {
     const entryUnderlying = historicalReview ? n(historicalReview.entry_underlying_price) : nearestPrice(entryAt);
     const exitUnderlying = historicalReview ? n(historicalReview.exit_underlying_price) : nearestPrice(exitAt);
 
-    const markers = [
-      historicalReview?.confirmation_at ? {
-        kind: 'confirmation',
-        label: 'Thesis confirmed',
-        at: historicalReview.confirmation_at,
-        price: n(historicalReview.confirmation_price),
-        detail: `${String(historicalReview.retro_direction ?? 'direction')} ${String(historicalReview.cycle_event_type ?? 'cycle')} confirmation`,
-      } : null,
-      {
-        kind: 'entry',
-        label: isOption
-          ? `ENTRY · ${contractCode(n(entryActivity?.strike ?? trade.strike), String(entryActivity?.option_type ?? trade.option_type ?? '')) ?? 'OPTION'} · ${n(entryActivity?.price ?? trade.entry_price)?.toFixed(2) ?? '—'}`
-          : 'Your entry',
-        at: entryAt,
-        price: isOption ? entryUnderlying : (n(trade.entry_price) ?? entryUnderlying),
-        detail: isOption
-          ? `Underlying ${symbol} ${entryUnderlying?.toFixed(2) ?? '—'} · ${String(entryActivity?.option_action ?? 'entry')} · ${String(entryActivity?.expiration ?? trade.expiration ?? 'expiration unavailable')}`
-          : 'Brokerage execution mapped to the underlying session',
-      },
-      weakening ? {
-        kind: 'weakening',
-        label: 'Thesis weakening',
-        at: weakening.created_at,
-        price: n(weakening.underlying_price) ?? nearestPrice(weakening.created_at),
-        detail: String(weakening.thesis_state ?? weakening.event_type ?? 'Evidence weakened'),
-      } : null,
-      invalidationContext?.status === 'during_trade' ? {
-        kind: 'invalidation',
-        label: 'Invalidated in trade',
-        at: invalidationContext.at,
-        price: invalidationContext.price,
-        detail: invalidationContext.detail,
-      } : invalidationContext?.status === 'after_exit' ? {
-        kind: 'invalidation',
-        label: 'Invalidated after exit',
-        at: invalidationContext.at,
-        price: invalidationContext.price,
-        detail: invalidationContext.detail,
-      } : invalidationContext?.status === 'pre_entry_conflict' ? {
-        kind: 'conflict',
-        label: 'Direction unsupported before entry',
-        at: invalidationContext.at,
-        price: invalidationContext.price,
-        detail: invalidationContext.detail,
-      } : (!historicalReview && invalidation) ? {
-        kind: 'invalidation',
-        label: 'Thesis invalidation',
-        at: invalidation.created_at,
-        price: n(invalidation.underlying_price) ?? nearestPrice(invalidation.created_at),
-        detail: String(invalidation.thesis_state ?? invalidation.event_type ?? 'Thesis invalidated'),
-      } : null,
-      historicalReview?.target_hit_at ? {
-        kind: 'target',
-        label: 'Target reached',
-        at: historicalReview.target_hit_at,
-        price: n(historicalReview.target_price),
-        detail: 'The reconstructed tactical target was reached while the position was open.',
-      } : null,
-      exitAt ? {
-        kind: 'exit',
-        label: isOption
-          ? `EXIT · ${contractCode(n(exitActivity?.strike ?? entryActivity?.strike ?? trade.strike), String(exitActivity?.option_type ?? entryActivity?.option_type ?? trade.option_type ?? '')) ?? 'OPTION'} · ${n(exitActivity?.price ?? trade.exit_price)?.toFixed(2) ?? '—'}`
-          : 'Your exit',
-        at: exitAt,
-        price: isOption ? exitUnderlying : (n(trade.exit_price) ?? exitUnderlying),
-        detail: isOption
-          ? `Underlying ${symbol} ${exitUnderlying?.toFixed(2) ?? '—'} · ${String(exitActivity?.option_action ?? 'exit')} · ${String(exitActivity?.expiration ?? entryActivity?.expiration ?? trade.expiration ?? 'expiration unavailable')}`
-          : 'Brokerage exit mapped to the underlying session',
-      } : null,
-    ].filter(Boolean);
+
 
     const reviewDirection = String(historicalReview?.retro_direction ?? '').toLowerCase();
     const agreement = String(historicalReview?.directional_agreement ?? '');
@@ -435,6 +366,77 @@ Deno.serve(async (req) => {
     const postInvalidationMinutes = invalidationAt && exitAt
       ? Math.max(0, Math.round((new Date(exitAt).getTime() - new Date(invalidationAt).getTime()) / 60000))
       : null;
+
+    const markers = [
+      historicalReview?.confirmation_at ? {
+        kind: 'confirmation',
+        label: 'Thesis confirmed',
+        at: historicalReview.confirmation_at,
+        price: n(historicalReview.confirmation_price),
+        detail: `${String(historicalReview.retro_direction ?? 'direction')} ${String(historicalReview.cycle_event_type ?? 'cycle')} confirmation`,
+      } : null,
+      {
+        kind: 'entry',
+        label: isOption
+          ? `ENTRY · ${contractCode(n(entryActivity?.strike ?? trade.strike), String(entryActivity?.option_type ?? trade.option_type ?? '')) ?? 'OPTION'} · ${n(entryActivity?.price ?? trade.entry_price)?.toFixed(2) ?? '—'}`
+          : 'Your entry',
+        at: entryAt,
+        price: isOption ? entryUnderlying : (n(trade.entry_price) ?? entryUnderlying),
+        detail: isOption
+          ? `Underlying ${symbol} ${entryUnderlying?.toFixed(2) ?? '—'} · ${String(entryActivity?.option_action ?? 'entry')} · ${String(entryActivity?.expiration ?? trade.expiration ?? 'expiration unavailable')}`
+          : 'Brokerage execution mapped to the underlying session',
+      },
+      weakening ? {
+        kind: 'weakening',
+        label: 'Thesis weakening',
+        at: weakening.created_at,
+        price: n(weakening.underlying_price) ?? nearestPrice(weakening.created_at),
+        detail: String(weakening.thesis_state ?? weakening.event_type ?? 'Evidence weakened'),
+      } : null,
+      invalidationContext?.status === 'during_trade' ? {
+        kind: 'invalidation',
+        label: 'Invalidated in trade',
+        at: invalidationContext.at,
+        price: invalidationContext.price,
+        detail: invalidationContext.detail,
+      } : invalidationContext?.status === 'after_exit' ? {
+        kind: 'invalidation',
+        label: 'Invalidated after exit',
+        at: invalidationContext.at,
+        price: invalidationContext.price,
+        detail: invalidationContext.detail,
+      } : invalidationContext?.status === 'pre_entry_conflict' ? {
+        kind: 'conflict',
+        label: 'Direction unsupported before entry',
+        at: invalidationContext.at,
+        price: invalidationContext.price,
+        detail: invalidationContext.detail,
+      } : (!historicalReview && invalidation) ? {
+        kind: 'invalidation',
+        label: 'Thesis invalidation',
+        at: invalidation.created_at,
+        price: n(invalidation.underlying_price) ?? nearestPrice(invalidation.created_at),
+        detail: String(invalidation.thesis_state ?? invalidation.event_type ?? 'Thesis invalidated'),
+      } : null,
+      historicalReview?.target_hit_at ? {
+        kind: 'target',
+        label: 'Target reached',
+        at: historicalReview.target_hit_at,
+        price: n(historicalReview.target_price),
+        detail: 'The reconstructed tactical target was reached while the position was open.',
+      } : null,
+      exitAt ? {
+        kind: 'exit',
+        label: isOption
+          ? `EXIT · ${contractCode(n(exitActivity?.strike ?? entryActivity?.strike ?? trade.strike), String(exitActivity?.option_type ?? entryActivity?.option_type ?? trade.option_type ?? '')) ?? 'OPTION'} · ${n(exitActivity?.price ?? trade.exit_price)?.toFixed(2) ?? '—'}`
+          : 'Your exit',
+        at: exitAt,
+        price: isOption ? exitUnderlying : (n(trade.exit_price) ?? exitUnderlying),
+        detail: isOption
+          ? `Underlying ${symbol} ${exitUnderlying?.toFixed(2) ?? '—'} · ${String(exitActivity?.option_action ?? 'exit')} · ${String(exitActivity?.expiration ?? entryActivity?.expiration ?? trade.expiration ?? 'expiration unavailable')}`
+          : 'Brokerage exit mapped to the underlying session',
+      } : null,
+    ].filter(Boolean);
 
     return json({
       success: true,
