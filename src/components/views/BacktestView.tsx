@@ -485,10 +485,61 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                 <aside className="space-y-2 xl:sticky xl:top-3 xl:self-start">
                   {playback.replay_summary && (
                     <div className="rounded-md border border-sky-500/30 bg-sky-500/[0.05] p-3">
-                      <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-sky-400">Trade review summary</div>
-                      <div className="mt-1 text-[12px] font-semibold text-zinc-100">{playback.replay_summary.headline}</div>
-                      <div className="mt-1.5 text-[9px] leading-relaxed text-zinc-400">
-                        {[playback.replay_summary.execution, playback.replay_summary.invalidation].filter(Boolean).join(' ')}
+                      <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-sky-400">Decision review</div>
+
+                      <div className="mt-2 space-y-2">
+                        <div>
+                          <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">What the market did</div>
+                          <div className="mt-0.5 text-[10px] leading-relaxed text-zinc-300">{playback.replay_summary.headline}</div>
+                        </div>
+
+                        {playback.review && (
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <div className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1.5">
+                              <div className="font-mono text-[7px] uppercase tracking-wider text-zinc-600">Confirmation → entry</div>
+                              <div className="mt-0.5 font-mono text-[10px] text-zinc-200">
+                                {playback.review.confirmation_to_entry_minutes === null ? '—' : `${playback.review.confirmation_to_entry_minutes} min`}
+                              </div>
+                            </div>
+                            <div className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1.5">
+                              <div className="font-mono text-[7px] uppercase tracking-wider text-zinc-600">Move consumed</div>
+                              <div className="mt-0.5 font-mono text-[10px] text-zinc-200">
+                                {playback.review.move_consumed_to_target_pct === null ? '—' : `${Math.round(playback.review.move_consumed_to_target_pct)}%`}
+                              </div>
+                            </div>
+                            <div className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1.5">
+                              <div className="font-mono text-[7px] uppercase tracking-wider text-zinc-600">Momentum at entry</div>
+                              <div className="mt-0.5 font-mono text-[9px] uppercase text-zinc-300">
+                                {playback.review.momentum_state_at_entry?.replaceAll('_', ' ') ?? '—'}
+                              </div>
+                            </div>
+                            <div className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1.5">
+                              <div className="font-mono text-[7px] uppercase tracking-wider text-zinc-600">Entry quality</div>
+                              <div className="mt-0.5 font-mono text-[9px] uppercase text-zinc-300">
+                                {playback.review.entry_quality_label?.replaceAll('_', ' ') ?? '—'}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        <div>
+                          <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">What your execution means</div>
+                          <div className="mt-0.5 text-[10px] leading-relaxed text-zinc-300">
+                            {playback.replay_summary.guidance ?? playback.replay_summary.execution ?? 'No execution interpretation available.'}
+                          </div>
+                        </div>
+
+                        {playback.replay_summary.invalidation && (
+                          <div>
+                            <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Thesis outcome</div>
+                            <div className="mt-0.5 text-[9px] leading-relaxed text-zinc-400">{playback.replay_summary.invalidation}</div>
+                          </div>
+                        )}
+
+                        <div className="border-t border-sky-500/15 pt-2">
+                          <div className="font-mono text-[8px] uppercase tracking-wider text-amber-300/80">What to compare in your history</div>
+                          <div className="mt-0.5 text-[9px] leading-relaxed text-zinc-400">{playback.replay_summary.compare}</div>
+                        </div>
                       </div>
                     </div>
                   )}
