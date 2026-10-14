@@ -695,7 +695,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                                   ? 'No directional thesis was substantiated for this trade window. A local session level was tested and held before entry, but that retest did not independently confirm direction.'
                                   : 'No directional thesis was substantiated for this trade window before entry.')
                               : playback.review.session_state === 'existing_thesis'
-                                ? `The broader ${playback.review.retro_direction} thesis was already established before this trade window.${playback.review.retest_before_entry ? ' During the session, price retested and held a local level, but there was no fresh directional confirmation before entry.' : ' The session did not produce a fresh directional confirmation before entry.'}`
+                                ? `The broader ${playback.review.retro_direction} thesis was already established${playback.review.context_confirmation_at ? ` at ${timeET(playback.review.context_confirmation_at)} on ${dateET(playback.review.context_confirmation_at)}` : ' before this trade window'}.${playback.review.retest_before_entry ? ' During the session, price retested and held a local level, but there was no fresh directional confirmation before entry.' : ' The session did not produce a fresh directional confirmation before entry.'}`
                                 : `Fresh ${playback.review.retro_direction} evidence was ${playback.review.session_state === 'session_reconfirmed' ? 'reconfirmed' : 'confirmed'} ${playback.review.confirmation_to_entry_minutes === null ? 'before entry' : `${playback.review.confirmation_to_entry_minutes} minute${playback.review.confirmation_to_entry_minutes === 1 ? '' : 's'} before entry`}.${playback.review.retest_before_entry ? ' Price then tested and held the confirmed area before the user entered.' : ''}`}
                           </div>
                         </div>
@@ -813,7 +813,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                             {playback.review.retro_direction === 'neutral'
                               ? 'No confirmed thesis at entry'
                               : playback.review.session_state === 'existing_thesis'
-                                ? `${playback.review.retro_direction.toUpperCase()} · broader thesis active`
+                                ? `${playback.review.retro_direction.toUpperCase()} · broader thesis active${playback.review.context_confirmation_at ? ` since ${dateET(playback.review.context_confirmation_at)} ${timeET(playback.review.context_confirmation_at)}` : ''}`
                                 : `${playback.review.retro_direction.toUpperCase()} · ${playback.review.setup_class.replaceAll('_', ' ')}`}
                           </div>
                           <p className="mt-1.5 text-[9px] leading-relaxed text-zinc-500">{playback.review.review_summary}</p>
