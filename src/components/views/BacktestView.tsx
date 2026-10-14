@@ -207,7 +207,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
         const episodeId = Math.abs(selectedTradeId);
         const reconstructionKey = String(episodeId);
 
-        const needsDecisionEvidence = !result.review || result.review.engine_version !== 'historical-cycle-1.1';
+        const needsDecisionEvidence = !result.review || result.review.engine_version !== 'historical-cycle-1.2';
         if (canonicalEpisode && needsDecisionEvidence && reconstructedKey.current !== reconstructionKey) {
           reconstructedKey.current = reconstructionKey;
           setReconstructionBusy(true);
@@ -493,11 +493,10 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                           <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Before entry</div>
                           <div className="mt-1 text-[11px] leading-relaxed text-zinc-300">
                             {playback.review.retro_direction === 'neutral'
-                              ? 'TradeCycle did not find a substantiated directional thesis before this entry.'
-                              : `A ${playback.review.retro_direction} move was confirmed ${playback.review.confirmation_to_entry_minutes === null ? 'before the trade' : `${playback.review.confirmation_to_entry_minutes} minute${playback.review.confirmation_to_entry_minutes === 1 ? '' : 's'} before entry`}.`}
-                            {playback.review.retest_before_entry
-                              ? ' Price then tested and held the confirmed area before the user entered.'
-                              : ''}
+                              ? (playback.review.retest_before_entry
+                                  ? 'TradeCycle did not find a fresh substantiated directional confirmation within this trade window. A local session level was tested and held before entry, but that retest did not independently confirm direction.'
+                                  : 'TradeCycle did not find a fresh substantiated directional thesis within this trade window before entry.')
+                              : `A ${playback.review.retro_direction} move was confirmed ${playback.review.confirmation_to_entry_minutes === null ? 'before the trade' : `${playback.review.confirmation_to_entry_minutes} minute${playback.review.confirmation_to_entry_minutes === 1 ? '' : 's'} before entry`}.${playback.review.retest_before_entry ? ' Price then tested and held the confirmed area before the user entered.' : ''}`}
                           </div>
                         </div>
 
