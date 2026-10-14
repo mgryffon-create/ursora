@@ -753,14 +753,14 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                     height={500}
                     showStructureCards={false}
                     compactEvents
-                    syncId={`historical-evidence-${playback.episode.id}`}
+                    syncId={`historical-evidence-${playback.trade_id}`}
                     afterPlot={playback.review ? (
                       <HistoricalIndicatorPanel
                         bars={playback.bars}
                         entryAt={playback.episode.entry_at}
                         markers={playback.markers}
                         review={playback.review}
-                        syncId={`historical-evidence-${playback.episode.id}`}
+                        syncId={`historical-evidence-${playback.trade_id}`}
                       />
                     ) : null}
                   />
