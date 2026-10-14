@@ -272,7 +272,7 @@ Deno.serve(async (req) => {
         at: entryAt,
         price: isOption ? entryUnderlying : (n(trade.entry_price) ?? entryUnderlying),
         detail: isOption
-          ? `Underlying SPY/equity price ${entryUnderlying?.toFixed(2) ?? '—'} · ${String(entryActivity?.option_action ?? 'entry')} · ${String(entryActivity?.expiration ?? trade.expiration ?? 'expiration unavailable')}`
+          ? `Underlying ${symbol} ${entryUnderlying?.toFixed(2) ?? '—'} · ${String(entryActivity?.option_action ?? 'entry')} · ${String(entryActivity?.expiration ?? trade.expiration ?? 'expiration unavailable')}`
           : 'Brokerage execution mapped to the underlying session',
       },
       weakening ? {
@@ -310,7 +310,7 @@ Deno.serve(async (req) => {
         at: exitAt,
         price: isOption ? exitUnderlying : (n(trade.exit_price) ?? exitUnderlying),
         detail: isOption
-          ? `Underlying SPY/equity price ${exitUnderlying?.toFixed(2) ?? '—'} · ${String(exitActivity?.option_action ?? 'exit')} · ${String(exitActivity?.expiration ?? entryActivity?.expiration ?? trade.expiration ?? 'expiration unavailable')}`
+          ? `Underlying ${symbol} ${exitUnderlying?.toFixed(2) ?? '—'} · ${String(exitActivity?.option_action ?? 'exit')} · ${String(exitActivity?.expiration ?? entryActivity?.expiration ?? trade.expiration ?? 'expiration unavailable')}`
           : 'Brokerage exit mapped to the underlying session',
       } : null,
     ].filter(Boolean);
