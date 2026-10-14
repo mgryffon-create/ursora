@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Clock3, History, Loader2 } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Clock3, History, Loader2 } from 'lucide-react';
 import { fetchHistoricalPlayback, normalizeStoredBrokerageTrades, reconstructHistoricalTrades, type HistoricalPlaybackResponse } from '@/lib/api';
 import { fetchBrokerageTradeRecords } from '@/lib/behavioral/api';
 import type { TradeRecord } from '@/lib/behavioral/types';
@@ -28,6 +28,23 @@ const timeET = (value: string | null | undefined) =>
       })
     : '—';
 
+const tradeDayKey = (trade: TradeRecord) => {
+  const value = trade.entry_at ?? trade.created_at;
+  return new Date(value).toLocaleDateString('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+};
+
+const prettyDay = (key: string) =>
+  new Date(`${key}T12:00:00`).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
 const tradeLabel = (trade: TradeRecord) => {
   if (trade.option_symbol) return trade.option_symbol;
   if (trade.option_type && trade.strike && trade.expiration) {
@@ -36,11 +53,12 @@ const tradeLabel = (trade: TradeRecord) => {
   return trade.symbol;
 };
 
-export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initialTradeIds = [] }) => {
+export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: string | null }> = ({ initialTradeIds = [], initialDay = null }) => {
   const { user } = useAuth();
   const [trades, setTrades] = useState<TradeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTradeId, setSelectedTradeId] = useState<number | null>(initialTradeIds[0] ?? null);
+  const [selectedDay, setSelectedDay] = useState<string | null>(initialDay);
   const [playback, setPlayback] = useState<HistoricalPlaybackResponse | null>(null);
   const [playbackBusy, setPlaybackBusy] = useState(false);
   const [reconstructionBusy, setReconstructionBusy] = useState(false);
@@ -92,19 +110,65 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initial
     return () => { active = false; };
   }, [user]);
 
-  const visibleTrades = useMemo(() => {
-    const closedBrokerageTrades = trades
+  const closedTrades = useMemo(
+    () => trades
       .filter((trade) => trade.broker === 'SnapTrade' && Boolean(trade.exit_at ?? trade.closed_at))
-      .sort((a, b) => +new Date(b.exit_at ?? b.closed_at ?? b.entry_at ?? b.created_at) - +new Date(a.exit_at ?? a.closed_at ?? a.entry_at ?? a.created_at));
+      .sort((a, b) => +new Date(b.entry_at ?? b.created_at) - +new Date(a.entry_at ?? a.created_at)),
+    [trades],
+  );
 
-    if (initialTradeIds.length) {
-      const wanted = new Set(initialTradeIds);
-      return closedBrokerageTrades.filter((trade) => wanted.has(trade.id));
+  const tradesByDay = useMemo(() => {
+    const map = new Map<string, TradeRecord[]>();
+    for (const trade of closedTrades) {
+      const key = tradeDayKey(trade);
+      map.set(key, [...(map.get(key) ?? []), trade]);
     }
-    return closedBrokerageTrades;
-  }, [initialTradeIds, trades]);
+    for (const [key, rows] of map) {
+      map.set(key, rows.sort((a, b) => +new Date(a.entry_at ?? a.created_at) - +new Date(b.entry_at ?? b.created_at)));
+    }
+    return map;
+  }, [closedTrades]);
+
+  const tradeDays = useMemo(
+    () => [...tradesByDay.keys()].sort((a, b) => b.localeCompare(a)),
+    [tradesByDay],
+  );
 
   useEffect(() => {
+    if (!closedTrades.length) {
+      setSelectedDay(null);
+      return;
+    }
+    if (initialDay && tradesByDay.has(initialDay)) {
+      setSelectedDay(initialDay);
+      return;
+    }
+    if (initialTradeIds.length) {
+      const wanted = new Set(initialTradeIds);
+      const matched = closedTrades.find((trade) => wanted.has(trade.id));
+      if (matched) {
+        setSelectedDay(tradeDayKey(matched));
+        return;
+      }
+    }
+    setSelectedDay((current) => current && tradesByDay.has(current) ? current : tradeDays[0] ?? null);
+  }, [closedTrades, initialDay, initialTradeIds, tradeDays, tradesByDay]);
+
+  const visibleTrades = useMemo(
+    () => selectedDay ? (tradesByDay.get(selectedDay) ?? []) : [],
+    [selectedDay, tradesByDay],
+  );
+
+  const daySummary = useMemo(() => {
+    if (!selectedDay) return null;
+    const rows = tradesByDay.get(selectedDay) ?? [];
+    const realized = rows.reduce((sum, trade) => sum + (Number(trade.realized_pl) || 0), 0);
+    const tickers = [...new Set(rows.map((trade) => trade.symbol))];
+    return { count: rows.length, realized, tickers };
+  }, [selectedDay, tradesByDay]);
+
+  useEffect(() => {
+    reconstructedKey.current = '';
     if (!visibleTrades.length) {
       setSelectedTradeId(null);
       setPlayback(null);
@@ -113,7 +177,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initial
     if (selectedTradeId === null || !visibleTrades.some((trade) => trade.id === selectedTradeId)) {
       setSelectedTradeId(visibleTrades[0].id);
     }
-  }, [selectedTradeId, visibleTrades]);
+  }, [selectedDay, selectedTradeId, visibleTrades]);
 
   useEffect(() => {
     if (!user || !visibleTrades.length) return;
@@ -223,18 +287,60 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initial
           title="Sign in to view Historical Evidence"
           body="Historical Evidence is built from your private brokerage history and TradeCycle records."
         />
-      ) : visibleTrades.length === 0 ? (
+      ) : closedTrades.length === 0 ? (
         <EmptyState
-          title={initialTradeIds.length ? 'No closed brokerage trades match this evidence set' : 'No closed brokerage trades available yet'}
-          body={initialTradeIds.length
-            ? 'The selected pattern currently points to records that are not closed SnapTrade trade episodes. Historical Evidence will not substitute analysis runs or paper records.'
-            : 'Historical Evidence only uses closed trades from your SnapTrade brokerage history. Analysis-generated and simulated records are excluded.'}
+          title="No closed brokerage trades available yet"
+          body="Historical Evidence only uses closed trades from your SnapTrade brokerage history. Analysis-generated and simulated records are excluded."
         />
       ) : (
-        <div className="grid gap-3 xl:grid-cols-[330px_minmax(0,1fr)]">
+        <>
           <Panel
-            title={initialTradeIds.length ? 'Pattern evidence episodes' : 'Brokerage trade history'}
-            subtitle={String(visibleTrades.length) + ' actual trade episode' + (visibleTrades.length === 1 ? '' : 's') + ' available for review.'}
+            title="Trade-day navigator"
+            subtitle="Choose a day, then choose a trade. Trades are grouped by entry date; multi-day positions continue through their actual exit in the replay."
+            bodyClassName="p-3"
+          >
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {tradeDays.map((day) => {
+                const rows = tradesByDay.get(day) ?? [];
+                const realized = rows.reduce((sum, trade) => sum + (Number(trade.realized_pl) || 0), 0);
+                const tickers = [...new Set(rows.map((trade) => trade.symbol))];
+                const active = day === selectedDay;
+                return (
+                  <button
+                    type="button"
+                    key={day}
+                    onClick={() => setSelectedDay(day)}
+                    className={cn(
+                      'min-w-[150px] rounded-md border px-3 py-2 text-left transition-colors',
+                      active
+                        ? 'border-sky-500/55 bg-sky-500/[0.08]'
+                        : 'border-zinc-800 bg-black/20 hover:border-zinc-700',
+                    )}
+                  >
+                    <div className={cn('font-mono text-[10px] uppercase tracking-wider', active ? 'text-sky-300' : 'text-zinc-400')}>
+                      {prettyDay(day)}
+                    </div>
+                    <div className="mt-1 font-mono text-[9px] text-zinc-500">
+                      {rows.length} trade{rows.length === 1 ? '' : 's'} · {tickers.slice(0, 3).join(' · ')}
+                    </div>
+                    <div className={cn(
+                      'mt-1 font-mono text-[10px] font-semibold',
+                      realized > 0 ? 'text-emerald-400' : realized < 0 ? 'text-red-400' : 'text-zinc-500',
+                    )}>
+                      {signedMoney(realized) ?? '$0.00'}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </Panel>
+
+          <div className="grid gap-3 xl:grid-cols-[330px_minmax(0,1fr)]">
+          <Panel
+            title={selectedDay ? `Trades on ${prettyDay(selectedDay)}` : 'Trade day'}
+            subtitle={daySummary
+              ? `${daySummary.count} trade${daySummary.count === 1 ? '' : 's'} · ${signedMoney(daySummary.realized) ?? '$0.00'} · ${daySummary.tickers.join(' · ')}`
+              : 'Choose a trade day above.'}
             bodyClassName="p-2"
           >
             <div className="max-h-[720px] space-y-1.5 overflow-auto pr-1">
@@ -444,7 +550,8 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initial
               </div>
             )}
           </Panel>
-        </div>
+          </div>
+        </>
       )}
 
       <Disclaimer />
