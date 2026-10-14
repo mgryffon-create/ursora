@@ -358,6 +358,36 @@ function directionalDelta(from: number, to: number, direction: Direction) {
   return direction === 'bullish' ? to - from : direction === 'bearish' ? from - to : 0;
 }
 
+function firstWeakening(bars: AnyRow[], direction: Direction, moveUnit: number, invalidation: number | null) {
+  if (direction === 'neutral' || bars.length < 5 || !(moveUnit > 0)) return null;
+  let favorableExtreme = direction === 'bullish' ? -Infinity : Infinity;
+
+  for (let i = 3; i < bars.length; i++) {
+    const bar = bars[i];
+    const close = Number(bar.close);
+    if (direction === 'bullish') {
+      favorableExtreme = Math.max(favorableExtreme, ...bars.slice(0, i + 1).map((b) => Number(b.high)));
+      const priorFloor = Math.min(...bars.slice(i - 3, i).map((b) => Number(b.low)));
+      const drawdown = favorableExtreme - close;
+      const brokeShortStructure = close < priorFloor;
+      const stillAboveHardInvalidation = invalidation === null || Number(bar.low) > invalidation;
+      if (drawdown >= moveUnit * 0.75 && brokeShortStructure && stillAboveHardInvalidation) {
+        return { at: String(bar.bar_time), price: close };
+      }
+    } else {
+      favorableExtreme = Math.min(favorableExtreme, ...bars.slice(0, i + 1).map((b) => Number(b.low)));
+      const priorCeiling = Math.max(...bars.slice(i - 3, i).map((b) => Number(b.high)));
+      const rebound = close - favorableExtreme;
+      const brokeShortStructure = close > priorCeiling;
+      const stillBelowHardInvalidation = invalidation === null || Number(bar.high) < invalidation;
+      if (rebound >= moveUnit * 0.75 && brokeShortStructure && stillBelowHardInvalidation) {
+        return { at: String(bar.bar_time), price: close };
+      }
+    }
+  }
+  return null;
+}
+
 function firstCross(bars: AnyRow[], level: number | null, direction: Direction, kind: 'target' | 'invalidation') {
   if (level === null || direction === 'neutral') return null;
   for (const bar of bars) {
@@ -424,10 +454,41 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     cycleMaxSessions = lookbackSessions;
   }
 
-  const cycle = deriveCycle(analysisBars, cycleMinBars, cycleMaxSessions);
-  const direction = cycle.confirmed ? cycle.direction : 'neutral';
-  const levels = structuralLevels(analysisBars.length ? analysisBars : broadBars30, entryUnderlying, direction);
-  let invalidation = cycle.invalidation;
+  const broadCycle = deriveCycle(broadBars30, 8, 5);
+  const sessionCycle = deriveCycle(analysisBars, cycleMinBars, cycleMaxSessions);
+
+  const broadDirection = broadCycle.confirmed ? broadCycle.direction : 'neutral';
+  const sessionDirection = sessionCycle.confirmed ? sessionCycle.direction : 'neutral';
+
+  // A fresh session confirmation takes precedence because it reflects evidence closest
+  // to the actual trade. Otherwise carry the broader confirmed thesis forward as context.
+  const cycle = sessionCycle.confirmed ? sessionCycle : broadCycle;
+  const direction = sessionCycle.confirmed
+    ? sessionDirection
+    : broadCycle.confirmed
+      ? broadDirection
+      : 'neutral';
+
+  let sessionState = 'unconfirmed';
+  if (sessionCycle.confirmed) {
+    sessionState = broadCycle.confirmed && broadDirection !== sessionDirection
+      ? 'session_flip'
+      : broadCycle.confirmed
+        ? 'session_reconfirmed'
+        : 'session_confirmed';
+  } else if (broadCycle.confirmed) {
+    sessionState = 'existing_thesis';
+  }
+
+  const levels = structuralLevels(
+    analysisBars.length ? analysisBars : broadBars30,
+    entryUnderlying,
+    direction,
+  );
+
+  // Hard invalidation protects the prevailing thesis. Prefer the active session cycle
+  // threshold when a fresh confirmation exists; otherwise use broader context structure.
+  let invalidation = sessionCycle.confirmed ? sessionCycle.invalidation : broadCycle.invalidation;
   if (direction === 'bullish' && (invalidation === null || invalidation >= entryUnderlying)) invalidation = levels.support < entryUnderlying ? levels.support : entryUnderlying - levels.move * 0.8;
   if (direction === 'bearish' && (invalidation === null || invalidation <= entryUnderlying)) invalidation = levels.resistance > entryUnderlying ? levels.resistance : entryUnderlying + levels.move * 0.8;
 
@@ -439,19 +500,20 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
 
   const targetHitAt = firstCross(holdingBars, target, direction, 'target');
   const invalidationAt = firstCross(holdingBars, invalidation, direction, 'invalidation');
+  const weakening = firstWeakening(holdingBars, direction, levels.move, invalidation);
   const agreement = direction === 'neutral' ? 'no_confirmed_thesis'
     : tradeDirection === direction ? 'aligned'
       : 'opposed';
 
-  const confirmationDistance = cycle.confirmation !== null ? Math.abs(entryUnderlying - cycle.confirmation) : null;
+  const confirmationDistance = sessionConfirmationPrice !== null ? Math.abs(entryUnderlying - sessionConfirmationPrice) : null;
   const extensionUnits = confirmationDistance !== null && levels.move > 0 ? confirmationDistance / levels.move : null;
 
   let entryRelationship = 'no_confirmed_thesis';
   if (agreement === 'opposed') entryRelationship = 'against_confirmed_thesis';
-  else if (agreement === 'aligned' && cycle.confirmation !== null) {
+  else if (agreement === 'aligned' && sessionConfirmationPrice !== null) {
     const betterRetest = direction === 'bullish'
-      ? entryUnderlying < cycle.confirmation && entryUnderlying > Number(invalidation)
-      : entryUnderlying > cycle.confirmation && entryUnderlying < Number(invalidation);
+      ? entryUnderlying < sessionConfirmationPrice && entryUnderlying > Number(invalidation)
+      : entryUnderlying > sessionConfirmationPrice && entryUnderlying < Number(invalidation);
     entryRelationship = betterRetest ? 'confirmed_retest'
       : (extensionUnits ?? 0) > 1.5 ? 'chased_extension'
         : 'confirmed_direction';
@@ -483,61 +545,63 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
   const range5 = rangePosition(entryUnderlying, broadBars30, 5);
   const range20 = rangePosition(entryUnderlying, broadBars30, 20);
 
-  const confirmationAtMs = cycle.confirmationAt ? new Date(cycle.confirmationAt).getTime() : null;
+  const sessionConfirmationAt = sessionCycle.confirmed ? sessionCycle.confirmationAt : null;
+  const sessionConfirmationPrice = sessionCycle.confirmed ? sessionCycle.confirmation : null;
+  const confirmationAtMs = sessionConfirmationAt ? new Date(sessionConfirmationAt).getTime() : null;
   const confirmationToEntryMinutes = confirmationAtMs !== null
     ? Math.max(0, Math.round((entryMs - confirmationAtMs) / 60000))
     : null;
-  const confirmationToEntryPct = cycle.confirmation !== null && cycle.confirmation !== 0
-    ? Math.abs((entryUnderlying - cycle.confirmation) / cycle.confirmation) * 100
+  const confirmationToEntryPct = sessionConfirmationPrice !== null && sessionConfirmationPrice !== 0
+    ? Math.abs((entryUnderlying - sessionConfirmationPrice) / sessionConfirmationPrice) * 100
     : null;
 
-  const moveDenominator = direction !== 'neutral' && cycle.confirmation !== null && target !== null
-    ? directionalDelta(cycle.confirmation, target, direction)
+  const moveDenominator = direction !== 'neutral' && sessionConfirmationPrice !== null && target !== null
+    ? directionalDelta(sessionConfirmationPrice, target, direction)
     : 0;
-  const moveNumerator = direction !== 'neutral' && cycle.confirmation !== null
-    ? directionalDelta(cycle.confirmation, entryUnderlying, direction)
+  const moveNumerator = direction !== 'neutral' && sessionConfirmationPrice !== null
+    ? directionalDelta(sessionConfirmationPrice, entryUnderlying, direction)
     : 0;
   const moveConsumedPct = moveDenominator > 0 ? (moveNumerator / moveDenominator) * 100 : null;
   const remainingRoomPct = direction !== 'neutral' && target !== null && entryUnderlying > 0
     ? (directionalDelta(entryUnderlying, target, direction) / entryUnderlying) * 100
     : null;
 
-  const postConfirmationBars = cycle.confirmationAt
+  const postConfirmationBars = sessionConfirmationAt
     ? beforeEntry5.filter((bar) => {
         const t = new Date(bar.bar_time).getTime();
-        return t >= new Date(cycle.confirmationAt!).getTime() && t <= entryMs;
+        return t >= new Date(sessionConfirmationAt).getTime() && t <= entryMs;
       })
     : [];
 
   const retestTolerance = Math.max(levels.move * 0.18, entryUnderlying * 0.0015);
-  const confirmedRetestBar = cycle.confirmation !== null
+  const confirmedRetestBar = sessionConfirmationPrice !== null
     ? postConfirmationBars.find((bar) => {
         const low = Number(bar.low), high = Number(bar.high), close = Number(bar.close);
-        const touched = low <= cycle.confirmation! + retestTolerance && high >= cycle.confirmation! - retestTolerance;
+        const touched = low <= sessionConfirmationPrice + retestTolerance && high >= sessionConfirmationPrice - retestTolerance;
         const held = direction === 'bullish'
-          ? close >= cycle.confirmation! - retestTolerance * 0.35
+          ? close >= sessionConfirmationPrice - retestTolerance * 0.35
           : direction === 'bearish'
-            ? close <= cycle.confirmation! + retestTolerance * 0.35
+            ? close <= sessionConfirmationPrice + retestTolerance * 0.35
             : false;
         return touched && held;
       }) ?? null
     : null;
-  const unconfirmedRetest = !cycle.confirmed && sameSessionTrade
-    ? detectUnconfirmedSessionRetest(analysisBars, tradeDirection)
+  const unconfirmedRetest = !sessionCycle.confirmed && sameSessionTrade
+    ? detectUnconfirmedSessionRetest(analysisBars, tradeDirection || broadDirection)
     : null;
   const retestBar = confirmedRetestBar ?? (unconfirmedRetest
     ? { bar_time: unconfirmedRetest.at, close: unconfirmedRetest.price }
     : null);
 
   let preEntryGivebackPct: number | null = null;
-  if (postConfirmationBars.length && cycle.confirmation !== null && direction !== 'neutral') {
+  if (postConfirmationBars.length && sessionConfirmationPrice !== null && direction !== 'neutral') {
     if (direction === 'bullish') {
       const peak = Math.max(...postConfirmationBars.map((bar) => Number(bar.high)));
-      const advance = peak - cycle.confirmation;
+      const advance = peak - sessionConfirmationPrice;
       preEntryGivebackPct = advance > 0 ? Math.max(0, ((peak - entryUnderlying) / advance) * 100) : 0;
     } else {
       const trough = Math.min(...postConfirmationBars.map((bar) => Number(bar.low)));
-      const advance = cycle.confirmation - trough;
+      const advance = sessionConfirmationPrice - trough;
       preEntryGivebackPct = advance > 0 ? Math.max(0, ((entryUnderlying - trough) / advance) * 100) : 0;
     }
   }
@@ -578,46 +642,55 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     }
   }
 
-  const reversalAt = nearestOriginTime(beforeEntry5, cycle.origin, direction, cycle.confirmationAt);
+  const reversalAt = nearestOriginTime(beforeEntry5, cycle.origin, direction, sessionConfirmationPriceAt);
   const decisionTimeline = [
     reversalAt && cycle.origin !== null ? { kind: 'reversal_origin', at: reversalAt, price: cycle.origin } : null,
-    cycle.confirmationAt && cycle.confirmation !== null ? { kind: 'confirmation', at: cycle.confirmationAt, price: cycle.confirmation } : null,
+    sessionConfirmationPriceAt && sessionConfirmationPrice !== null ? { kind: 'confirmation', at: sessionConfirmationPriceAt, price: sessionConfirmationPrice } : null,
     retestBar ? { kind: unconfirmedRetest ? 'retest_hold_unconfirmed' : 'retest_hold', at: String(retestBar.bar_time), price: Number(retestBar.close) } : null,
     { kind: 'entry', at: entryAt, price: entryUnderlying },
     targetHitAt && target !== null ? { kind: 'target_reached', at: targetHitAt, price: target } : null,
+    weakening ? { kind: 'weakening', at: weakening.at, price: weakening.price } : null,
     invalidationAt && invalidation !== null ? { kind: 'invalidation', at: invalidationAt, price: invalidation } : null,
     exitAt && exitUnderlying !== null ? { kind: 'exit', at: exitAt, price: exitUnderlying } : null,
   ].filter(Boolean);
 
   const guidanceSummary = direction === 'neutral'
     ? (unconfirmedRetest
-        ? 'A local session level was tested and held before entry, but the session did not produce a fresh substantiated directional confirmation. URSORA therefore treats this as an unconfirmed retest rather than borrowing an older confirmation.'
-        : 'No substantiated directional confirmation occurred within the relevant pre-entry trade window, so URSORA cannot grade entry timing against confirmation.')
+        ? 'A local session level was tested and held before entry, but neither the broader context nor this trade window produced a substantiated directional thesis. URSORA treats this as an unconfirmed retest.'
+        : 'No substantiated directional thesis was available in the broader context or this trade window, so URSORA cannot grade entry timing against confirmation.')
     : agreement === 'opposed'
-      ? `The position opposed the confirmed ${direction} thesis at entry. Review the confirmation/flip that occurred before the trade rather than treating the position as a late-but-aligned entry.`
-      : entryQualityLabel === 'confirmed_retest'
-        ? `The position waited for confirmation and entered on a held retest, preserving structural support and remaining room to the target.`
-        : entryQualityLabel === 'late_weakening'
-          ? `The position waited beyond confirmation and entered after the confirmed move had begun giving back momentum. A location closer to confirmation or the first held retest would have preserved more of the validated move.`
-          : entryQualityLabel === 'late_extended' || entryQualityLabel === 'late_confirmed_move'
-            ? `The direction was supported, but entry came ${confirmationToEntryMinutes ?? 'later'} minute${confirmationToEntryMinutes === 1 ? '' : 's'} after confirmation after about ${Math.round(moveConsumedPct ?? 0)}% of the confirmation-to-target move had already been consumed. Earlier participation near confirmation or a valid retest would have offered more remaining upside with less chase exposure.`
-            : `The entry occurred after confirmation while the move still retained meaningful room to its tactical target.`;
+      ? `The position opposed the active ${direction} thesis at entry. Review whether the session produced a directional flip or whether the user was trading against an already-established broader regime.`
+      : sessionState === 'existing_thesis'
+        ? (unconfirmedRetest
+            ? `The broader ${direction} thesis was already established before this trade window. The session produced a local retest/hold but no fresh confirmation, so entry should be judged against the quality of that retest and remaining room—not against an old confirmation timestamp.`
+            : `The broader ${direction} thesis was already established before this trade window and remained active at entry. No fresh session confirmation occurred before entry.`)
+        : entryQualityLabel === 'confirmed_retest'
+          ? `The session produced fresh ${direction} confirmation and the position entered on a held retest. Entry quality depends on how much of the newly confirmed move had already been consumed.`
+          : entryQualityLabel === 'late_weakening'
+            ? `The position waited beyond fresh session confirmation and entered after the move had begun weakening. A location closer to confirmation or the first held retest would have preserved more of the validated move.`
+            : entryQualityLabel === 'late_extended' || entryQualityLabel === 'late_confirmed_move'
+              ? `The direction was supported, but entry came ${confirmationToEntryMinutes ?? 'later'} minute${confirmationToEntryMinutes === 1 ? '' : 's'} after fresh session confirmation after about ${Math.round(moveConsumedPct ?? 0)}% of the confirmation-to-target move had already been consumed.`
+              : `The entry occurred after fresh session confirmation while the move still retained meaningful room to its tactical target.`;
 
   const setup = direction === 'neutral'
     ? 'unconfirmed'
-    : cycle.event === 'breakout'
-      ? 'momentum_breakout'
-      : cycle.retest === 'held'
-        ? 'reversal_retest'
-        : 'confirmed_reversal';
+    : !sessionCycle.confirmed
+      ? (unconfirmedRetest ? 'existing_thesis_retest' : 'existing_thesis_continuation')
+      : sessionCycle.event === 'breakout'
+        ? 'momentum_breakout'
+        : sessionCycle.retest === 'held'
+          ? 'reversal_retest'
+          : 'confirmed_reversal';
 
   const summary = direction === 'neutral'
     ? (unconfirmedRetest
-        ? `No fresh TradeCycle direction was confirmed within this trade's relevant session window. A local level was retested and held before entry, but that retest did not independently satisfy confirmation criteria.`
-        : `No sufficiently substantiated TradeCycle direction was confirmed within this trade's relevant pre-entry window. The trade is evaluated as an unconfirmed discretionary entry rather than retroactively forcing an older thesis.`)
+        ? `No confirmed thesis was active at entry. A local level was retested and held during the trade session, but the move did not independently satisfy confirmation criteria.`
+        : `No sufficiently substantiated TradeCycle direction was active at entry.`)
     : agreement === 'aligned'
-      ? `The ${tradeDirection} position aligned with a confirmed ${direction} ${cycle.event} at entry. ${entryRelationship === 'chased_extension' ? 'Entry occurred after the confirmed move was already extended.' : entryRelationship === 'confirmed_retest' ? 'Entry improved on the original confirmation through a valid retest area.' : 'Entry occurred near the confirmed directional move.'}`
-      : `The position was ${tradeDirection || 'directional'}, while the market evidence available at entry supported a ${direction} thesis.`;
+      ? sessionState === 'existing_thesis'
+        ? `The ${tradeDirection} position aligned with an already-established ${direction} thesis. ${unconfirmedRetest ? 'The session showed a held retest without a fresh confirmation.' : 'No fresh session confirmation occurred before entry.'}`
+        : `The ${tradeDirection} position aligned with a fresh ${direction} ${sessionCycle.event} during the trade window. ${entryRelationship === 'chased_extension' ? 'Entry occurred after the newly confirmed move was already extended.' : entryRelationship === 'confirmed_retest' ? 'Entry followed a valid session retest.' : 'Entry occurred near the fresh directional confirmation.'}`
+      : `The position was ${tradeDirection || 'directional'}, while the active market thesis at entry was ${direction}.`;
 
   return {
     user_id: episode.user_id,
@@ -630,14 +703,16 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     setup_class: setup,
     cycle_event_type: cycle.event,
     reversal_origin: cycle.origin,
-    confirmation_price: cycle.confirmation,
-    confirmation_at: cycle.confirmationAt,
+    confirmation_price: sessionConfirmationPrice,
+    confirmation_at: sessionConfirmationPriceAt,
     entry_underlying_price: entryUnderlying,
     exit_underlying_price: exitUnderlying,
     target_price: target,
     invalidation_price: invalidation,
     target_hit_at: targetHitAt,
     invalidation_at: invalidationAt,
+    weakening_at: weakening?.at ?? null,
+    weakening_price: weakening?.price ?? null,
     directional_agreement: agreement,
     entry_relationship: entryRelationship,
     exit_relationship: exitRelationship,
@@ -660,7 +735,7 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     mfe_underlying_pct: mfe,
     mae_underlying_pct: mae,
     post_invalidation_minutes: postInvalidationMinutes,
-    confidence_score: cycle.confidence,
+    confidence_score: sessionCycle.confirmed ? sessionCycle.confidence : broadCycle.confidence,
     review_summary: summary,
     evidence: {
       no_lookahead: true,
@@ -676,8 +751,15 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
         analysis_sessions: analysisSessions,
       },
       session_retest_without_confirmation: Boolean(unconfirmedRetest),
-      cycle_reason: cycle.reason,
-      retest_status_at_entry: cycle.retest,
+      broader_context: {
+        direction: broadDirection,
+        confirmation_at: broadCycle.confirmationAt,
+        confirmation_price: broadCycle.confirmation,
+        reason: broadCycle.reason,
+      },
+      session_state: sessionState,
+      session_cycle_reason: sessionCycle.reason,
+      retest_status_at_entry: sessionCycle.confirmed ? sessionCycle.retest : (unconfirmedRetest ? 'held_unconfirmed' : 'not_observed'),
       support: levels.support,
       resistance: levels.resistance,
       local_move_unit: levels.move,
@@ -693,7 +775,7 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
       realized_pl: n(episode.realized_pl),
       realized_return_pct: n(episode.realized_return_pct),
     },
-    engine_version: 'historical-cycle-1.2',
+    engine_version: 'historical-cycle-1.3',
     computed_at: new Date().toISOString(),
   };
 }
@@ -731,7 +813,7 @@ Deno.serve(async (req) => {
     if (existingError) throw existingError;
 
     const current = new Set((existing ?? [])
-      .filter((r: AnyRow) => r.engine_version === 'historical-cycle-1.2')
+      .filter((r: AnyRow) => r.engine_version === 'historical-cycle-1.3')
       .map((r: AnyRow) => Number(r.brokerage_episode_id)));
     const pending = rows.filter((r: AnyRow) => !current.has(Number(r.id)));
     if (!pending.length) return json({ success: true, reviewed: 0, cached: rows.length, failures: [] });
@@ -810,7 +892,7 @@ Deno.serve(async (req) => {
       reviewed: reviews.length,
       cached: rows.length - pending.length,
       failures,
-      engine_version: 'historical-cycle-1.2',
+      engine_version: 'historical-cycle-1.3',
     });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : String(error) }, 500);
