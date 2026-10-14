@@ -299,6 +299,27 @@ function structuralLevels(bars30: AnyRow[], price: number, direction: Direction)
   return { support, resistance, move, target };
 }
 
+function nearestOriginTime(bars: AnyRow[], origin: number | null, direction: Direction, beforeIso: string | null) {
+  if (origin === null || direction === 'neutral') return null;
+  const cutoff = beforeIso ? new Date(beforeIso).getTime() : Number.POSITIVE_INFINITY;
+  let best: AnyRow | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const bar of bars) {
+    if (new Date(bar.bar_time).getTime() > cutoff) continue;
+    const probe = direction === 'bullish' ? Number(bar.low) : Number(bar.high);
+    const distance = Math.abs(probe - origin);
+    if (distance < bestDistance) {
+      best = bar;
+      bestDistance = distance;
+    }
+  }
+  return best ? String(best.bar_time) : null;
+}
+
+function directionalDelta(from: number, to: number, direction: Direction) {
+  return direction === 'bullish' ? to - from : direction === 'bearish' ? from - to : 0;
+}
+
 function firstCross(bars: AnyRow[], level: number | null, direction: Direction, kind: 'target' | 'invalidation') {
   if (level === null || direction === 'neutral') return null;
   for (const bar of bars) {
@@ -383,6 +404,118 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
   const range5 = rangePosition(entryUnderlying, bars30, 5);
   const range20 = rangePosition(entryUnderlying, bars30, 20);
 
+  const confirmationAtMs = cycle.confirmationAt ? new Date(cycle.confirmationAt).getTime() : null;
+  const confirmationToEntryMinutes = confirmationAtMs !== null
+    ? Math.max(0, Math.round((entryMs - confirmationAtMs) / 60000))
+    : null;
+  const confirmationToEntryPct = cycle.confirmation !== null && cycle.confirmation !== 0
+    ? Math.abs((entryUnderlying - cycle.confirmation) / cycle.confirmation) * 100
+    : null;
+
+  const moveDenominator = direction !== 'neutral' && cycle.confirmation !== null && target !== null
+    ? directionalDelta(cycle.confirmation, target, direction)
+    : 0;
+  const moveNumerator = direction !== 'neutral' && cycle.confirmation !== null
+    ? directionalDelta(cycle.confirmation, entryUnderlying, direction)
+    : 0;
+  const moveConsumedPct = moveDenominator > 0 ? (moveNumerator / moveDenominator) * 100 : null;
+  const remainingRoomPct = direction !== 'neutral' && target !== null && entryUnderlying > 0
+    ? (directionalDelta(entryUnderlying, target, direction) / entryUnderlying) * 100
+    : null;
+
+  const postConfirmationBars = cycle.confirmationAt
+    ? beforeEntry5.filter((bar) => {
+        const t = new Date(bar.bar_time).getTime();
+        return t >= new Date(cycle.confirmationAt!).getTime() && t <= entryMs;
+      })
+    : [];
+
+  const retestTolerance = Math.max(levels.move * 0.18, entryUnderlying * 0.0015);
+  const retestBar = cycle.confirmation !== null
+    ? postConfirmationBars.find((bar) => {
+        const low = Number(bar.low), high = Number(bar.high), close = Number(bar.close);
+        const touched = low <= cycle.confirmation! + retestTolerance && high >= cycle.confirmation! - retestTolerance;
+        const held = direction === 'bullish'
+          ? close >= cycle.confirmation! - retestTolerance * 0.35
+          : direction === 'bearish'
+            ? close <= cycle.confirmation! + retestTolerance * 0.35
+            : false;
+        return touched && held;
+      }) ?? null
+    : null;
+
+  let preEntryGivebackPct: number | null = null;
+  if (postConfirmationBars.length && cycle.confirmation !== null && direction !== 'neutral') {
+    if (direction === 'bullish') {
+      const peak = Math.max(...postConfirmationBars.map((bar) => Number(bar.high)));
+      const advance = peak - cycle.confirmation;
+      preEntryGivebackPct = advance > 0 ? Math.max(0, ((peak - entryUnderlying) / advance) * 100) : 0;
+    } else {
+      const trough = Math.min(...postConfirmationBars.map((bar) => Number(bar.low)));
+      const advance = cycle.confirmation - trough;
+      preEntryGivebackPct = advance > 0 ? Math.max(0, ((entryUnderlying - trough) / advance) * 100) : 0;
+    }
+  }
+
+  const lastDirectionalProgress = postConfirmationBars.length >= 4
+    ? directionalDelta(
+        Number(postConfirmationBars[Math.max(0, postConfirmationBars.length - 4)].close),
+        Number(postConfirmationBars.at(-1)!.close),
+        direction,
+      )
+    : 0;
+
+  let momentumStateAtEntry = 'unconfirmed';
+  if (direction !== 'neutral') {
+    if ((moveConsumedPct ?? 0) >= 65 || (extensionUnits ?? 0) >= 1.25) momentumStateAtEntry = 'extended';
+    else if ((preEntryGivebackPct ?? 0) >= 25) momentumStateAtEntry = 'weakening';
+    else if (lastDirectionalProgress > levels.move * 0.25) momentumStateAtEntry = 'strengthening';
+    else momentumStateAtEntry = 'stable';
+  }
+
+  let entryQualityLabel = 'unconfirmed';
+  if (agreement === 'opposed') entryQualityLabel = 'thesis_opposed';
+  else if (direction !== 'neutral' && retestBar) entryQualityLabel = 'confirmed_retest';
+  else if (direction !== 'neutral' && momentumStateAtEntry === 'weakening') entryQualityLabel = 'late_weakening';
+  else if (direction !== 'neutral' && ((moveConsumedPct ?? 0) >= 80 || (extensionUnits ?? 0) >= 1.5)) entryQualityLabel = 'late_extended';
+  else if (direction !== 'neutral' && (moveConsumedPct ?? 0) >= 60) entryQualityLabel = 'late_confirmed_move';
+  else if (direction !== 'neutral') entryQualityLabel = 'confirmed_location';
+
+  let entryQualityScore: number | null = direction === 'neutral' ? null : 100;
+  if (entryQualityScore !== null) {
+    if (agreement === 'opposed') entryQualityScore = 10;
+    else {
+      entryQualityScore -= Math.min(45, Math.max(0, ((moveConsumedPct ?? 0) - 35) * 0.8));
+      entryQualityScore -= Math.min(20, Math.max(0, (preEntryGivebackPct ?? 0) - 10) * 0.5);
+      if (retestBar) entryQualityScore += 8;
+      if (remainingRoomPct !== null && remainingRoomPct <= 0) entryQualityScore -= 25;
+      entryQualityScore = Math.max(0, Math.min(100, Math.round(entryQualityScore)));
+    }
+  }
+
+  const reversalAt = nearestOriginTime(beforeEntry5, cycle.origin, direction, cycle.confirmationAt);
+  const decisionTimeline = [
+    reversalAt && cycle.origin !== null ? { kind: 'reversal_origin', at: reversalAt, price: cycle.origin } : null,
+    cycle.confirmationAt && cycle.confirmation !== null ? { kind: 'confirmation', at: cycle.confirmationAt, price: cycle.confirmation } : null,
+    retestBar ? { kind: 'retest_hold', at: String(retestBar.bar_time), price: Number(retestBar.close) } : null,
+    { kind: 'entry', at: entryAt, price: entryUnderlying },
+    targetHitAt && target !== null ? { kind: 'target_reached', at: targetHitAt, price: target } : null,
+    invalidationAt && invalidation !== null ? { kind: 'invalidation', at: invalidationAt, price: invalidation } : null,
+    exitAt && exitUnderlying !== null ? { kind: 'exit', at: exitAt, price: exitUnderlying } : null,
+  ].filter(Boolean);
+
+  const guidanceSummary = direction === 'neutral'
+    ? 'No substantiated pre-entry thesis was available, so URSORA cannot grade entry timing against confirmation.'
+    : agreement === 'opposed'
+      ? `The position opposed the confirmed ${direction} thesis at entry. Review the confirmation/flip that occurred before the trade rather than treating the position as a late-but-aligned entry.`
+      : entryQualityLabel === 'confirmed_retest'
+        ? `The position waited for confirmation and entered on a held retest, preserving structural support and remaining room to the target.`
+        : entryQualityLabel === 'late_weakening'
+          ? `The position waited beyond confirmation and entered after the confirmed move had begun giving back momentum. A location closer to confirmation or the first held retest would have preserved more of the validated move.`
+          : entryQualityLabel === 'late_extended' || entryQualityLabel === 'late_confirmed_move'
+            ? `The direction was supported, but entry came ${confirmationToEntryMinutes ?? 'later'} minute${confirmationToEntryMinutes === 1 ? '' : 's'} after confirmation after about ${Math.round(moveConsumedPct ?? 0)}% of the confirmation-to-target move had already been consumed. Earlier participation near confirmation or a valid retest would have offered more remaining upside with less chase exposure.`
+            : `The entry occurred after confirmation while the move still retained meaningful room to its tactical target.`;
+
   const setup = direction === 'neutral'
     ? 'unconfirmed'
     : cycle.event === 'breakout'
@@ -423,6 +556,18 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     range_position_20d: range20,
     volume_confirmation_ratio: cycle.volumeRatio,
     move_extension_at_entry: extensionUnits,
+    confirmation_to_entry_minutes: confirmationToEntryMinutes,
+    confirmation_to_entry_pct: confirmationToEntryPct,
+    move_consumed_to_target_pct: moveConsumedPct,
+    remaining_room_to_target_pct: remainingRoomPct,
+    retest_before_entry: Boolean(retestBar),
+    retest_at: retestBar ? String(retestBar.bar_time) : null,
+    momentum_state_at_entry: momentumStateAtEntry,
+    pre_entry_giveback_pct: preEntryGivebackPct,
+    entry_quality_label: entryQualityLabel,
+    entry_quality_score: entryQualityScore,
+    guidance_summary: guidanceSummary,
+    decision_timeline: decisionTimeline,
     mfe_underlying_pct: mfe,
     mae_underlying_pct: mae,
     post_invalidation_minutes: postInvalidationMinutes,
@@ -438,12 +583,18 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
       resistance: levels.resistance,
       local_move_unit: levels.move,
       trade_direction: tradeDirection,
+      confirmation_to_entry_minutes: confirmationToEntryMinutes,
+      move_consumed_to_target_pct: moveConsumedPct,
+      remaining_room_to_target_pct: remainingRoomPct,
+      retest_before_entry: Boolean(retestBar),
+      momentum_state_at_entry: momentumStateAtEntry,
+      pre_entry_giveback_pct: preEntryGivebackPct,
       option_entry_price: n(episode.average_entry_price),
       option_exit_price: n(episode.average_exit_price),
       realized_pl: n(episode.realized_pl),
       realized_return_pct: n(episode.realized_return_pct),
     },
-    engine_version: 'historical-cycle-1.0',
+    engine_version: 'historical-cycle-1.1',
     computed_at: new Date().toISOString(),
   };
 }
@@ -481,7 +632,7 @@ Deno.serve(async (req) => {
     if (existingError) throw existingError;
 
     const current = new Set((existing ?? [])
-      .filter((r: AnyRow) => r.engine_version === 'historical-cycle-1.0')
+      .filter((r: AnyRow) => r.engine_version === 'historical-cycle-1.1')
       .map((r: AnyRow) => Number(r.brokerage_episode_id)));
     const pending = rows.filter((r: AnyRow) => !current.has(Number(r.id)));
     if (!pending.length) return json({ success: true, reviewed: 0, cached: rows.length, failures: [] });
@@ -560,7 +711,7 @@ Deno.serve(async (req) => {
       reviewed: reviews.length,
       cached: rows.length - pending.length,
       failures,
-      engine_version: 'historical-cycle-1.0',
+      engine_version: 'historical-cycle-1.1',
     });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : String(error) }, 500);
