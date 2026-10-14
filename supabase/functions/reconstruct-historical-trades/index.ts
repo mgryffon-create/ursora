@@ -73,6 +73,166 @@ function median(values: number[]): number | null {
   return sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
 }
 
+function cumulativeVwap(bars: AnyRow[]): number | null {
+  let pv = 0;
+  let vol = 0;
+  for (const bar of bars) {
+    const volume = Number(bar.volume ?? 0);
+    if (!(volume > 0)) continue;
+    const typical = (Number(bar.high) + Number(bar.low) + Number(bar.close)) / 3;
+    pv += typical * volume;
+    vol += volume;
+  }
+  return vol > 0 ? pv / vol : null;
+}
+
+function directionalEfficiency(bars: AnyRow[]): number | null {
+  if (bars.length < 2) return null;
+  const closes = bars.map((bar) => Number(bar.close)).filter(Number.isFinite);
+  if (closes.length < 2) return null;
+  const net = Math.abs(closes.at(-1)! - closes[0]);
+  let travel = 0;
+  for (let i = 1; i < closes.length; i++) travel += Math.abs(closes[i] - closes[i - 1]);
+  return travel > 0 ? Math.max(0, Math.min(1, net / travel)) : 0;
+}
+
+function vwapCrossCount(bars: AnyRow[]): number {
+  if (bars.length < 2) return 0;
+  let pv = 0;
+  let vol = 0;
+  let priorSign = 0;
+  let crosses = 0;
+  for (const bar of bars) {
+    const volume = Number(bar.volume ?? 0);
+    if (!(volume > 0)) continue;
+    const typical = (Number(bar.high) + Number(bar.low) + Number(bar.close)) / 3;
+    pv += typical * volume;
+    vol += volume;
+    if (!(vol > 0)) continue;
+    const vwap = pv / vol;
+    const diff = Number(bar.close) - vwap;
+    const sign = diff > 0 ? 1 : diff < 0 ? -1 : 0;
+    if (sign !== 0 && priorSign !== 0 && sign !== priorSign) crosses += 1;
+    if (sign !== 0) priorSign = sign;
+  }
+  return crosses;
+}
+
+function sessionRangeRatio(currentBars: AnyRow[], allBars: AnyRow[], currentSession: string): number | null {
+  if (!currentBars.length) return null;
+  const currentRange = Math.max(...currentBars.map((b) => Number(b.high))) - Math.min(...currentBars.map((b) => Number(b.low)));
+  if (!(currentRange > 0)) return null;
+  const priorSessions = [...new Set(
+    allBars
+      .map((bar) => etParts(String(bar.bar_time)).session)
+      .filter((session) => session !== currentSession),
+  )].slice(-5);
+  const priorRanges = priorSessions.map((session) => {
+    const rows = allBars.filter((bar) => etParts(String(bar.bar_time)).session === session);
+    if (!rows.length) return NaN;
+    return Math.max(...rows.map((b) => Number(b.high))) - Math.min(...rows.map((b) => Number(b.low)));
+  }).filter((value) => Number.isFinite(value) && value > 0);
+  const baseline = median(priorRanges);
+  return baseline && baseline > 0 ? currentRange / baseline : null;
+}
+
+function momentum30mPct(bars: AnyRow[]): number | null {
+  if (bars.length < 2) return null;
+  const lookback = Math.min(6, bars.length - 1);
+  const from = Number(bars[bars.length - 1 - lookback].close);
+  const to = Number(bars.at(-1)!.close);
+  return from !== 0 ? ((to - from) / from) * 100 : null;
+}
+
+function classifyHistoricalRegime(input: {
+  sessionBars: AnyRow[];
+  allPreEntryBars: AnyRow[];
+  currentSession: string;
+  sessionState: string;
+  sessionEvent: string;
+  broadDirection: Direction;
+}) {
+  const { sessionBars, allPreEntryBars, currentSession, sessionState, sessionEvent, broadDirection } = input;
+  if (sessionBars.length < 4) {
+    return {
+      label: 'insufficient_context',
+      direction: 'neutral',
+      summary: 'Too little regular-session price history was available before entry to classify the session regime.',
+      rangeRatio: null,
+      efficiency: null,
+      vwap: cumulativeVwap(sessionBars),
+      vwapDistancePct: null,
+      relativeVolume: null,
+      momentum30: momentum30mPct(sessionBars),
+      vwapCrosses: vwapCrossCount(sessionBars),
+    };
+  }
+
+  const entryPrice = Number(sessionBars.at(-1)!.close);
+  const vwap = cumulativeVwap(sessionBars);
+  const vwapDistancePct = vwap && vwap !== 0 ? ((entryPrice - vwap) / vwap) * 100 : null;
+  const efficiency = directionalEfficiency(sessionBars);
+  const rangeRatio = sessionRangeRatio(sessionBars, allPreEntryBars, currentSession);
+  const momentum30 = momentum30mPct(sessionBars);
+  const crosses = vwapCrossCount(sessionBars);
+
+  const decoratedAll = decorate5(allPreEntryBars);
+  const currentLastAt = String(sessionBars.at(-1)!.bar_time);
+  const relIndex = decoratedAll.findIndex((bar) => String(bar.bar_time) === currentLastAt);
+  const relativeVolume = relIndex >= 0 ? normalizedVolumeAt(decoratedAll, relIndex) : null;
+
+  const firstClose = Number(sessionBars[0].close);
+  const sessionReturn = firstClose !== 0 ? ((entryPrice - firstClose) / firstClose) * 100 : 0;
+  const direction = sessionReturn > 0.15 ? 'bullish' : sessionReturn < -0.15 ? 'bearish' : 'neutral';
+
+  let label = 'mixed_transition';
+  if (sessionState === 'session_flip') label = 'reversal';
+  else if (sessionEvent === 'breakout' && (efficiency ?? 0) >= 0.35) label = 'breakout';
+  else if ((rangeRatio ?? 1) >= 1.25 && (efficiency ?? 0) >= 0.5) label = 'volatile_trend';
+  else if ((efficiency ?? 0) >= 0.52 && Math.abs(sessionReturn) >= 0.45) label = 'trend';
+  else if ((rangeRatio ?? 1) >= 1.2 && (crosses >= 2 || (efficiency ?? 1) < 0.42)) label = 'volatile_rotational';
+  else if (crosses >= 3 || (efficiency ?? 1) < 0.3) label = 'rotational_chop';
+
+  const rangePhrase = rangeRatio === null
+    ? 'volatility could not be compared with prior sessions'
+    : rangeRatio >= 1.25
+      ? 'realized range was elevated versus recent sessions'
+      : rangeRatio <= 0.75
+        ? 'realized range was compressed versus recent sessions'
+        : 'realized range was near its recent norm';
+  const persistencePhrase = (efficiency ?? 0) >= 0.5
+    ? 'price movement was relatively persistent'
+    : (efficiency ?? 1) <= 0.3
+      ? 'price movement repeatedly retraced rather than persisting'
+      : 'directional persistence was mixed';
+  const vwapPhrase = crosses >= 3
+    ? `price crossed its session VWAP repeatedly (${crosses} times)`
+    : vwapDistancePct === null
+      ? 'VWAP context was unavailable'
+      : vwapDistancePct > 0
+        ? 'price was trading above session VWAP at entry'
+        : 'price was trading below session VWAP at entry';
+
+  const readable = label.replaceAll('_', ' ');
+  const contextPhrase = broadDirection !== 'neutral'
+    ? ` Broader context was ${broadDirection}.`
+    : '';
+  const summary = `Session regime: ${readable}. ${rangePhrase}; ${persistencePhrase}; ${vwapPhrase}.${contextPhrase}`;
+
+  return {
+    label,
+    direction,
+    summary,
+    rangeRatio,
+    efficiency,
+    vwap,
+    vwapDistancePct,
+    relativeVolume,
+    momentum30,
+    vwapCrosses: crosses,
+  };
+}
+
 function etParts(value: string) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/New_York',
@@ -493,6 +653,19 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
   if (direction === 'bearish' && (invalidation === null || invalidation <= entryUnderlying)) invalidation = levels.resistance > entryUnderlying ? levels.resistance : entryUnderlying + levels.move * 0.8;
 
   const target = direction === 'neutral' ? null : levels.target;
+
+  const entrySessionBars = beforeEntry5.filter(
+    (bar) => etParts(String(bar.bar_time)).session === entrySession,
+  );
+  const regime = classifyHistoricalRegime({
+    sessionBars: entrySessionBars,
+    allPreEntryBars: beforeEntry5,
+    currentSession: entrySession,
+    sessionState,
+    sessionEvent: sessionCycle.confirmed ? sessionCycle.event : 'none',
+    broadDirection,
+  });
+
   const holdingBars = regularBars.filter((b) => {
     const t = new Date(b.bar_time).getTime();
     return t >= entryMs && t <= exitMs;
@@ -732,6 +905,16 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     context_confirmation_at: broadCycle.confirmationAt,
     context_confirmation_price: broadCycle.confirmation,
     session_state: sessionState,
+    regime_label: regime.label,
+    regime_direction: regime.direction,
+    regime_summary: regime.summary,
+    session_range_ratio: regime.rangeRatio,
+    directional_efficiency: regime.efficiency,
+    vwap_at_entry: regime.vwap,
+    vwap_distance_pct: regime.vwapDistancePct,
+    relative_volume_at_entry: regime.relativeVolume,
+    momentum_30m_pct: regime.momentum30,
+    vwap_cross_count: regime.vwapCrosses,
     thesis_state: direction === 'neutral' ? 'unconfirmed' : 'supported',
     setup_class: setup,
     cycle_event_type: sessionCycle.confirmed ? sessionCycle.event : 'context_carry',
@@ -791,6 +974,18 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
         reason: broadCycle.reason,
       },
       session_state: sessionState,
+      regime: {
+        label: regime.label,
+        direction: regime.direction,
+        summary: regime.summary,
+        session_range_ratio: regime.rangeRatio,
+        directional_efficiency: regime.efficiency,
+        vwap_at_entry: regime.vwap,
+        vwap_distance_pct: regime.vwapDistancePct,
+        relative_volume_at_entry: regime.relativeVolume,
+        momentum_30m_pct: regime.momentum30,
+        vwap_cross_count: regime.vwapCrosses,
+      },
       session_cycle_reason: sessionCycle.reason,
       retest_status_at_entry: sessionCycle.confirmed ? sessionCycle.retest : (unconfirmedRetest ? 'held_unconfirmed' : 'not_observed'),
       support: levels.support,
@@ -808,7 +1003,7 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
       realized_pl: n(episode.realized_pl),
       realized_return_pct: n(episode.realized_return_pct),
     },
-    engine_version: 'historical-cycle-1.3',
+    engine_version: 'historical-cycle-1.4',
     computed_at: new Date().toISOString(),
   };
 }
@@ -846,7 +1041,7 @@ Deno.serve(async (req) => {
     if (existingError) throw existingError;
 
     const current = new Set((existing ?? [])
-      .filter((r: AnyRow) => r.engine_version === 'historical-cycle-1.3')
+      .filter((r: AnyRow) => r.engine_version === 'historical-cycle-1.4')
       .map((r: AnyRow) => Number(r.brokerage_episode_id)));
     const pending = rows.filter((r: AnyRow) => !current.has(Number(r.id)));
     if (!pending.length) return json({ success: true, reviewed: 0, cached: rows.length, failures: [] });
@@ -925,7 +1120,7 @@ Deno.serve(async (req) => {
       reviewed: reviews.length,
       cached: rows.length - pending.length,
       failures,
-      engine_version: 'historical-cycle-1.3',
+      engine_version: 'historical-cycle-1.4',
     });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : String(error) }, 500);
