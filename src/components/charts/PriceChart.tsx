@@ -27,6 +27,58 @@ export interface KeyLevel {
 
 const axisStyle = { fill: '#71717a', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' };
 
+type PriceChartStyle = 'candles' | 'line';
+const PRICE_CHART_STYLE_KEY = 'ursora_price_chart_style_v1';
+
+const readPriceChartStyle = (): PriceChartStyle => {
+  if (typeof window === 'undefined') return 'candles';
+  return window.localStorage.getItem(PRICE_CHART_STYLE_KEY) === 'line' ? 'line' : 'candles';
+};
+
+const usePriceChartStyle = () => {
+  const [chartStyle, setChartStyleState] = useState<PriceChartStyle>(readPriceChartStyle);
+
+  useEffect(() => {
+    const sync = (event: Event) => {
+      const detail = (event as CustomEvent<PriceChartStyle>).detail;
+      setChartStyleState(detail === 'line' ? 'line' : 'candles');
+    };
+    window.addEventListener('ursora-price-chart-style', sync);
+    return () => window.removeEventListener('ursora-price-chart-style', sync);
+  }, []);
+
+  const setChartStyle = (next: PriceChartStyle) => {
+    setChartStyleState(next);
+    window.localStorage.setItem(PRICE_CHART_STYLE_KEY, next);
+    window.dispatchEvent(new CustomEvent('ursora-price-chart-style', { detail: next }));
+  };
+
+  return [chartStyle, setChartStyle] as const;
+};
+
+const ChartStyleToggle: React.FC<{
+  value: PriceChartStyle;
+  onChange: (value: PriceChartStyle) => void;
+}> = ({ value, onChange }) => (
+  <div className="flex items-center gap-1 rounded-sm border border-zinc-800 bg-black/20 p-0.5">
+    {(['candles', 'line'] as PriceChartStyle[]).map((style) => (
+      <button
+        key={style}
+        type="button"
+        onClick={() => onChange(style)}
+        className={
+          'rounded-sm px-2 py-1 font-mono text-[8px] uppercase tracking-wider transition-colors ' +
+          (value === style
+            ? 'bg-sky-500/15 text-sky-300'
+            : 'text-zinc-600 hover:text-zinc-300')
+        }
+      >
+        {style === 'candles' ? 'Candles' : 'Line'}
+      </button>
+    ))}
+  </div>
+);
+
 const CandleShape = (props: any) => {
   const { x, y, width, height, payload } = props;
   const high = Number(payload?.high);
@@ -103,6 +155,7 @@ export const PriceChart: React.FC<{
 }> = ({
   bars, levels = [], height = 280, horizon = '1M', barLabel,
 }) => {
+  const [chartStyle, setChartStyle] = usePriceChartStyle();
   const drawn = levels.filter((l) => !isMissing(l.value));
   const cardLevels = levels.filter((level) =>
     !isMissing(level.value) ||
@@ -267,6 +320,9 @@ export const PriceChart: React.FC<{
 
   return (
     <div>
+      <div className="mb-2 flex justify-end">
+        <ChartStyleToggle value={chartStyle} onChange={setChartStyle} />
+      </div>
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_220px]">
         <div className="min-w-0">
           <div
@@ -316,12 +372,23 @@ export const PriceChart: React.FC<{
               tickFormatter={(v: number) => v.toFixed(tickStep < 1 ? 2 : tickStep === 1 ? 1 : 0)}
             />
             <Tooltip content={<TooltipBox horizon={horizon} />} />
-            <Bar
-              dataKey="priceRange"
-              barSize={horizon === '1D' ? 7 : horizon === '1W' ? 7 : horizon === '1M' ? 8 : 5}
-              shape={<CandleShape />}
-              isAnimationActive={false}
-            />
+            {chartStyle === 'candles' ? (
+              <Bar
+                dataKey="priceRange"
+                barSize={horizon === '1D' ? 7 : horizon === '1W' ? 7 : horizon === '1M' ? 8 : 5}
+                shape={<CandleShape />}
+                isAnimationActive={false}
+              />
+            ) : (
+              <Line
+                type="monotone"
+                dataKey="close"
+                stroke="#38bdf8"
+                strokeWidth={1.6}
+                dot={false}
+                isAnimationActive={false}
+              />
+            )}
             {visibleLevels.map((l) => {
               const rangeLow = Number(l.rangeLow);
               const rangeHigh = Number(l.rangeHigh);
@@ -443,6 +510,7 @@ export const SessionPlaybackChart: React.FC<{
   levels?: SessionPlaybackLevel[];
   height?: number;
 }> = ({ bars, markers, levels = [], height = 360 }) => {
+  const [chartStyle, setChartStyle] = usePriceChartStyle();
   if (!bars.length) {
     return (
       <div className="flex h-56 items-center justify-center rounded-sm border border-dashed border-zinc-800">
@@ -451,6 +519,10 @@ export const SessionPlaybackChart: React.FC<{
     );
   }
 
+  const plotBars = bars.map((bar) => ({
+    ...bar,
+    priceRange: [Number(bar.low), Number(bar.high)] as [number, number],
+  }));
   const validMarkers = markers.filter((item) => item.price !== null && Number.isFinite(Number(item.price)));
   const lows = bars.map((b) => b.low);
   const highs = bars.map((b) => b.high);
@@ -462,15 +534,12 @@ export const SessionPlaybackChart: React.FC<{
 
   return (
     <div>
+      <div className="mb-2 flex justify-end">
+        <ChartStyleToggle value={chartStyle} onChange={setChartStyle} />
+      </div>
       <div style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={bars} margin={{ top: 20, right: 64, bottom: 4, left: 0 }}>
-            <defs>
-              <linearGradient id="ursoraPlaybackPrice" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.22} />
-                <stop offset="100%" stopColor="#38bdf8" stopOpacity={0} />
-              </linearGradient>
-            </defs>
+          <ComposedChart data={plotBars} margin={{ top: 20, right: 64, bottom: 4, left: 0 }}>
             <CartesianGrid stroke="#1c2027" strokeDasharray="2 4" vertical={false} />
             <XAxis
               dataKey="bar_time"
@@ -490,15 +559,23 @@ export const SessionPlaybackChart: React.FC<{
               tickFormatter={(v: number) => v.toFixed(v > 100 ? 1 : 2)}
             />
             <Tooltip content={<TooltipBox />} />
-            <Area
-              type="monotone"
-              dataKey="close"
-              stroke="#38bdf8"
-              strokeWidth={1.5}
-              fill="url(#ursoraPlaybackPrice)"
-              dot={false}
-              animationDuration={500}
-            />
+            {chartStyle === 'candles' ? (
+              <Bar
+                dataKey="priceRange"
+                barSize={6}
+                shape={<CandleShape />}
+                isAnimationActive={false}
+              />
+            ) : (
+              <Line
+                type="monotone"
+                dataKey="close"
+                stroke="#38bdf8"
+                strokeWidth={1.6}
+                dot={false}
+                isAnimationActive={false}
+              />
+            )}
             {levels.map((level) => (
               <ReferenceLine
                 key={`historical-level-${level.kind}-${level.value}`}
@@ -540,7 +617,7 @@ export const SessionPlaybackChart: React.FC<{
                 }}
               />
             ))}
-          </AreaChart>
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
 
