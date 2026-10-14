@@ -50,6 +50,12 @@ function n(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function contractCode(strike: number | null, optionType: string | null): string | null {
+  if (strike === null || !optionType) return null;
+  const side = String(optionType).toUpperCase().startsWith('P') ? 'P' : 'C';
+  return `${Number(strike).toFixed(Number.isInteger(strike) ? 0 : 2)}${side}`;
+}
+
 function etDate(iso: string): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/New_York',
@@ -159,6 +165,26 @@ Deno.serve(async (req) => {
       events = storedEvents ?? [];
     }
 
+    let entryActivity: Record<string, any> | null = null;
+    let exitActivity: Record<string, any> | null = null;
+    if (brokerageEpisode) {
+      const entryIds = Array.isArray(trade.entry_activity_ids) ? trade.entry_activity_ids.map(String) : [];
+      const exitIds = Array.isArray(trade.exit_activity_ids) ? trade.exit_activity_ids.map(String) : [];
+      const activityIds = [...new Set([...entryIds, ...exitIds])];
+      if (activityIds.length) {
+        const { data: activityRows, error: activityError } = await db
+          .from('snaptrade_activities')
+          .select('id,symbol,option_symbol,option_type,strike,expiration,price,trade_date,activity_type,option_action,units')
+          .eq('user_id', user.id)
+          .in('id', activityIds)
+          .order('trade_date', { ascending: true });
+        if (activityError) throw activityError;
+        const rows = activityRows ?? [];
+        entryActivity = rows.find((row: any) => entryIds.includes(String(row.id))) ?? null;
+        exitActivity = [...rows].reverse().find((row: any) => exitIds.includes(String(row.id))) ?? null;
+      }
+    }
+
     const entryAt = trade.entry_at ?? trade.created_at;
     if (!entryAt) return json({ error: 'Trade has no entry timestamp.' }, 422);
     const sessionDate = etDate(entryAt);
@@ -240,11 +266,13 @@ Deno.serve(async (req) => {
       } : null,
       {
         kind: 'entry',
-        label: 'Your entry',
+        label: isOption
+          ? `ENTRY · ${contractCode(n(entryActivity?.strike ?? trade.strike), String(entryActivity?.option_type ?? trade.option_type ?? '')) ?? 'OPTION'} · ${n(entryActivity?.price ?? trade.entry_price)?.toFixed(2) ?? '—'}`
+          : 'Your entry',
         at: entryAt,
         price: isOption ? entryUnderlying : (n(trade.entry_price) ?? entryUnderlying),
-        detail: isOption && n(trade.entry_price) !== null
-          ? `Underlying near ${entryUnderlying?.toFixed(2) ?? '—'} · option fill ${n(trade.entry_price)?.toFixed(2)}`
+        detail: isOption
+          ? `Underlying SPY/equity price ${entryUnderlying?.toFixed(2) ?? '—'} · ${String(entryActivity?.option_action ?? 'entry')} · ${String(entryActivity?.expiration ?? trade.expiration ?? 'expiration unavailable')}`
           : 'Brokerage execution mapped to the underlying session',
       },
       weakening ? {
@@ -276,11 +304,13 @@ Deno.serve(async (req) => {
       } : null,
       exitAt ? {
         kind: 'exit',
-        label: 'Your exit',
+        label: isOption
+          ? `EXIT · ${contractCode(n(exitActivity?.strike ?? entryActivity?.strike ?? trade.strike), String(exitActivity?.option_type ?? entryActivity?.option_type ?? trade.option_type ?? '')) ?? 'OPTION'} · ${n(exitActivity?.price ?? trade.exit_price)?.toFixed(2) ?? '—'}`
+          : 'Your exit',
         at: exitAt,
         price: isOption ? exitUnderlying : (n(trade.exit_price) ?? exitUnderlying),
-        detail: isOption && n(trade.exit_price) !== null
-          ? `Underlying near ${exitUnderlying?.toFixed(2) ?? '—'} · option fill ${n(trade.exit_price)?.toFixed(2)}`
+        detail: isOption
+          ? `Underlying SPY/equity price ${exitUnderlying?.toFixed(2) ?? '—'} · ${String(exitActivity?.option_action ?? 'exit')} · ${String(exitActivity?.expiration ?? entryActivity?.expiration ?? trade.expiration ?? 'expiration unavailable')}`
           : 'Brokerage exit mapped to the underlying session',
       } : null,
     ].filter(Boolean);
@@ -314,6 +344,19 @@ Deno.serve(async (req) => {
         thesis_review_status: historicalReview?.thesis_state ?? trade.thesis_review_status ?? null,
       },
       review: historicalReview,
+      instrument: brokerageEpisode ? {
+        asset_type: trade.asset_type ?? (trade.option_symbol ? 'option' : 'equity'),
+        symbol,
+        option_symbol: entryActivity?.option_symbol ?? trade.option_symbol ?? null,
+        option_type: String(entryActivity?.option_type ?? trade.option_type ?? '').toLowerCase() || null,
+        strike: n(entryActivity?.strike ?? trade.strike),
+        expiration: entryActivity?.expiration ?? trade.expiration ?? null,
+        entry_option_price: n(entryActivity?.price ?? trade.entry_price),
+        exit_option_price: n(exitActivity?.price ?? trade.exit_price),
+        entry_activity_at: entryActivity?.trade_date ?? entryAt,
+        exit_activity_at: exitActivity?.trade_date ?? exitAt,
+        source: entryActivity ? 'timestamped_snaptrade_activity' : 'normalized_episode',
+      } : null,
       levels: historicalReview ? [
         n(historicalReview.confirmation_price) !== null ? { kind: 'confirmation', label: 'Confirmation', value: n(historicalReview.confirmation_price), detail: 'Price level where the historical cycle became substantiated before entry.' } : null,
         n(historicalReview.target_price) !== null ? { kind: 'target', label: 'Target', value: n(historicalReview.target_price), detail: 'Nearest defensible tactical objective using only pre-entry structure.' } : null,
