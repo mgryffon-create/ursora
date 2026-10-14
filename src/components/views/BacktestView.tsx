@@ -249,8 +249,6 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
     return () => { active = false; };
   }, [selectedTradeId]);
 
-  if (loading) return <Spinner label="Loading brokerage trade history" />;
-
   const tradeAssessment = useMemo(() => {
     const review = playback?.review;
     if (!review) return null;
@@ -335,6 +333,8 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
       entryQuality,
     };
   }, [playback]);
+
+  if (loading) return <Spinner label="Loading brokerage trade history" />;
 
   return (
     <div className="space-y-4">
