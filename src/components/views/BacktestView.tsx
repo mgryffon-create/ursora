@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Clock3, History, Loader2 } from 'lucide-react';
-import { fetchHistoricalPlayback, type HistoricalPlaybackResponse } from '@/lib/api';
+import { fetchHistoricalPlayback, reconstructHistoricalTrades, type HistoricalPlaybackResponse } from '@/lib/api';
 import { fetchBrokerageTradeRecords } from '@/lib/behavioral/api';
 import type { TradeRecord } from '@/lib/behavioral/types';
 import { useAuth } from '@/contexts/AuthContext';
@@ -43,6 +43,10 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initial
   const [selectedTradeId, setSelectedTradeId] = useState<number | null>(initialTradeIds[0] ?? null);
   const [playback, setPlayback] = useState<HistoricalPlaybackResponse | null>(null);
   const [playbackBusy, setPlaybackBusy] = useState(false);
+  const [reconstructionBusy, setReconstructionBusy] = useState(false);
+  const [reconstructionNote, setReconstructionNote] = useState<string | null>(null);
+  const [reviewGeneration, setReviewGeneration] = useState(0);
+  const reconstructedKey = useRef<string>('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -94,6 +98,47 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initial
     }
   }, [selectedTradeId, visibleTrades]);
 
+  useEffect(() => {
+    if (!user || !visibleTrades.length) return;
+    const brokerageIds = visibleTrades
+      .filter((trade) => trade.id < 0)
+      .map((trade) => Math.abs(trade.id));
+    if (!brokerageIds.length) return;
+
+    const key = brokerageIds.slice().sort((a, b) => a - b).join(',');
+    if (reconstructedKey.current === key) return;
+    reconstructedKey.current = key;
+
+    let active = true;
+    setReconstructionBusy(true);
+    setReconstructionNote('Reconstructing historical TradeCycle evidence from data available at each entry…');
+
+    void reconstructHistoricalTrades(brokerageIds)
+      .then((result) => {
+        if (!active) return;
+        if (result.failures.length) {
+          setReconstructionNote(
+            `Historical review completed for ${result.reviewed + result.cached} episode${result.reviewed + result.cached === 1 ? '' : 's'} with ${result.failures.length} reconstruction warning${result.failures.length === 1 ? '' : 's'}.`,
+          );
+        } else {
+          setReconstructionNote(
+            `Historical TradeCycle evidence is ready for ${result.reviewed + result.cached} episode${result.reviewed + result.cached === 1 ? '' : 's'}.`,
+          );
+        }
+        setReviewGeneration((value) => value + 1);
+      })
+      .catch((reconstructionError) => {
+        if (!active) return;
+        const message = reconstructionError instanceof Error ? reconstructionError.message : String(reconstructionError);
+        setReconstructionNote(`Historical reconstruction could not complete: ${message}`);
+      })
+      .finally(() => {
+        if (active) setReconstructionBusy(false);
+      });
+
+    return () => { active = false; };
+  }, [user, visibleTrades]);
+
   const selectedTrade = useMemo(
     () => visibleTrades.find((trade) => trade.id === selectedTradeId) ?? null,
     [selectedTradeId, visibleTrades],
@@ -128,7 +173,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initial
       });
 
     return () => { active = false; };
-  }, [selectedTradeId]);
+  }, [reviewGeneration, selectedTradeId]);
 
   if (loading) return <Spinner label="Loading brokerage trade history" />;
 
@@ -144,6 +189,15 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initial
         <div className="flex items-start gap-2 rounded-md border border-amber-500/35 bg-amber-500/[0.07] p-3 text-[11px] text-amber-100">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span>{error}</span>
+        </div>
+      )}
+
+      {reconstructionNote && (
+        <div className="flex items-start gap-2 rounded-md border border-sky-500/25 bg-sky-500/[0.04] p-3 text-[11px] text-sky-100">
+          {reconstructionBusy
+            ? <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-sky-400" aria-hidden="true" />
+            : <History className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" aria-hidden="true" />}
+          <span>{reconstructionNote}</span>
         </div>
       )}
 
@@ -219,7 +273,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initial
 
           <Panel
             title={selectedTrade ? selectedTrade.symbol + ' · ' + dateET(selectedTrade.entry_at ?? selectedTrade.created_at) : 'Trade playback'}
-            subtitle="Underlying market session with brokerage execution markers and any timestamped TradeCycle thesis events available for this episode."
+            subtitle="Underlying price action with your actual executions, reconstructed confirmation, tactical levels, and thesis outcome. Historical thesis evidence is cut off at entry to prevent hindsight leakage."
           >
             {playbackBusy ? (
               <div className="flex min-h-[420px] items-center justify-center">
@@ -238,16 +292,70 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initial
                   )}
                 </div>
 
-                <SessionPlaybackChart bars={playback.bars} markers={playback.markers} />
+                <SessionPlaybackChart bars={playback.bars} markers={playback.markers} levels={playback.levels} />
 
-                {selectedTrade?.id && selectedTrade.id < 0 && !playback.episode.invalidation_at && (
+                {selectedTrade?.id && selectedTrade.id < 0 && !playback.review && (
                   <div className="flex items-start gap-2 rounded-sm border border-sky-500/25 bg-sky-500/[0.04] p-3">
                     <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" aria-hidden="true" />
                     <div>
-                      <div className="text-[11px] font-medium text-zinc-200">TradeCycle reconstruction pending for this historical trade</div>
+                      <div className="text-[11px] font-medium text-zinc-200">Historical thesis reconstruction pending</div>
                       <p className="mt-1 text-[10px] leading-relaxed text-zinc-500">
-                        Entry and exit come from the synced brokerage history. The next pipeline will replay historical market evidence through TradeCycle so weakening and invalidation can be timestamped on this same chart rather than inferred from profit or loss.
+                        The brokerage execution is available, but the no-lookahead TradeCycle review has not been materialized yet.
                       </p>
+                    </div>
+                  </div>
+                )}
+
+                {playback.review && (
+                  <div className="rounded-sm border border-zinc-800 bg-[#0d1015] p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-sky-400">Your position vs TradeCycle</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-100">
+                          {playback.review.retro_direction === 'neutral'
+                            ? 'No confirmed historical thesis at entry'
+                            : `${playback.review.retro_direction.toUpperCase()} · ${playback.review.setup_class.replaceAll('_', ' ')}`}
+                        </div>
+                      </div>
+                      <span className={cn(
+                        'rounded-sm border px-2 py-1 font-mono text-[9px] uppercase tracking-wider',
+                        playback.review.directional_agreement === 'aligned'
+                          ? 'border-emerald-500/30 bg-emerald-500/[0.06] text-emerald-300'
+                          : playback.review.directional_agreement === 'opposed'
+                            ? 'border-red-500/30 bg-red-500/[0.06] text-red-300'
+                            : 'border-zinc-700 bg-black/20 text-zinc-400',
+                      )}>
+                        {playback.review.directional_agreement.replaceAll('_', ' ')}
+                      </span>
+                    </div>
+
+                    <p className="mt-2 text-[11px] leading-relaxed text-zinc-400">{playback.review.review_summary}</p>
+
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
+                        <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Entry relationship</div>
+                        <div className="mt-1 text-[10px] text-zinc-300">{playback.review.entry_relationship.replaceAll('_', ' ')}</div>
+                      </div>
+                      <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
+                        <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Exit relationship</div>
+                        <div className="mt-1 text-[10px] text-zinc-300">{playback.review.exit_relationship.replaceAll('_', ' ')}</div>
+                      </div>
+                      <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
+                        <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">5-day range location</div>
+                        <div className="mt-1 font-mono text-[10px] text-zinc-300">
+                          {playback.review.range_position_5d === null ? '—' : `${Math.round(playback.review.range_position_5d * 100)}th percentile`}
+                        </div>
+                      </div>
+                      <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
+                        <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Cycle confidence</div>
+                        <div className="mt-1 font-mono text-[10px] text-zinc-300">
+                          {playback.review.confidence_score === null ? '—' : `${Math.round(playback.review.confidence_score)}/100`}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 text-[9px] leading-relaxed text-zinc-600">
+                      No-lookahead reconstruction: thesis, levels, and confirmation use only information available at or before the brokerage entry. Post-entry bars are used only to measure subsequent target, invalidation, excursion, and exit behavior.
                     </div>
                   </div>
                 )}
