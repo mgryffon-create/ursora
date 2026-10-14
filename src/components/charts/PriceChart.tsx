@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Area, AreaChart, Bar, CartesianGrid, ComposedChart, Line, LineChart, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer,
+  Area, AreaChart, Bar, Brush, CartesianGrid, ComposedChart, Line, LineChart, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from 'recharts';
 import type { Bar, ChartHorizon } from '@/lib/types';
@@ -320,7 +320,21 @@ export const PriceChart: React.FC<{
 
   return (
     <div>
-      <div className="mb-2 flex justify-end">
+      <div className="mb-2 flex flex-wrap items-center justify-end gap-1.5">
+        <button
+          type="button"
+          onClick={zoomToTrade}
+          className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
+        >
+          Trade zoom
+        </button>
+        <button
+          type="button"
+          onClick={resetZoom}
+          className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
+        >
+          Full
+        </button>
         <ChartStyleToggle value={chartStyle} onChange={setChartStyle} />
       </div>
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_220px]">
@@ -468,7 +482,7 @@ export const PriceChart: React.FC<{
 };
 
 export interface SessionPlaybackMarker {
-  kind: 'confirmation' | 'entry' | 'weakening' | 'invalidation' | 'target' | 'exit';
+  kind: 'confirmation' | 'entry' | 'weakening' | 'invalidation' | 'conflict' | 'target' | 'exit';
   label: string;
   at: string;
   price: number | null;
@@ -481,7 +495,8 @@ const markerColor = (kind: SessionPlaybackMarker['kind']) =>
       : kind === 'target' ? '#34d399'
         : kind === 'weakening' ? '#fbbf24'
           : kind === 'invalidation' ? '#f87171'
-            : '#60a5fa';
+            : kind === 'conflict' ? '#fb7185'
+              : '#60a5fa';
 
 export interface SessionPlaybackLevel {
   kind: 'reversal' | 'confirmation' | 'target' | 'invalidation' | 'support' | 'resistance';
@@ -511,8 +526,17 @@ export const SessionPlaybackChart: React.FC<{
   levels?: SessionPlaybackLevel[];
   height?: number;
   showStructureCards?: boolean;
-}> = ({ bars, markers, levels = [], height = 360, showStructureCards = true }) => {
+  compactEvents?: boolean;
+}> = ({ bars, markers, levels = [], height = 360, showStructureCards = true, compactEvents = false }) => {
   const [chartStyle, setChartStyle] = usePriceChartStyle();
+  const [zoomStart, setZoomStart] = useState(0);
+  const [zoomEnd, setZoomEnd] = useState(Math.max(0, bars.length - 1));
+
+  useEffect(() => {
+    setZoomStart(0);
+    setZoomEnd(Math.max(0, bars.length - 1));
+  }, [bars]);
+
   if (!bars.length) {
     return (
       <div className="flex h-56 items-center justify-center rounded-sm border border-dashed border-zinc-800">
@@ -526,13 +550,41 @@ export const SessionPlaybackChart: React.FC<{
     priceRange: [Number(bar.low), Number(bar.high)] as [number, number],
   }));
   const validMarkers = markers.filter((item) => item.price !== null && Number.isFinite(Number(item.price)));
-  const lows = bars.map((b) => b.low);
-  const highs = bars.map((b) => b.high);
-  const markerValues = validMarkers.map((item) => Number(item.price));
-  const levelValues = levels.filter((item) => Number.isFinite(Number(item.value))).map((item) => Number(item.value));
-  const min = Math.min(...lows, ...markerValues, ...levelValues);
-  const max = Math.max(...highs, ...markerValues, ...levelValues);
+  const visibleBars = bars.slice(zoomStart, zoomEnd + 1);
+  const lows = (visibleBars.length ? visibleBars : bars).map((b) => b.low);
+  const highs = (visibleBars.length ? visibleBars : bars).map((b) => b.high);
+  const min = Math.min(...lows);
+  const max = Math.max(...highs);
   const pad = (max - min) * 0.08 || 1;
+
+  const markerIndices = validMarkers.map((item) => {
+    const target = new Date(item.at).getTime();
+    let bestIndex = 0;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    bars.forEach((bar, index) => {
+      const distance = Math.abs(new Date(bar.bar_time).getTime() - target);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    });
+    return { item, index: bestIndex };
+  });
+
+  const tradeIndices = markerIndices
+    .filter(({ item }) => item.kind === 'entry' || item.kind === 'exit')
+    .map(({ index }) => index);
+  const zoomToTrade = () => {
+    if (!tradeIndices.length) return;
+    const start = Math.max(0, Math.min(...tradeIndices) - 12);
+    const end = Math.min(bars.length - 1, Math.max(...tradeIndices) + 12);
+    setZoomStart(start);
+    setZoomEnd(end);
+  };
+  const resetZoom = () => {
+    setZoomStart(0);
+    setZoomEnd(Math.max(0, bars.length - 1));
+  };
 
   return (
     <div>
@@ -586,13 +638,6 @@ export const SessionPlaybackChart: React.FC<{
                 strokeWidth={1}
                 strokeDasharray={level.kind === 'confirmation' ? '3 3' : '5 4'}
                 ifOverflow="extendDomain"
-                label={{
-                  value: `${level.label} ${Number(level.value).toFixed(2)}`,
-                  position: 'insideTopRight',
-                  fill: playbackLevelColor(level.kind),
-                  fontSize: 8,
-                  fontFamily: 'JetBrains Mono, monospace',
-                }}
               />
             ))}
             {validMarkers.map((item) => (
@@ -609,16 +654,22 @@ export const SessionPlaybackChart: React.FC<{
                 fill={markerColor(item.kind)}
                 stroke="#0b0d10"
                 strokeWidth={2}
-                label={{
-                  value: item.label,
-                  position: item.kind === 'invalidation' ? 'top' : 'bottom',
-                  fill: markerColor(item.kind),
-                  fontSize: 9,
-                  fontWeight: 700,
-                  fontFamily: 'JetBrains Mono, monospace',
-                }}
               />
             ))}
+            <Brush
+              dataKey="bar_time"
+              height={18}
+              travellerWidth={7}
+              startIndex={zoomStart}
+              endIndex={zoomEnd}
+              onChange={(range) => {
+                if (typeof range.startIndex === 'number') setZoomStart(range.startIndex);
+                if (typeof range.endIndex === 'number') setZoomEnd(range.endIndex);
+              }}
+              tickFormatter={(value: string) => sessionTime(value)}
+              stroke="#3f3f46"
+              fill="#0b0d10"
+            />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -652,7 +703,7 @@ export const SessionPlaybackChart: React.FC<{
             <div className="mt-0.5 font-mono text-[10px] text-zinc-400">
               {sessionTime(item.at)}{item.price !== null ? ` · ${Number(item.price).toFixed(2)}` : ''}
             </div>
-            {item.detail && <div className="mt-0.5 text-[9px] text-zinc-600">{item.detail}</div>}
+            {!compactEvents && item.detail && <div className="mt-0.5 text-[9px] text-zinc-600">{item.detail}</div>}
           </div>
         ))}
       </div>
