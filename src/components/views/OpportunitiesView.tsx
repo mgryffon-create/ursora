@@ -19,6 +19,16 @@ import { cn } from '@/lib/utils';
 
 const MAX_ANALYSIS = 6;
 
+type AutoAnalysisStatus = {
+  state: 'running' | 'completed' | 'warning' | 'failed';
+  message: string;
+  symbols: string[];
+  startedAt: string;
+  finishedAt: string | null;
+  warnings: string[];
+};
+
+
 const thesisSummary = (signal?: Signal | null) => {
   if (!signal) return null;
   if (signal.strategy === 'No Trade') {
@@ -254,6 +264,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pipelineWarnings, setPipelineWarnings] = useState<string[]>([]);
+  const [autoAnalysisStatus, setAutoAnalysisStatus] = useState<AutoAnalysisStatus | null>(null);
   const cachedRestructureAttempted = useRef(false);
 
   const load = useCallback(async () => {
@@ -389,6 +400,33 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
     return () => window.removeEventListener('ursora-market-refreshed', onMarketRefreshed);
   }, [load]);
 
+  useEffect(() => {
+    if (!user) {
+      setAutoAnalysisStatus(null);
+      return;
+    }
+
+    const storageKey = `ursora_watchlist_auto_status_${user.id}`;
+    const stored = window.sessionStorage.getItem(storageKey);
+    if (stored) {
+      try {
+        setAutoAnalysisStatus(JSON.parse(stored) as AutoAnalysisStatus);
+      } catch {
+        window.sessionStorage.removeItem(storageKey);
+      }
+    }
+
+    const onAutoStatus = (event: Event) => {
+      const detail = (event as CustomEvent<AutoAnalysisStatus>).detail;
+      if (!detail) return;
+      setAutoAnalysisStatus(detail);
+      if (detail.state !== 'running') void load();
+    };
+
+    window.addEventListener('ursora-auto-analysis-status', onAutoStatus);
+    return () => window.removeEventListener('ursora-auto-analysis-status', onAutoStatus);
+  }, [load, user]);
+
   const latestSignalBySymbol = useMemo(
     () => Object.fromEntries(signals.map((signal) => [signal.symbol, signal])) as Record<string, Signal>,
     [signals],
@@ -444,6 +482,11 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
   }, []);
 
   const runAnalysisFor = useCallback(async (requestedSymbols: string[], offerFavorites = true) => {
+    if (autoAnalysisStatus?.state === 'running') {
+      setError('Your automatic watchlist analysis is already running. URSORA will refresh this page when it finishes, so another analysis is not needed.');
+      return;
+    }
+
     let selectedSymbols = [...new Set(requestedSymbols.map((symbol) => symbol.toUpperCase()))];
 
     if (!selectedSymbols.length) {
@@ -517,7 +560,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
     } finally {
       setRunning(false);
     }
-  }, [favorites, load]);
+  }, [autoAnalysisStatus?.state, favorites, load]);
 
   const runFavorites = useCallback(() => {
     if (!favorites.length) {
@@ -567,16 +610,61 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
             <Button
               size="sm"
               variant="outline"
-              disabled={running || analysisSelection.length === 0}
+              disabled={running || autoAnalysisStatus?.state === 'running' || analysisSelection.length === 0}
               onClick={() => void runAnalysisFor(analysisSelection)}
               className="gap-1.5 border-zinc-700"
             >
               {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />}
-              {running ? 'Analyzing…' : `Analyze selected (${analysisSelection.length}/${MAX_ANALYSIS})`}
+              {autoAnalysisStatus?.state === 'running'
+                ? 'Auto-analysis running…'
+                : running
+                  ? 'Analyzing…'
+                  : `Analyze selected (${analysisSelection.length}/${MAX_ANALYSIS})`}
             </Button>
           </div>
         }
       />
+
+      {autoAnalysisStatus && (
+        <div className={cn(
+          'rounded-md border px-3 py-2.5',
+          autoAnalysisStatus.state === 'running'
+            ? 'border-sky-500/40 bg-sky-500/[0.07]'
+            : autoAnalysisStatus.state === 'completed'
+              ? 'border-emerald-500/30 bg-emerald-500/[0.05]'
+              : autoAnalysisStatus.state === 'warning'
+                ? 'border-amber-500/35 bg-amber-500/[0.06]'
+                : 'border-red-500/35 bg-red-500/[0.06]',
+        )}>
+          <div className="flex items-start gap-2">
+            {autoAnalysisStatus.state === 'running' && <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-sky-300" aria-hidden="true" />}
+            <div className="min-w-0">
+              <div className={cn(
+                'font-mono text-[9px] uppercase tracking-[0.16em]',
+                autoAnalysisStatus.state === 'running'
+                  ? 'text-sky-300'
+                  : autoAnalysisStatus.state === 'completed'
+                    ? 'text-emerald-300'
+                    : autoAnalysisStatus.state === 'warning'
+                      ? 'text-amber-300'
+                      : 'text-red-300',
+              )}>
+                {autoAnalysisStatus.state === 'running'
+                  ? 'Automatic watchlist analysis running'
+                  : autoAnalysisStatus.state === 'completed'
+                    ? 'Automatic watchlist analysis complete'
+                    : autoAnalysisStatus.state === 'warning'
+                      ? 'Automatic watchlist analysis completed with limits'
+                      : 'Automatic watchlist analysis failed'}
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-zinc-300">{autoAnalysisStatus.message}</p>
+              <div className="mt-1 font-mono text-[9px] text-zinc-600">
+                {autoAnalysisStatus.symbols.join(' · ')}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2 rounded-md border border-zinc-800 bg-[#111419] px-3 py-2">
         <div className="flex w-full items-center gap-2 rounded-sm border border-zinc-700 bg-black/40 px-2.5 focus-within:border-sky-500/70 sm:w-[320px]">
@@ -626,7 +714,7 @@ export const OpportunitiesView: React.FC<{ onOpenThesis: (signalId: number) => v
                 <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-300">Static watchlist</div>
                 <h2 className="mt-1 text-base font-semibold text-zinc-100">Your favorites</h2>
               </div>
-              <Button size="sm" variant="outline" onClick={runFavorites} disabled={running || favorites.length === 0} className="border-zinc-700 text-[10px]">
+              <Button size="sm" variant="outline" onClick={runFavorites} disabled={running || autoAnalysisStatus?.state === 'running' || favorites.length === 0} className="border-zinc-700 text-[10px]">
                 Analyze watchlist
               </Button>
             </div>
