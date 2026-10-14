@@ -58,7 +58,7 @@ const tradeInstrument = (trade: TradeRecord) => {
 
 export const SignalHistoryView: React.FC<{
   onOpenThesis: (id: number) => void;
-  onOpenHistoricalEvidence?: (tradeIds: number[]) => void;
+  onOpenHistoricalEvidence?: (tradeIds: number[], day?: string) => void;
 }> = ({ onOpenThesis, onOpenHistoricalEvidence }) => {
   const { user } = useAuth();
   const [trades, setTrades] = useState<TradeRecord[]>([]);
@@ -326,7 +326,7 @@ export const SignalHistoryView: React.FC<{
 
           <Panel
             title="Trade dates"
-            subtitle="Only dates with actual trade episodes are emphasized. Analyses without a trade do not populate this calendar."
+            subtitle="Click a trading day to open its Historical Evidence replay. P/L and trade count come from actual brokerage episodes."
           >
             <div className="grid grid-cols-7 gap-1">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label) => (
@@ -350,7 +350,14 @@ export const SignalHistoryView: React.FC<{
                   <button
                     type="button"
                     key={key}
-                    onClick={() => dateTrades.length && setSelectedDay(key)}
+                    onClick={() => {
+                      if (!dateTrades.length) return;
+                      setSelectedDay(key);
+                      if (onOpenHistoricalEvidence) {
+                        const closedIds = dateTrades.filter(isClosed).map((trade) => trade.id);
+                        if (closedIds.length) onOpenHistoricalEvidence(closedIds, key);
+                      }
+                    }}
                     disabled={dateTrades.length === 0}
                     className={cn(
                       'min-h-[88px] rounded-md border p-2 text-left transition-colors',
@@ -457,7 +464,7 @@ export const SignalHistoryView: React.FC<{
                           {onOpenHistoricalEvidence && isClosed(trade) && (
                             <button
                               type="button"
-                              onClick={() => onOpenHistoricalEvidence([trade.id])}
+                              onClick={() => onOpenHistoricalEvidence([trade.id], tradeDayKey(trade))}
                               className="font-mono text-[10px] uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
                             >
                               historical evidence
