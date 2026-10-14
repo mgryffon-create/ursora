@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Clock3, History, Loader2 } from 'lucide-react';
-import { fetchHistoricalPlayback, reconstructHistoricalTrades, type HistoricalPlaybackResponse } from '@/lib/api';
+import { fetchHistoricalPlayback, normalizeStoredBrokerageTrades, reconstructHistoricalTrades, type HistoricalPlaybackResponse } from '@/lib/api';
 import { fetchBrokerageTradeRecords } from '@/lib/behavioral/api';
 import type { TradeRecord } from '@/lib/behavioral/types';
 import { useAuth } from '@/contexts/AuthContext';
@@ -55,7 +55,24 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initial
       setLoading(true);
       setError(null);
       try {
-        const rows = user ? await fetchBrokerageTradeRecords(user.id) : [];
+        let rows = user ? await fetchBrokerageTradeRecords(user.id) : [];
+
+        // Activity-derived fallback trades use temporary synthetic IDs beginning at
+        // -1000000. Historical replay requires canonical snaptrade_trade_episodes
+        // IDs, so normalize the already-synced activities locally before rendering.
+        // This does not call the brokerage provider or consume provider quota.
+        const usingSyntheticActivityFallback = rows.some((trade) => trade.id <= -1000000);
+        if (user && usingSyntheticActivityFallback) {
+          setReconstructionNote('Preparing synced brokerage activity for historical replay…');
+          const normalized = await normalizeStoredBrokerageTrades();
+          rows = await fetchBrokerageTradeRecords(user.id);
+          if (active) {
+            setReconstructionNote(
+              `Prepared ${normalized.closed} closed brokerage episode${normalized.closed === 1 ? '' : 's'} for Historical Evidence.`,
+            );
+          }
+        }
+
         if (!active) return;
         setTrades(rows);
       } catch (loadError) {
@@ -101,7 +118,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initial
   useEffect(() => {
     if (!user || !visibleTrades.length) return;
     const brokerageIds = visibleTrades
-      .filter((trade) => trade.id < 0)
+      .filter((trade) => trade.id < 0 && trade.id > -1000000)
       .map((trade) => Math.abs(trade.id));
     if (!brokerageIds.length) return;
 
