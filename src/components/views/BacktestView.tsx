@@ -249,91 +249,6 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
     return () => { active = false; };
   }, [selectedTradeId]);
 
-  const tradeAssessment = useMemo(() => {
-    const review = playback?.review;
-    if (!review) return null;
-
-    const direction = review.retro_direction;
-    const aligned = review.directional_agreement === 'aligned';
-    const opposed = review.directional_agreement === 'opposed';
-    const delay = review.confirmation_to_entry_minutes;
-    const consumed = review.move_consumed_to_target_pct;
-    const remaining = review.remaining_room_to_target_pct;
-    const hadRetest = Boolean(review.retest_before_entry);
-    const momentum = review.momentum_state_at_entry?.replaceAll('_', ' ');
-    const entryQuality = review.entry_quality_label?.replaceAll('_', ' ');
-    const targetReached = Boolean(review.target_hit_at);
-    const invalidationStatus = playback?.invalidation_context?.status;
-
-    if (direction === 'neutral') {
-      return {
-        headline: 'No substantiated directional thesis was available at entry.',
-        body: 'URSORA can describe the execution and subsequent price action, but it cannot fairly grade entry timing against confirmation because the historical evidence did not establish a directional TradeCycle thesis before the position opened.',
-        tone: 'neutral' as const,
-      };
-    }
-
-    if (opposed) {
-      return {
-        headline: `The position was opened against a confirmed ${direction} thesis.`,
-        body: `The key execution issue was not lateness — it was directional conflict. TradeCycle had already substantiated a ${direction} move before entry, so the position began without support from the reconstructed thesis. Review the pre-entry confirmation/flip first, then assess whether the user had independent evidence strong enough to justify taking the other side.`,
-        tone: 'risk' as const,
-      };
-    }
-
-    const delayText = delay === null
-      ? 'after confirmation'
-      : `${delay} minute${delay === 1 ? '' : 's'} after confirmation`;
-    const consumedText = consumed === null
-      ? ''
-      : ` after roughly ${Math.round(consumed)}% of the confirmation-to-target move had already occurred`;
-    const roomText = remaining === null
-      ? ''
-      : ` Only about ${remaining.toFixed(2)}% underlying-price room remained to the tactical target at entry.`;
-
-    let locationSentence = '';
-    if (review.entry_quality_label === 'confirmed_retest') {
-      locationSentence = hadRetest
-        ? 'The user did wait for a held retest, which supported the direction, but the retest occurred after much of the validated move had already been consumed.'
-        : 'The entry followed confirmation with acceptable structural support.';
-    } else if (['late_confirmed_move', 'late_extended', 'late_weakening'].includes(review.entry_quality_label ?? '')) {
-      locationSentence = `The direction was supported, but the location was late and ${momentum ?? 'extended'}.`;
-    } else if (aligned) {
-      locationSentence = 'The entry remained directionally supported by the reconstructed thesis.';
-    }
-
-    let outcomeSentence = '';
-    if (targetReached && invalidationStatus !== 'during_trade') {
-      outcomeSentence = 'The thesis remained intact long enough for the tactical target to be reached.';
-    } else if (invalidationStatus === 'during_trade') {
-      outcomeSentence = 'The thesis later invalidated while the position was still open.';
-    } else if (invalidationStatus === 'after_exit') {
-      outcomeSentence = 'The thesis remained intact through the exit and invalidated only afterward.';
-    } else {
-      outcomeSentence = 'No thesis invalidation was observed while the position was open.';
-    }
-
-    let improvement = '';
-    if ((consumed ?? 0) >= 60) {
-      improvement = hadRetest
-        ? 'A stronger execution would have looked for the earliest valid confirmation/retest sequence rather than participating after most of the validated move was already spent.'
-        : 'An entry closer to confirmation or the first valid held retest would have preserved more of the move and reduced chase exposure.';
-    } else if (review.entry_quality_label === 'confirmed_retest') {
-      improvement = 'The entry location was structurally defensible; the more useful comparison is whether similarly timed retests outperform later entries across the user’s history.';
-    } else {
-      improvement = 'The next useful comparison is whether similar confirmed entries consistently preserve enough room to target across the user’s history.';
-    }
-
-    return {
-      headline: aligned
-        ? `The ${direction} trade direction was supported, but execution quality depended on where the user entered within the confirmed move.`
-        : `The trade entered after a confirmed ${direction} move.`,
-      body: `Entry came ${delayText}${consumedText}. ${locationSentence}${roomText} ${outcomeSentence} ${improvement}`,
-      tone: (consumed ?? 0) >= 60 ? 'caution' as const : 'good' as const,
-      entryQuality,
-    };
-  }, [playback]);
-
   if (loading) return <Spinner label="Loading brokerage trade history" />;
 
   return (
@@ -553,23 +468,6 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                         : 'Normalized brokerage episode'}
                     </div>
                   </div>
-                </div>
-              )}
-
-              {tradeAssessment && (
-                <div className={cn(
-                  'rounded-md border p-4',
-                  tradeAssessment.tone === 'risk'
-                    ? 'border-red-500/35 bg-red-500/[0.055]'
-                    : tradeAssessment.tone === 'caution'
-                      ? 'border-amber-500/35 bg-amber-500/[0.05]'
-                      : tradeAssessment.tone === 'good'
-                        ? 'border-emerald-500/30 bg-emerald-500/[0.045]'
-                        : 'border-sky-500/30 bg-sky-500/[0.045]',
-                )}>
-                  <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-sky-400">URSORA trade assessment</div>
-                  <div className="mt-1.5 text-[15px] font-semibold leading-snug text-zinc-100">{tradeAssessment.headline}</div>
-                  <p className="mt-2 max-w-5xl text-[12px] leading-relaxed text-zinc-300">{tradeAssessment.body}</p>
                 </div>
               )}
 
