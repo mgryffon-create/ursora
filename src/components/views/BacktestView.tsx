@@ -207,7 +207,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
         const episodeId = Math.abs(selectedTradeId);
         const reconstructionKey = String(episodeId);
 
-        const needsDecisionEvidence = !result.review || result.review.engine_version !== 'historical-cycle-1.2';
+        const needsDecisionEvidence = !result.review || result.review.engine_version !== 'historical-cycle-1.3';
         if (canonicalEpisode && needsDecisionEvidence && reconstructedKey.current !== reconstructionKey) {
           reconstructedKey.current = reconstructionKey;
           setReconstructionBusy(true);
@@ -494,9 +494,11 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                           <div className="mt-1 text-[11px] leading-relaxed text-zinc-300">
                             {playback.review.retro_direction === 'neutral'
                               ? (playback.review.retest_before_entry
-                                  ? 'TradeCycle did not find a fresh substantiated directional confirmation within this trade window. A local session level was tested and held before entry, but that retest did not independently confirm direction.'
-                                  : 'TradeCycle did not find a fresh substantiated directional thesis within this trade window before entry.')
-                              : `A ${playback.review.retro_direction} move was confirmed ${playback.review.confirmation_to_entry_minutes === null ? 'before the trade' : `${playback.review.confirmation_to_entry_minutes} minute${playback.review.confirmation_to_entry_minutes === 1 ? '' : 's'} before entry`}.${playback.review.retest_before_entry ? ' Price then tested and held the confirmed area before the user entered.' : ''}`}
+                                  ? 'No directional thesis was substantiated for this trade window. A local session level was tested and held before entry, but that retest did not independently confirm direction.'
+                                  : 'No directional thesis was substantiated for this trade window before entry.')
+                              : playback.review.session_state === 'existing_thesis'
+                                ? `The broader ${playback.review.retro_direction} thesis was already established before this trade window.${playback.review.retest_before_entry ? ' During the session, price retested and held a local level, but there was no fresh directional confirmation before entry.' : ' The session did not produce a fresh directional confirmation before entry.'}`
+                                : `Fresh ${playback.review.retro_direction} evidence was ${playback.review.session_state === 'session_reconfirmed' ? 'reconfirmed' : 'confirmed'} ${playback.review.confirmation_to_entry_minutes === null ? 'before entry' : `${playback.review.confirmation_to_entry_minutes} minute${playback.review.confirmation_to_entry_minutes === 1 ? '' : 's'} before entry`}.${playback.review.retest_before_entry ? ' Price then tested and held the confirmed area before the user entered.' : ''}`}
                           </div>
                         </div>
 
@@ -506,10 +508,12 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                             {playback.review.directional_agreement === 'opposed'
                               ? `The position was opened against the confirmed ${playback.review.retro_direction} thesis.`
                               : playback.review.directional_agreement === 'aligned'
-                                ? `The position was directionally aligned with the confirmed ${playback.review.retro_direction} thesis.`
+                                ? playback.review.session_state === 'existing_thesis'
+                                  ? `The position was directionally aligned with the already-established ${playback.review.retro_direction} thesis.`
+                                  : `The position was directionally aligned with the fresh ${playback.review.retro_direction} session thesis.`
                                 : 'The position was opened without a confirmed directional thesis to compare against.'}
-                            {playback.review.move_consumed_to_target_pct !== null
-                              ? ` About ${Math.round(playback.review.move_consumed_to_target_pct)}% of the confirmation-to-target move had already occurred by entry.`
+                            {playback.review.session_state !== 'existing_thesis' && playback.review.move_consumed_to_target_pct !== null
+                              ? ` About ${Math.round(playback.review.move_consumed_to_target_pct)}% of the fresh confirmation-to-target move had already occurred by entry.`
                               : ''}
                             {playback.review.momentum_state_at_entry
                               ? ` Momentum was ${playback.review.momentum_state_at_entry.replaceAll('_', ' ')}.`
@@ -524,11 +528,15 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                               ? `The reconstructed tactical target was reached at ${timeET(playback.review.target_hit_at)} while the position was still open.`
                               : 'The reconstructed tactical target was not reached while the position was open.'}
                             {' '}
+                            {playback.review.weakening_at
+                              ? `The thesis began weakening at ${timeET(playback.review.weakening_at)} as short-term structure deteriorated.`
+                              : ''}
+                            {' '}
                             {playback.invalidation_context?.status === 'during_trade'
-                              ? `The thesis then invalidated at ${timeET(playback.invalidation_context.at)} before the position was closed.`
+                              ? `Hard invalidation followed at ${timeET(playback.invalidation_context.at)} before the position was closed.`
                               : playback.invalidation_context?.status === 'pre_entry_conflict'
                                 ? 'The user’s direction was already unsupported before entry.'
-                                : 'No thesis invalidation was observed while the position was open.'}
+                                : 'No hard thesis invalidation was observed while the position was open.'}
                           </div>
                         </div>
 
@@ -606,7 +614,9 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                           <div className="text-[12px] font-semibold text-zinc-100">
                             {playback.review.retro_direction === 'neutral'
                               ? 'No confirmed thesis at entry'
-                              : `${playback.review.retro_direction.toUpperCase()} · ${playback.review.setup_class.replaceAll('_', ' ')}`}
+                              : playback.review.session_state === 'existing_thesis'
+                                ? `${playback.review.retro_direction.toUpperCase()} · broader thesis active`
+                                : `${playback.review.retro_direction.toUpperCase()} · ${playback.review.setup_class.replaceAll('_', ' ')}`}
                           </div>
                           <p className="mt-1.5 text-[9px] leading-relaxed text-zinc-500">{playback.review.review_summary}</p>
                         </div>
