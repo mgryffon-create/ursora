@@ -9,15 +9,16 @@ import { Disclaimer, EmptyState, Panel, SectionHeading, Spinner } from '@/compon
 import { cn } from '@/lib/utils';
 import { signedMoney } from '@/lib/format';
 
-const dateET = (value: string | null | undefined) =>
-  value
-    ? new Date(value).toLocaleDateString('en-US', {
-        timeZone: 'America/New_York',
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      })
-    : 'Date unavailable';
+const dateET = (value: string | null | undefined) => {
+  if (!value) return 'Date unavailable';
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value;
+  return new Date(normalized).toLocaleDateString('en-US', {
+    timeZone: 'America/New_York',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+};
 
 const timeET = (value: string | null | undefined) =>
   value
@@ -469,6 +470,16 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                 </div>
               )}
 
+              {playback.replay_summary && (
+                <div className="rounded-md border border-sky-500/25 bg-sky-500/[0.04] px-3 py-2.5">
+                  <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-sky-400">Trade review summary</div>
+                  <div className="mt-1 text-[12px] font-medium text-zinc-100">{playback.replay_summary.headline}</div>
+                  <div className="mt-1 text-[10px] leading-relaxed text-zinc-400">
+                    {[playback.replay_summary.execution, playback.replay_summary.invalidation].filter(Boolean).join(' ')}
+                  </div>
+                </div>
+              )}
+
               <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_250px]">
                 <div className="min-w-0">
                   <SessionPlaybackChart
@@ -477,6 +488,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                     levels={playback.levels}
                     height={500}
                     showStructureCards={false}
+                    compactEvents
                   />
                 </div>
 
@@ -491,6 +503,11 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                             : `${playback.review.retro_direction.toUpperCase()} · ${playback.review.setup_class.replaceAll('_', ' ')}`}
                         </div>
                         <p className="mt-1.5 text-[9px] leading-relaxed text-zinc-500">{playback.review.review_summary}</p>
+                        {playback.review.directional_agreement === 'opposed' && playback.invalidation_context?.status === 'pre_entry_conflict' && (
+                          <div className="mt-2 rounded-sm border border-red-500/25 bg-red-500/[0.05] px-2 py-1.5 text-[9px] leading-relaxed text-red-200/80">
+                            The position direction was already unsupported before entry; the opposing TradeCycle confirmation occurred at {timeET(playback.invalidation_context.at)}.
+                          </div>
+                        )}
                       </>
                     ) : (
                       <div className="mt-2 flex items-start gap-2 text-[10px] leading-relaxed text-zinc-500">
@@ -506,7 +523,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                       {playback.levels.length ? playback.levels.map((level) => (
                         <div key={`${level.kind}-${level.value}`} className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1.5">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-mono text-[8px] uppercase tracking-wider text-zinc-400">{level.label}</span>
+                            <span className="font-mono text-[8px] uppercase tracking-wider text-zinc-400">{level.kind === 'invalidation' ? 'Invalidation threshold' : level.label}</span>
                             <span className="font-mono text-[10px] tabular-nums text-zinc-200">{Number(level.value).toFixed(2)}</span>
                           </div>
                           <div className="mt-1 text-[8px] leading-relaxed text-zinc-600">{level.detail}</div>
@@ -551,8 +568,16 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                           <span className="font-mono text-zinc-300">{playback.episode.exit_at ? timeET(playback.episode.exit_at) : '—'}</span>
                         </div>
                         <div className="mt-1 flex justify-between gap-2">
-                          <span className="text-zinc-600">Invalidated</span>
-                          <span className="font-mono text-zinc-300">{playback.episode.invalidation_at ? timeET(playback.episode.invalidation_at) : 'not observed'}</span>
+                          <span className="text-zinc-600">Invalidation</span>
+                          <span className="max-w-[150px] text-right font-mono text-zinc-300">
+                            {playback.invalidation_context?.status === 'during_trade' && playback.invalidation_context.at
+                              ? `during trade · ${timeET(playback.invalidation_context.at)}`
+                              : playback.invalidation_context?.status === 'after_exit' && playback.invalidation_context.at
+                                ? `after exit · ${timeET(playback.invalidation_context.at)}`
+                                : playback.invalidation_context?.status === 'pre_entry_conflict' && playback.invalidation_context.at
+                                  ? `before entry · ${timeET(playback.invalidation_context.at)}`
+                                  : 'not observed'}
+                          </span>
                         </div>
                       </div>
                     </div>
