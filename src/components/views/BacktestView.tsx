@@ -207,7 +207,8 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
         const episodeId = Math.abs(selectedTradeId);
         const reconstructionKey = String(episodeId);
 
-        if (canonicalEpisode && !result.review && reconstructedKey.current !== reconstructionKey) {
+        const needsDecisionEvidence = !result.review || result.review.engine_version !== 'historical-cycle-1.1';
+        if (canonicalEpisode && needsDecisionEvidence && reconstructedKey.current !== reconstructionKey) {
           reconstructedKey.current = reconstructionKey;
           setReconstructionBusy(true);
           setReconstructionNote('Building the TradeCycle lookback from this trade’s stored historical bars…');
