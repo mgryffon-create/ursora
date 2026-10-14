@@ -470,16 +470,6 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                 </div>
               )}
 
-              {playback.replay_summary && (
-                <div className="rounded-md border border-sky-500/25 bg-sky-500/[0.04] px-3 py-2.5">
-                  <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-sky-400">Trade review summary</div>
-                  <div className="mt-1 text-[12px] font-medium text-zinc-100">{playback.replay_summary.headline}</div>
-                  <div className="mt-1 text-[10px] leading-relaxed text-zinc-400">
-                    {[playback.replay_summary.execution, playback.replay_summary.invalidation].filter(Boolean).join(' ')}
-                  </div>
-                </div>
-              )}
-
               <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_250px]">
                 <div className="min-w-0">
                   <SessionPlaybackChart
@@ -492,7 +482,17 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                   />
                 </div>
 
-                <aside className="space-y-2">
+                <aside className="space-y-2 xl:sticky xl:top-3 xl:self-start">
+                  {playback.replay_summary && (
+                    <div className="rounded-md border border-sky-500/30 bg-sky-500/[0.05] p-3">
+                      <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-sky-400">Trade review summary</div>
+                      <div className="mt-1 text-[12px] font-semibold text-zinc-100">{playback.replay_summary.headline}</div>
+                      <div className="mt-1.5 text-[9px] leading-relaxed text-zinc-400">
+                        {[playback.replay_summary.execution, playback.replay_summary.invalidation].filter(Boolean).join(' ')}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="rounded-md border border-zinc-800 bg-[#0d1015] p-3">
                     <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-sky-400">Historical TradeCycle</div>
                     {playback.review ? (
