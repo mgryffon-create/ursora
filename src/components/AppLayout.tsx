@@ -3,7 +3,8 @@ import {
   Brain, ChevronDown, CircleHelp, FlaskConical, LineChart,
   ListChecks, LogOut, Menu, Radar, ScrollText, UserRound, X,
 } from 'lucide-react';
-import { fetchSnapshot, fetchTickers, refreshMarketSymbols, runFreshAnalysis } from '@/lib/api';
+import { fetchSnapshot, fetchTickers, refreshMarketSymbols } from '@/lib/api';
+import { runFreshAnalysis } from '@/lib/api-v59';
 import db from '@/lib/db';
 import type { MarketSnapshot } from '@/lib/types';
 import { changeColor, marketStatus, num, pct, stampET } from '@/lib/format';
@@ -196,7 +197,33 @@ export const AppLayout: React.FC = () => {
 
       if (!watchlistSymbols.length) return;
 
+      const startedAt = new Date().toISOString();
+      const broadcastAutoStatus = (
+        state: 'running' | 'completed' | 'warning' | 'failed',
+        message: string,
+        warnings: string[] = [],
+      ) => {
+        const detail = {
+          state,
+          message,
+          symbols: watchlistSymbols,
+          startedAt,
+          finishedAt: state === 'running' ? null : new Date().toISOString(),
+          warnings,
+        };
+        window.sessionStorage.setItem(
+          `ursora_watchlist_auto_status_${user.id}`,
+          JSON.stringify(detail),
+        );
+        window.dispatchEvent(new CustomEvent('ursora-auto-analysis-status', { detail }));
+      };
+
       window.sessionStorage.setItem(autoAnalysisInFlightKey, 'true');
+      broadcastAutoStatus(
+        'running',
+        `URSORA is automatically analyzing your watchlist (${watchlistSymbols.join(', ')}). Manual analysis is paused until this finishes.`,
+      );
+
       try {
         const result = await runFreshAnalysis({
           kind: 'login-watchlist-auto',
@@ -209,11 +236,26 @@ export const AppLayout: React.FC = () => {
 
         if (result.warnings.length) {
           console.warn('URSORA automatic watchlist analysis completed with warnings:', result.warnings);
+          broadcastAutoStatus(
+            'warning',
+            'Automatic watchlist analysis finished, but some data sources were limited. URSORA used available cached evidence where possible.',
+            result.warnings,
+          );
+        } else {
+          broadcastAutoStatus(
+            'completed',
+            'Automatic watchlist analysis finished. Suggested trades and watchlist theses have been refreshed.',
+          );
         }
 
         await refreshSnapshotAndNotify();
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         console.warn('URSORA automatic watchlist analysis did not complete:', error);
+        broadcastAutoStatus(
+          'failed',
+          `Automatic watchlist analysis did not complete: ${message}`,
+        );
       } finally {
         window.sessionStorage.removeItem(autoAnalysisInFlightKey);
       }
