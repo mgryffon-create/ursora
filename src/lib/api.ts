@@ -434,6 +434,8 @@ export interface HistoricalPlaybackResponse {
   replay_summary: {
     headline: string;
     execution: string | null;
+    guidance: string | null;
+    compare: string | null;
     invalidation: string | null;
   } | null;
   instrument: HistoricalPlaybackInstrument | null;
