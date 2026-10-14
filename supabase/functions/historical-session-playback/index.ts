@@ -367,7 +367,20 @@ Deno.serve(async (req) => {
       ? Math.max(0, Math.round((new Date(exitAt).getTime() - new Date(invalidationAt).getTime()) / 60000))
       : null;
 
+    const contextConfirmationIsDistinct = Boolean(
+      historicalReview?.context_confirmation_at
+      && historicalReview.context_confirmation_at !== historicalReview.confirmation_at
+      && new Date(historicalReview.context_confirmation_at).getTime() < entryMs
+    );
+
     const markers = [
+      contextConfirmationIsDistinct ? {
+        kind: 'confirmation',
+        label: 'Broader thesis established',
+        at: historicalReview.context_confirmation_at,
+        price: n(historicalReview.context_confirmation_price),
+        detail: `Earlier evidence established the broader ${String(historicalReview.context_direction ?? historicalReview.retro_direction ?? 'direction')} thesis that carried into this trade window.`,
+      } : null,
       historicalReview?.confirmation_at ? {
         kind: 'confirmation',
         label: historicalReview.session_state === 'session_reconfirmed' ? 'Thesis reconfirmed' : 'Thesis confirmed',
