@@ -401,7 +401,7 @@ export const PriceChart: React.FC<{
 };
 
 export interface SessionPlaybackMarker {
-  kind: 'entry' | 'weakening' | 'invalidation' | 'exit';
+  kind: 'confirmation' | 'entry' | 'weakening' | 'invalidation' | 'target' | 'exit';
   label: string;
   at: string;
   price: number | null;
@@ -409,10 +409,26 @@ export interface SessionPlaybackMarker {
 }
 
 const markerColor = (kind: SessionPlaybackMarker['kind']) =>
-  kind === 'entry' ? '#34d399'
-    : kind === 'weakening' ? '#fbbf24'
-      : kind === 'invalidation' ? '#f87171'
-        : '#60a5fa';
+  kind === 'entry' ? '#a78bfa'
+    : kind === 'confirmation' ? '#38bdf8'
+      : kind === 'target' ? '#34d399'
+        : kind === 'weakening' ? '#fbbf24'
+          : kind === 'invalidation' ? '#f87171'
+            : '#60a5fa';
+
+export interface SessionPlaybackLevel {
+  kind: 'confirmation' | 'target' | 'invalidation' | 'support' | 'resistance';
+  label: string;
+  value: number;
+  detail?: string;
+}
+
+const playbackLevelColor = (kind: SessionPlaybackLevel['kind']) =>
+  kind === 'confirmation' ? '#38bdf8'
+    : kind === 'target' ? '#34d399'
+      : kind === 'invalidation' ? '#f59e0b'
+        : kind === 'support' ? '#a78bfa'
+          : '#2dd4bf';
 
 const sessionTime = (iso: string) =>
   new Intl.DateTimeFormat('en-US', {
@@ -424,8 +440,9 @@ const sessionTime = (iso: string) =>
 export const SessionPlaybackChart: React.FC<{
   bars: Bar[];
   markers: SessionPlaybackMarker[];
+  levels?: SessionPlaybackLevel[];
   height?: number;
-}> = ({ bars, markers, height = 360 }) => {
+}> = ({ bars, markers, levels = [], height = 360 }) => {
   if (!bars.length) {
     return (
       <div className="flex h-56 items-center justify-center rounded-sm border border-dashed border-zinc-800">
@@ -438,8 +455,9 @@ export const SessionPlaybackChart: React.FC<{
   const lows = bars.map((b) => b.low);
   const highs = bars.map((b) => b.high);
   const markerValues = validMarkers.map((item) => Number(item.price));
-  const min = Math.min(...lows, ...markerValues);
-  const max = Math.max(...highs, ...markerValues);
+  const levelValues = levels.filter((item) => Number.isFinite(Number(item.value))).map((item) => Number(item.value));
+  const min = Math.min(...lows, ...markerValues, ...levelValues);
+  const max = Math.max(...highs, ...markerValues, ...levelValues);
   const pad = (max - min) * 0.08 || 1;
 
   return (
@@ -481,6 +499,23 @@ export const SessionPlaybackChart: React.FC<{
               dot={false}
               animationDuration={500}
             />
+            {levels.map((level) => (
+              <ReferenceLine
+                key={`historical-level-${level.kind}-${level.value}`}
+                y={Number(level.value)}
+                stroke={playbackLevelColor(level.kind)}
+                strokeWidth={1}
+                strokeDasharray={level.kind === 'confirmation' ? '3 3' : '5 4'}
+                ifOverflow="extendDomain"
+                label={{
+                  value: `${level.label} ${Number(level.value).toFixed(2)}`,
+                  position: 'insideTopRight',
+                  fill: playbackLevelColor(level.kind),
+                  fontSize: 8,
+                  fontFamily: 'JetBrains Mono, monospace',
+                }}
+              />
+            ))}
             {validMarkers.map((item) => (
               <ReferenceDot
                 key={`${item.kind}-${item.at}`}
@@ -509,7 +544,26 @@ export const SessionPlaybackChart: React.FC<{
         </ResponsiveContainer>
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-2">
+      {levels.length > 0 && (
+        <div className="mt-3">
+          <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-600">Historical trade structure</div>
+          <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+            {levels.map((level) => (
+              <div key={`historical-card-${level.kind}-${level.value}`} className="rounded-sm border border-zinc-800 bg-black/20 px-2.5 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-[8px] uppercase tracking-wider" style={{ color: playbackLevelColor(level.kind) }}>
+                    {level.label}
+                  </span>
+                  <span className="font-mono text-[10px] tabular-nums text-zinc-300">{Number(level.value).toFixed(2)}</span>
+                </div>
+                {level.detail && <div className="mt-1 text-[9px] leading-relaxed text-zinc-600">{level.detail}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-wrap gap-2">
         {markers.map((item) => (
           <div key={`${item.kind}-${item.at}-legend`} className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1.5">
             <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider" style={{ color: markerColor(item.kind) }}>
