@@ -206,29 +206,66 @@ Deno.serve(async (req) => {
     const exitAtForRange = trade.exit_at ?? trade.closed_at ?? entryAt;
     const exitSessionDate = etDate(exitAtForRange);
 
-    // Historical playback must show the evidence context the reconstruction used,
-    // not only the period after the user entered. An 8-calendar-day buffer reliably
-    // captures at least the prior five regular trading sessions around normal weekends.
-    // The full holding period remains visible through the actual exit session.
+    // Closed brokerage replays are immutable. Fill the historical market window once
+    // and persist it server-side; every later replay reads the stored bars and never
+    // calls Massive again for that episode.
     const playbackStartDate = dateDaysBefore(entryAt, 8);
-    const payload = await massiveGet(
-      `/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/5/minute/${playbackStartDate}/${exitSessionDate}`,
-      { adjusted: true, sort: 'asc', limit: 50000 },
-    );
+    let bars: Array<Record<string, any>> = [];
+    let playbackDataSource = 'fresh_massive_fill';
 
-    const bars = (Array.isArray(payload?.results) ? payload.results : [])
-      .map((bar: any) => ({
-        bar_time: new Date(Number(bar.t)).toISOString(),
-        open: n(bar.o),
-        high: n(bar.h),
-        low: n(bar.l),
-        close: n(bar.c),
-        volume: n(bar.v),
-      }))
-      .filter((bar: any) =>
-        bar.open !== null && bar.high !== null && bar.low !== null && bar.close !== null
-        && etMinutes(bar.bar_time) >= 570 && etMinutes(bar.bar_time) <= 960
+    if (brokerageEpisode) {
+      const { data: cachedPlayback, error: cacheError } = await db
+        .from('historical_trade_playback_cache')
+        .select('bars,context_start,entry_session,exit_session,fetched_at,source')
+        .eq('user_id', user.id)
+        .eq('brokerage_episode_id', Math.abs(tradeId))
+        .maybeSingle();
+      if (cacheError) throw cacheError;
+
+      if (cachedPlayback && Array.isArray(cachedPlayback.bars) && cachedPlayback.bars.length) {
+        bars = cachedPlayback.bars;
+        playbackDataSource = 'persisted_historical_cache';
+      }
+    }
+
+    if (!bars.length) {
+      const payload = await massiveGet(
+        `/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/5/minute/${playbackStartDate}/${exitSessionDate}`,
+        { adjusted: true, sort: 'asc', limit: 50000 },
       );
+
+      bars = (Array.isArray(payload?.results) ? payload.results : [])
+        .map((bar: any) => ({
+          bar_time: new Date(Number(bar.t)).toISOString(),
+          open: n(bar.o),
+          high: n(bar.h),
+          low: n(bar.l),
+          close: n(bar.c),
+          volume: n(bar.v),
+        }))
+        .filter((bar: any) =>
+          bar.open !== null && bar.high !== null && bar.low !== null && bar.close !== null
+          && etMinutes(bar.bar_time) >= 570 && etMinutes(bar.bar_time) <= 960
+        );
+
+      if (brokerageEpisode && bars.length) {
+        const { error: cacheWriteError } = await db
+          .from('historical_trade_playback_cache')
+          .upsert({
+            user_id: user.id,
+            brokerage_episode_id: Math.abs(tradeId),
+            symbol,
+            timeframe: '5m',
+            context_start: playbackStartDate,
+            entry_session: sessionDate,
+            exit_session: exitSessionDate,
+            bars,
+            source: 'Massive',
+            fetched_at: new Date().toISOString(),
+          }, { onConflict: 'user_id,brokerage_episode_id' });
+        if (cacheWriteError) throw cacheWriteError;
+      }
+    }
 
     const nearestPrice = (iso: string | null | undefined): number | null => {
       if (!iso || !bars.length) return null;
@@ -330,6 +367,7 @@ Deno.serve(async (req) => {
         entry_session: sessionDate,
         exit_session: exitSessionDate,
         context_rule: 'prior 5 trading sessions plus the complete holding period',
+        data_source: playbackDataSource,
       },
       bars,
       markers,
