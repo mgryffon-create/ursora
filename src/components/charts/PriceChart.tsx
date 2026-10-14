@@ -518,7 +518,8 @@ export const SessionPlaybackChart: React.FC<{
   const [zoomStart, setZoomStart] = useState(0);
   const [zoomEnd, setZoomEnd] = useState(Math.max(0, bars.length - 1));
   const [hoveredMarker, setHoveredMarker] = useState<SessionPlaybackMarker | null>(null);
-  const panRef = useRef<{ x: number; start: number; end: number } | null>(null);
+  const dragRef = useRef<{ startX: number; currentX: number; plotLeft: number; plotRight: number } | null>(null);
+  const [dragSelection, setDragSelection] = useState<{ startX: number; currentX: number; plotLeft: number; plotRight: number } | null>(null);
 
   useEffect(() => {
     setZoomStart(0);
@@ -586,80 +587,92 @@ export const SessionPlaybackChart: React.FC<{
     setZoomEnd(Math.round(nextEnd));
   };
 
-  const zoomBy = (factor: number, anchorRatio = 0.5) => {
-    if (bars.length < 6) return;
-    const width = Math.max(4, zoomEnd - zoomStart);
-    const nextWidth = Math.max(6, Math.min(bars.length - 1, Math.round(width * factor)));
-    const anchor = zoomStart + width * anchorRatio;
-    const nextStart = anchor - nextWidth * anchorRatio;
-    clampWindow(nextStart, nextStart + nextWidth);
-  };
-
   const panBy = (deltaBars: number) => {
     const width = zoomEnd - zoomStart;
     clampWindow(zoomStart + deltaBars, zoomStart + deltaBars + width);
   };
 
-  const onWheelZoom = (event: React.WheelEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const rect = event.currentTarget.getBoundingClientRect();
-    const anchorRatio = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)));
-    zoomBy(event.deltaY < 0 ? 0.78 : 1.28, anchorRatio);
+  const plotGeometry = (element: HTMLDivElement) => {
+    const rect = element.getBoundingClientRect();
+    // Match the chart margins and keep interaction out of the right Y-axis / bottom navigator.
+    const plotLeft = 0;
+    const plotRight = Math.max(plotLeft + 40, rect.width - 64);
+    const plotTop = 20;
+    const plotBottom = Math.max(plotTop + 40, rect.height - 54);
+    return { rect, plotLeft, plotRight, plotTop, plotBottom };
   };
 
-  const onPanStart = (event: React.MouseEvent<HTMLDivElement>) => {
+  const onZoomDragStart = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
-    panRef.current = { x: event.clientX, start: zoomStart, end: zoomEnd };
+    const { rect, plotLeft, plotRight, plotTop, plotBottom } = plotGeometry(event.currentTarget);
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    // Only initiate zoom from the candle plot itself.
+    if (x < plotLeft || x > plotRight || y < plotTop || y > plotBottom) return;
+
+    const clampedX = Math.max(plotLeft, Math.min(plotRight, x));
+    const next = { startX: clampedX, currentX: clampedX, plotLeft, plotRight };
+    dragRef.current = next;
+    setDragSelection(next);
   };
 
-  const onPanMove = (event: React.MouseEvent<HTMLDivElement>) => {
-    const pan = panRef.current;
-    if (!pan) return;
+  const onZoomDragMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
     const rect = event.currentTarget.getBoundingClientRect();
-    const widthBars = Math.max(1, pan.end - pan.start);
-    const dx = event.clientX - pan.x;
-    const deltaBars = Math.round((-dx / Math.max(1, rect.width)) * widthBars);
-    const size = pan.end - pan.start;
-    let nextStart = pan.start + deltaBars;
-    let nextEnd = nextStart + size;
-    if (nextStart < 0) {
-      nextEnd -= nextStart;
-      nextStart = 0;
-    }
-    if (nextEnd > bars.length - 1) {
-      const overflow = nextEnd - (bars.length - 1);
-      nextStart -= overflow;
-      nextEnd = bars.length - 1;
-    }
-    setZoomStart(Math.max(0, Math.round(nextStart)));
-    setZoomEnd(Math.min(bars.length - 1, Math.round(nextEnd)));
+    const x = Math.max(drag.plotLeft, Math.min(drag.plotRight, event.clientX - rect.left));
+    const next = { ...drag, currentX: x };
+    dragRef.current = next;
+    setDragSelection(next);
   };
 
-  const onPanEnd = () => {
-    panRef.current = null;
+  const onZoomDragEnd = () => {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    setDragSelection(null);
+    if (!drag) return;
+
+    const leftPx = Math.min(drag.startX, drag.currentX);
+    const rightPx = Math.max(drag.startX, drag.currentX);
+    const widthPx = rightPx - leftPx;
+
+    // Treat tiny drags as clicks, not zoom requests.
+    if (widthPx < 10) return;
+
+    const plotWidth = Math.max(1, drag.plotRight - drag.plotLeft);
+    const startRatio = Math.max(0, Math.min(1, (leftPx - drag.plotLeft) / plotWidth));
+    const endRatio = Math.max(0, Math.min(1, (rightPx - drag.plotLeft) / plotWidth));
+    const currentSpan = Math.max(1, zoomEnd - zoomStart);
+
+    let nextStart = zoomStart + Math.floor(startRatio * currentSpan);
+    let nextEnd = zoomStart + Math.ceil(endRatio * currentSpan);
+
+    // Keep enough candles visible to remain useful and never escape the dataset.
+    const minimumBars = 6;
+    if (nextEnd - nextStart < minimumBars) {
+      const center = Math.round((nextStart + nextEnd) / 2);
+      nextStart = center - Math.floor(minimumBars / 2);
+      nextEnd = nextStart + minimumBars;
+    }
+
+    nextStart = Math.max(0, nextStart);
+    nextEnd = Math.min(bars.length - 1, nextEnd);
+    if (nextEnd - nextStart < minimumBars) {
+      nextStart = Math.max(0, nextEnd - minimumBars);
+    }
+
+    setZoomStart(nextStart);
+    setZoomEnd(nextEnd);
   };
 
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-1.5">
         <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">
-          Wheel to zoom · drag to pan
+          Drag across candles to zoom
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => zoomBy(0.72)}
-            className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
-          >
-            +
-          </button>
-          <button
-            type="button"
-            onClick={() => zoomBy(1.38)}
-            className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
-          >
-            −
-          </button>
           <button
             type="button"
             onClick={() => panBy(-Math.max(3, Math.round((zoomEnd - zoomStart) * 0.3)))}
@@ -693,13 +706,12 @@ export const SessionPlaybackChart: React.FC<{
       </div>
 
       <div
-        className="relative cursor-grab active:cursor-grabbing"
+        className="relative cursor-crosshair"
         style={{ height }}
-        onWheel={onWheelZoom}
-        onMouseDown={onPanStart}
-        onMouseMove={onPanMove}
-        onMouseUp={onPanEnd}
-        onMouseLeave={onPanEnd}
+        onMouseDown={onZoomDragStart}
+        onMouseMove={onZoomDragMove}
+        onMouseUp={onZoomDragEnd}
+        onMouseLeave={onZoomDragEnd}
       >
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={plotBars} margin={{ top: 20, right: 64, bottom: 4, left: 0 }}>
@@ -784,6 +796,17 @@ export const SessionPlaybackChart: React.FC<{
             />
           </ComposedChart>
         </ResponsiveContainer>
+        {dragSelection && (
+          <div
+            className="pointer-events-none absolute border border-sky-400/70 bg-sky-400/10"
+            style={{
+              left: Math.min(dragSelection.startX, dragSelection.currentX),
+              width: Math.max(1, Math.abs(dragSelection.currentX - dragSelection.startX)),
+              top: 20,
+              bottom: 54,
+            }}
+          />
+        )}
         {hoveredMarker && (
           <div className="pointer-events-none absolute left-3 top-3 z-20 max-w-[260px] rounded-sm border border-zinc-700 bg-[#0b0d10]/95 px-2.5 py-2 shadow-xl">
             <div className="font-mono text-[9px] uppercase tracking-wider" style={{ color: markerColor(hoveredMarker.kind) }}>
