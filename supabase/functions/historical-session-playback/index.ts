@@ -473,6 +473,10 @@ Deno.serve(async (req) => {
         execution: historicalReview.entry_relationship
           ? `Entry: ${String(historicalReview.entry_relationship).replaceAll('_', ' ')}. Exit: ${String(historicalReview.exit_relationship).replaceAll('_', ' ')}.`
           : null,
+        guidance: historicalReview.guidance_summary ?? null,
+        compare: historicalReview.entry_quality_label && historicalReview.entry_quality_label !== 'unconfirmed'
+          ? 'Compare this entry location with your other confirmed-direction trades before treating it as a personal pattern.'
+          : 'This trade does not provide enough confirmed entry context for a timing-pattern comparison.',
         invalidation: invalidationContext?.detail ?? null,
       } : null,
       instrument: brokerageEpisode ? {
