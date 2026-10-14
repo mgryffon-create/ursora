@@ -513,7 +513,18 @@ export const SessionPlaybackChart: React.FC<{
   height?: number;
   showStructureCards?: boolean;
   compactEvents?: boolean;
-}> = ({ bars, markers, levels = [], height = 360, showStructureCards = true, compactEvents = false }) => {
+  syncId?: string;
+  afterPlot?: React.ReactNode;
+}> = ({
+  bars,
+  markers,
+  levels = [],
+  height = 360,
+  showStructureCards = true,
+  compactEvents = false,
+  syncId,
+  afterPlot,
+}) => {
   const [chartStyle, setChartStyle] = usePriceChartStyle();
   const [zoomStart, setZoomStart] = useState(0);
   const [zoomEnd, setZoomEnd] = useState(Math.max(0, bars.length - 1));
@@ -598,7 +609,7 @@ export const SessionPlaybackChart: React.FC<{
         style={{ height }}
       >
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={plotBars} margin={{ top: 20, right: 64, bottom: 4, left: 0 }}>
+          <ComposedChart data={plotBars} syncId={syncId} margin={{ top: 20, right: 64, bottom: 4, left: 0 }}>
             <CartesianGrid stroke="#1c2027" strokeDasharray="2 4" vertical={false} />
             <XAxis
               dataKey="bar_time"
@@ -694,6 +705,8 @@ export const SessionPlaybackChart: React.FC<{
           </div>
         )}
       </div>
+
+      {afterPlot}
 
       {showStructureCards && levels.length > 0 && (
         <div className="mt-3">
