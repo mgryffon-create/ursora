@@ -161,8 +161,22 @@ Deno.serve(async (req) => {
     const symbol = String(trade.symbol ?? '').toUpperCase();
     if (!symbol) return json({ error: 'Trade has no symbol.' }, 422);
 
+    let historicalReview: Record<string, any> | null = null;
+    if (brokerageEpisode) {
+      const { data: review, error: reviewError } = await db
+        .from('historical_trade_reviews')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('brokerage_episode_id', Math.abs(tradeId))
+        .maybeSingle();
+      if (reviewError) throw reviewError;
+      historicalReview = review ?? null;
+    }
+
+    const exitAtForRange = trade.exit_at ?? trade.closed_at ?? entryAt;
+    const exitSessionDate = etDate(exitAtForRange);
     const payload = await massiveGet(
-      `/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/1/minute/${sessionDate}/${sessionDate}`,
+      `/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/5/minute/${sessionDate}/${exitSessionDate}`,
       { adjusted: true, sort: 'asc', limit: 50000 },
     );
 
@@ -202,14 +216,26 @@ Deno.serve(async (req) => {
     const weakening = typedEvents.find((row: any) => row.kind === 'weakening')?.event ?? null;
     const invalidation = typedEvents.find((row: any) => row.kind === 'invalidation')?.event ?? null;
     const exitAt = trade.exit_at ?? trade.closed_at ?? null;
+    const isOption = String(trade.asset_type ?? '').toLowerCase() === 'option' || Boolean(trade.option_symbol);
+    const entryUnderlying = historicalReview ? n(historicalReview.entry_underlying_price) : nearestPrice(entryAt);
+    const exitUnderlying = historicalReview ? n(historicalReview.exit_underlying_price) : nearestPrice(exitAt);
 
     const markers = [
+      historicalReview?.confirmation_at ? {
+        kind: 'confirmation',
+        label: 'Thesis confirmed',
+        at: historicalReview.confirmation_at,
+        price: n(historicalReview.confirmation_price),
+        detail: `${String(historicalReview.retro_direction ?? 'direction')} ${String(historicalReview.cycle_event_type ?? 'cycle')} confirmation`,
+      } : null,
       {
         kind: 'entry',
-        label: 'Entry',
+        label: 'Your entry',
         at: entryAt,
-        price: n(trade.entry_price) ?? nearestPrice(entryAt),
-        detail: trade.entry_price !== null ? 'Brokerage / trade entry' : 'Entry time mapped to underlying market price',
+        price: isOption ? entryUnderlying : (n(trade.entry_price) ?? entryUnderlying),
+        detail: isOption && n(trade.entry_price) !== null
+          ? `Underlying near ${entryUnderlying?.toFixed(2) ?? '—'} · option fill ${n(trade.entry_price)?.toFixed(2)}`
+          : 'Brokerage execution mapped to the underlying session',
       },
       weakening ? {
         kind: 'weakening',
@@ -218,23 +244,38 @@ Deno.serve(async (req) => {
         price: n(weakening.underlying_price) ?? nearestPrice(weakening.created_at),
         detail: String(weakening.thesis_state ?? weakening.event_type ?? 'Evidence weakened'),
       } : null,
-      invalidation ? {
+      historicalReview?.invalidation_at ? {
+        kind: 'invalidation',
+        label: 'Thesis invalidated',
+        at: historicalReview.invalidation_at,
+        price: n(historicalReview.invalidation_price),
+        detail: 'Price crossed the retroactive thesis invalidation while the position was open.',
+      } : invalidation ? {
         kind: 'invalidation',
         label: 'Thesis invalidation',
         at: invalidation.created_at,
         price: n(invalidation.underlying_price) ?? nearestPrice(invalidation.created_at),
         detail: String(invalidation.thesis_state ?? invalidation.event_type ?? 'Thesis invalidated'),
       } : null,
+      historicalReview?.target_hit_at ? {
+        kind: 'target',
+        label: 'Target reached',
+        at: historicalReview.target_hit_at,
+        price: n(historicalReview.target_price),
+        detail: 'The reconstructed tactical target was reached while the position was open.',
+      } : null,
       exitAt ? {
         kind: 'exit',
-        label: 'Exit',
+        label: 'Your exit',
         at: exitAt,
-        price: n(trade.exit_price) ?? nearestPrice(exitAt),
-        detail: trade.exit_price !== null ? 'Brokerage / trade exit' : 'Exit time mapped to underlying market price',
+        price: isOption ? exitUnderlying : (n(trade.exit_price) ?? exitUnderlying),
+        detail: isOption && n(trade.exit_price) !== null
+          ? `Underlying near ${exitUnderlying?.toFixed(2) ?? '—'} · option fill ${n(trade.exit_price)?.toFixed(2)}`
+          : 'Brokerage exit mapped to the underlying session',
       } : null,
     ].filter(Boolean);
 
-    const invalidationAt = invalidation?.created_at ?? null;
+    const invalidationAt = historicalReview?.invalidation_at ?? invalidation?.created_at ?? null;
     const postInvalidationMinutes = invalidationAt && exitAt
       ? Math.max(0, Math.round((new Date(exitAt).getTime() - new Date(invalidationAt).getTime()) / 60000))
       : null;
@@ -251,16 +292,24 @@ Deno.serve(async (req) => {
         exit_at: exitAt,
         invalidation_at: invalidationAt,
         weakening_at: weakening?.created_at ?? null,
-        post_invalidation_minutes: postInvalidationMinutes,
+        post_invalidation_minutes: historicalReview?.post_invalidation_minutes ?? postInvalidationMinutes,
         realized_pl: n(trade.realized_pl),
-        return_pct: n(trade.return_pct),
-        thesis_review_status: trade.thesis_review_status ?? null,
+        return_pct: n(trade.return_pct ?? trade.realized_return_pct),
+        thesis_review_status: historicalReview?.thesis_state ?? trade.thesis_review_status ?? null,
       },
+      review: historicalReview,
+      levels: historicalReview ? [
+        n(historicalReview.confirmation_price) !== null ? { kind: 'confirmation', label: 'Confirmation', value: n(historicalReview.confirmation_price), detail: 'Price level where the historical cycle became substantiated before entry.' } : null,
+        n(historicalReview.target_price) !== null ? { kind: 'target', label: 'Target', value: n(historicalReview.target_price), detail: 'Nearest defensible tactical objective using only pre-entry structure.' } : null,
+        n(historicalReview.invalidation_price) !== null ? { kind: 'invalidation', label: 'Invalidation', value: n(historicalReview.invalidation_price), detail: 'Level that would break the reconstructed directional premise.' } : null,
+        n(historicalReview.evidence?.support) !== null ? { kind: 'support', label: 'Support', value: n(historicalReview.evidence?.support), detail: 'Nearest pre-entry support derived from recent historical structure.' } : null,
+        n(historicalReview.evidence?.resistance) !== null ? { kind: 'resistance', label: 'Resistance', value: n(historicalReview.evidence?.resistance), detail: 'Nearest pre-entry resistance derived from recent historical structure.' } : null,
+      ].filter(Boolean) : [],
       source: brokerageEpisode
-        ? 'SnapTrade execution history + Massive 1-minute aggregates'
-        : 'TradeCycle history + Massive 1-minute aggregates',
+        ? 'SnapTrade execution history + Massive 5-minute historical aggregates + cached TradeCycle reconstruction'
+        : 'TradeCycle history + Massive 5-minute historical aggregates',
       thesis_event_source: brokerageEpisode
-        ? 'Historical TradeCycle reconstruction not yet materialized for this imported brokerage episode.'
+        ? (historicalReview ? 'No-lookahead historical TradeCycle reconstruction.' : 'Historical TradeCycle reconstruction is pending for this imported brokerage episode.')
         : 'Stored TradeCycle lifecycle events',
     });
   } catch (error) {
