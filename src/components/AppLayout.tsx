@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState , Component } from 'react';
 import {
   Brain, ChevronDown, CircleHelp, FlaskConical, LineChart,
   ListChecks, LogOut, Menu, Radar, ScrollText, UserRound, X,
@@ -24,6 +24,40 @@ import TraderProfileView from '@/components/views/TraderProfileView';
 import TradesView from '@/components/views/TradesView';
 import AboutView from '@/components/views/AboutView';
 import OnboardingTour from '@/components/OnboardingTour';
+
+class ViewErrorBoundary extends Component<
+  { name: string; children: React.ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error(`${this.props.name} view crashed`, error, info);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="rounded-md border border-red-500/30 bg-red-500/[0.05] p-4">
+          <div className="font-mono text-[10px] uppercase tracking-wider text-red-300">{this.props.name} could not render</div>
+          <div className="mt-2 text-[12px] text-zinc-300">{this.state.error.message}</div>
+          <button
+            type="button"
+            onClick={() => this.setState({ error: null })}
+            className="mt-3 rounded-sm border border-zinc-700 px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-wider text-zinc-300 hover:border-zinc-500"
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 type ViewKey =
   | 'opportunities' | 'command' | 'trades' | 'history'
@@ -371,10 +405,12 @@ export const AppLayout: React.FC = () => {
         return <TradesView />;
       case 'history':
         return (
-          <SignalHistoryView
-            onOpenThesis={openThesis}
-            onOpenHistoricalEvidence={openHistoricalEvidence}
-          />
+          <ViewErrorBoundary name="Activity">
+            <SignalHistoryView
+              onOpenThesis={openThesis}
+              onOpenHistoricalEvidence={openHistoricalEvidence}
+            />
+          </ViewErrorBoundary>
         );
       case 'backtest':
         return <BacktestView initialTradeIds={historicalEvidenceTradeIds} initialDay={historicalEvidenceDay} />;
