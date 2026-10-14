@@ -486,21 +486,53 @@ Deno.serve(async (req) => {
     const pending = rows.filter((r: AnyRow) => !current.has(Number(r.id)));
     if (!pending.length) return json({ success: true, reviewed: 0, cached: rows.length, failures: [] });
 
-    const grouped = new Map<string, AnyRow[]>();
+    const reviews: AnyRow[] = [];
+    const failures: string[] = [];
+    const pendingIds = pending.map((episode: AnyRow) => Number(episode.id));
+
+    // Historical playback bars are immutable and may already have been filled for
+    // the episode. Reuse that exact persisted evidence before considering Massive.
+    const { data: playbackCaches, error: playbackCacheError } = await db
+      .from('historical_trade_playback_cache')
+      .select('brokerage_episode_id,bars')
+      .eq('user_id', user.id)
+      .in('brokerage_episode_id', pendingIds);
+    if (playbackCacheError) throw playbackCacheError;
+
+    const cachedBarsByEpisode = new Map<number, AnyRow[]>(
+      (playbackCaches ?? [])
+        .filter((row: AnyRow) => Array.isArray(row.bars) && row.bars.length)
+        .map((row: AnyRow) => [Number(row.brokerage_episode_id), row.bars as AnyRow[]]),
+    );
+
+    const stillNeedsMarketData: AnyRow[] = [];
     for (const episode of pending) {
+      const cachedBars = cachedBarsByEpisode.get(Number(episode.id));
+      if (!cachedBars?.length) {
+        stillNeedsMarketData.push(episode);
+        continue;
+      }
+      try {
+        reviews.push(reviewEpisode(episode, cachedBars));
+      } catch (error) {
+        failures.push(`${episode.symbol} episode ${episode.id}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    const grouped = new Map<string, AnyRow[]>();
+    for (const episode of stillNeedsMarketData) {
       const symbol = String(episode.symbol ?? '').toUpperCase();
       if (!symbol) continue;
       grouped.set(symbol, [...(grouped.get(symbol) ?? []), episode]);
     }
 
-    const reviews: AnyRow[] = [];
-    const failures: string[] = [];
-
+    // Only episodes that have never had a historical playback fill are allowed to
+    // reach Massive. This is a one-time fallback, not the normal replay path.
     for (const [symbol, symbolEpisodes] of grouped.entries()) {
       try {
         const minEntry = Math.min(...symbolEpisodes.map((e) => new Date(e.opened_at).getTime()));
         const maxExit = Math.max(...symbolEpisodes.map((e) => new Date(e.closed_at ?? e.opened_at).getTime()));
-        const from = new Date(minEntry - 35 * 86400000).toISOString().slice(0, 10);
+        const from = new Date(minEntry - 8 * 86400000).toISOString().slice(0, 10);
         const to = new Date(maxExit + 86400000).toISOString().slice(0, 10);
         const bars = await massiveAggs(symbol, from, to);
 
