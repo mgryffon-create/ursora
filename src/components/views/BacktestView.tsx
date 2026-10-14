@@ -309,7 +309,44 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[] }> = ({ initial
                   )}
                 </div>
 
-                <SessionPlaybackChart bars={playback.bars} markers={playback.markers} levels={playback.levels} />
+                {playback.instrument?.asset_type === 'option' && (
+                <div className="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                  <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
+                    <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Contract</div>
+                    <div className="mt-1 font-mono text-[11px] text-zinc-200">
+                      {playback.instrument.symbol} {playback.instrument.strike ?? '—'} {String(playback.instrument.option_type ?? '').toUpperCase()}
+                    </div>
+                  </div>
+                  <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
+                    <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Expiration</div>
+                    <div className="mt-1 font-mono text-[11px] text-zinc-200">
+                      {playback.instrument.expiration ? dateET(playback.instrument.expiration) : '—'}
+                    </div>
+                  </div>
+                  <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
+                    <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Option entry fill</div>
+                    <div className="mt-1 font-mono text-[11px] text-violet-300">
+                      {playback.instrument.entry_option_price === null ? '—' : `${playback.instrument.entry_option_price.toFixed(2)}`}
+                    </div>
+                  </div>
+                  <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
+                    <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Option exit fill</div>
+                    <div className="mt-1 font-mono text-[11px] text-sky-300">
+                      {playback.instrument.exit_option_price === null ? '—' : `${playback.instrument.exit_option_price.toFixed(2)}`}
+                    </div>
+                  </div>
+                  <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
+                    <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Execution source</div>
+                    <div className="mt-1 text-[10px] text-zinc-400">
+                      {playback.instrument.source === 'timestamped_snaptrade_activity'
+                        ? 'Timestamped brokerage activity'
+                        : 'Normalized brokerage episode'}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <SessionPlaybackChart bars={playback.bars} markers={playback.markers} levels={playback.levels} />
 
                 {selectedTrade?.id && selectedTrade.id < 0 && !playback.review && (
                   <div className="flex items-start gap-2 rounded-sm border border-sky-500/25 bg-sky-500/[0.04] p-3">
