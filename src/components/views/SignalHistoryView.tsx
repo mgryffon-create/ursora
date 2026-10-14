@@ -26,8 +26,11 @@ const dayKey = (value: string | Date) => {
   return `${y}-${m}-${d}`;
 };
 
-const tradeDayKey = (trade: TradeRecord) =>
-  trade.session_date ?? dayKey(trade.entry_at ?? trade.created_at);
+const tradeDayKey = (trade: TradeRecord) => {
+  const raw = trade.session_date ?? trade.entry_at ?? trade.created_at;
+  if (!raw) return 'unknown-date';
+  return trade.session_date ?? dayKey(raw);
+};
 
 const prettyDay = (key: string) =>
   new Date(`${key}T12:00:00`).toLocaleDateString(undefined, {
@@ -49,11 +52,12 @@ const isFlaggedObservation = (observation: Observation) =>
   observation.severity === 'MODERATE' || observation.severity === 'ELEVATED' || observation.severity === 'HIGH';
 
 const tradeInstrument = (trade: TradeRecord) => {
-  if (trade.option_symbol) return trade.option_symbol;
+  const symbol = String(trade.symbol ?? 'UNKNOWN');
+  if (trade.option_symbol) return String(trade.option_symbol);
   if (trade.option_type && trade.strike) {
-    return `${trade.symbol} ${num(trade.strike)} ${trade.option_type.toUpperCase()}${trade.expiration ? ` · ${trade.expiration}` : ''}`;
+    return `${symbol} ${num(trade.strike)} ${String(trade.option_type).toUpperCase()}${trade.expiration ? ` · ${trade.expiration}` : ''}`;
   }
-  return trade.symbol;
+  return symbol;
 };
 
 export const SignalHistoryView: React.FC<{
@@ -70,9 +74,11 @@ export const SignalHistoryView: React.FC<{
   const [loading, setLoading] = useState(true);
   const [month, setMonth] = useState(() => new Date());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
 
     if (!user?.id) {
       setTrades([]);
@@ -98,17 +104,25 @@ export const SignalHistoryView: React.FC<{
     setThesisEvents(thesisEventResult.status === 'fulfilled' ? thesisEventResult.value : []);
     setModifications(modificationResult.status === 'fulfilled' ? modificationResult.value : []);
 
-    const latest = loadedTrades
-      .map((trade) => trade.entry_at ?? trade.created_at)
-      .filter(Boolean)
-      .sort()
-      .at(-1);
+    const failedSources = [
+      tradeResult.status === 'rejected' ? 'trades' : null,
+      observationResult.status === 'rejected' ? 'observations' : null,
+      thesisEventResult.status === 'rejected' ? 'thesis events' : null,
+      modificationResult.status === 'rejected' ? 'modifications' : null,
+    ].filter(Boolean);
+    if (failedSources.length) {
+      setLoadError(`Activity loaded with unavailable data: ${failedSources.join(', ')}.`);
+    }
 
-    if (latest) {
-      const latestDate = new Date(latest);
-      const key = tradeDayKey(loadedTrades
-        .slice()
-        .sort((a, b) => +new Date(b.entry_at ?? b.created_at) - +new Date(a.entry_at ?? a.created_at))[0]);
+    const latestTrade = loadedTrades.find((trade) => {
+      const raw = trade.entry_at ?? trade.created_at;
+      return Boolean(raw) && Number.isFinite(new Date(raw).getTime());
+    });
+
+    if (latestTrade) {
+      const latestRaw = latestTrade.entry_at ?? latestTrade.created_at;
+      const latestDate = new Date(latestRaw);
+      const key = tradeDayKey(latestTrade);
       setMonth(new Date(latestDate.getFullYear(), latestDate.getMonth(), 1));
       setSelectedDay(key);
     } else {
@@ -124,8 +138,8 @@ export const SignalHistoryView: React.FC<{
     const needle = query.trim().toUpperCase();
     if (!needle) return trades;
     return trades.filter((trade) =>
-      trade.symbol.toUpperCase().includes(needle)
-      || tradeInstrument(trade).toUpperCase().includes(needle));
+      String(trade.symbol ?? '').toUpperCase().includes(needle)
+      || String(tradeInstrument(trade) ?? '').toUpperCase().includes(needle));
   }, [query, trades]);
 
   const tradesByDay = useMemo(() => {
@@ -183,7 +197,7 @@ export const SignalHistoryView: React.FC<{
     () => selectedTrade
       ? observations.filter((observation) =>
           observation.trade_id === selectedTrade.id
-          || observation.evidence_trade_ids.includes(selectedTrade.id))
+          || (Array.isArray(observation.evidence_trade_ids) && observation.evidence_trade_ids.includes(selectedTrade.id)))
       : [],
     [selectedTrade, observations],
   );
@@ -217,7 +231,7 @@ export const SignalHistoryView: React.FC<{
         key: `thesis-${event.id}`,
         at: event.created_at,
         kind: 'thesis',
-        label: event.event_type.replaceAll('_', ' '),
+        label: String(event.event_type ?? 'thesis event').replaceAll('_', ' '),
         detail: [
           event.thesis_state ? `thesis ${event.thesis_state}` : null,
           event.thesis_support !== null ? `support ${num(event.thesis_support, 0)}` : null,
@@ -232,7 +246,7 @@ export const SignalHistoryView: React.FC<{
         key: `mod-${modification.id}`,
         at: modification.occurred_at,
         kind: 'action',
-        label: modification.modification_type.replaceAll('_', ' '),
+        label: String(modification.modification_type ?? 'trade action').replaceAll('_', ' '),
         detail: [
           modification.field_changed,
           modification.previous_value !== null && modification.new_value !== null
@@ -258,7 +272,9 @@ export const SignalHistoryView: React.FC<{
       });
     }
 
-    return items.sort((a, b) => +new Date(a.at) - +new Date(b.at));
+    return items
+      .filter((item) => item.at && Number.isFinite(new Date(item.at).getTime()))
+      .sort((a, b) => +new Date(a.at) - +new Date(b.at));
   }, [selectedTrade, selectedTradeEvents, selectedTradeModifications]);
 
   if (loading) return <Spinner label="Loading trading activity" />;
@@ -270,6 +286,12 @@ export const SignalHistoryView: React.FC<{
         title="Your actual trading timeline"
         description="Activity is built from trades you actually placed. Market analyses only appear when they are attached to a trade or become relevant to its TradeCycle."
       />
+
+      {loadError && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-[11px] text-amber-100">
+          {loadError}
+        </div>
+      )}
 
       {!user ? (
         <EmptyState
