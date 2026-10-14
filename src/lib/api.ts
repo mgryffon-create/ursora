@@ -338,7 +338,7 @@ export async function fetchSnapTradeAccounts(): Promise<SnapTradeAccount[]> {
 }
 
 export interface HistoricalPlaybackMarker {
-  kind: 'confirmation' | 'entry' | 'weakening' | 'invalidation' | 'target' | 'exit';
+  kind: 'confirmation' | 'entry' | 'weakening' | 'invalidation' | 'conflict' | 'target' | 'exit';
   label: string;
   at: string;
   price: number | null;
@@ -412,6 +412,18 @@ export interface HistoricalPlaybackResponse {
   markers: HistoricalPlaybackMarker[];
   levels: HistoricalPlaybackLevel[];
   review: HistoricalTradeReview | null;
+  invalidation_context: {
+    status: 'during_trade' | 'after_exit' | 'pre_entry_conflict' | 'not_observed';
+    at: string | null;
+    price: number | null;
+    minutes_after_exit?: number;
+    detail: string;
+  } | null;
+  replay_summary: {
+    headline: string;
+    execution: string | null;
+    invalidation: string | null;
+  } | null;
   instrument: HistoricalPlaybackInstrument | null;
   episode: {
     entry_at: string;
