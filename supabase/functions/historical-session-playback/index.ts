@@ -326,7 +326,7 @@ Deno.serve(async (req) => {
       : null;
 
     const preEntryConflictAt = historicalReview && agreement === 'opposed'
-      ? historicalReview.confirmation_at ?? null
+      ? historicalReview.confirmation_at ?? historicalReview.context_confirmation_at ?? null
       : null;
 
     const invalidationContext = historicalReview ? (
@@ -334,7 +334,7 @@ Deno.serve(async (req) => {
         ? {
             status: 'pre_entry_conflict',
             at: preEntryConflictAt,
-            price: n(historicalReview.confirmation_price),
+            price: n(historicalReview.confirmation_price ?? historicalReview.context_confirmation_price),
             detail: `The position direction opposed the confirmed ${reviewDirection} thesis before entry.`,
           }
         : duringTradeInvalidationBar
@@ -370,10 +370,12 @@ Deno.serve(async (req) => {
     const markers = [
       historicalReview?.confirmation_at ? {
         kind: 'confirmation',
-        label: 'Thesis confirmed',
+        label: historicalReview.session_state === 'session_reconfirmed' ? 'Thesis reconfirmed' : 'Thesis confirmed',
         at: historicalReview.confirmation_at,
         price: n(historicalReview.confirmation_price),
-        detail: `${String(historicalReview.retro_direction ?? 'direction')} ${String(historicalReview.cycle_event_type ?? 'cycle')} confirmation`,
+        detail: historicalReview.session_state === 'session_reconfirmed'
+          ? `Fresh session evidence reconfirmed the existing ${String(historicalReview.retro_direction ?? 'direction')} thesis.`
+          : `${String(historicalReview.retro_direction ?? 'direction')} ${String(historicalReview.cycle_event_type ?? 'cycle')} confirmation`,
       } : null,
       {
         kind: 'entry',
@@ -386,7 +388,13 @@ Deno.serve(async (req) => {
           ? `Underlying ${symbol} ${entryUnderlying?.toFixed(2) ?? '—'} · ${String(entryActivity?.option_action ?? 'entry')} · ${String(entryActivity?.expiration ?? trade.expiration ?? 'expiration unavailable')}`
           : 'Brokerage execution mapped to the underlying session',
       },
-      weakening ? {
+      historicalReview?.weakening_at ? {
+        kind: 'weakening',
+        label: 'Thesis weakening',
+        at: historicalReview.weakening_at,
+        price: n(historicalReview.weakening_price),
+        detail: 'Short-term structure deteriorated materially before hard thesis invalidation.',
+      } : weakening ? {
         kind: 'weakening',
         label: 'Thesis weakening',
         at: weakening.created_at,
@@ -466,7 +474,9 @@ Deno.serve(async (req) => {
       invalidation_context: invalidationContext,
       replay_summary: historicalReview ? {
         headline: historicalReview.directional_agreement === 'aligned'
-          ? `Position aligned with the confirmed ${historicalReview.retro_direction} thesis.`
+          ? historicalReview.session_state === 'existing_thesis'
+            ? `Position aligned with an already-established ${historicalReview.retro_direction} thesis.`
+            : `Position aligned with the confirmed ${historicalReview.retro_direction} thesis.`
           : historicalReview.directional_agreement === 'opposed'
             ? `Position opposed the confirmed ${historicalReview.retro_direction} thesis at entry.`
             : 'No confirmed TradeCycle thesis was available at entry.',
