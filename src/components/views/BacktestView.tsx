@@ -8,8 +8,9 @@ import { SessionPlaybackChart, type SessionPlaybackMarker } from '@/components/c
 import { Disclaimer, EmptyState, Panel, SectionHeading, Spinner } from '@/components/common/Primitives';
 import { cn } from '@/lib/utils';
 import { signedMoney } from '@/lib/format';
-import { Bar as RBar, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar as RBar, Brush, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { Bar as MarketBar } from '@/lib/types';
+import { historicalEntryHeadline } from '@/lib/historicalEntryHeadline';
 
 const dateET = (value: string | null | undefined) => {
   if (!value) return 'Date unavailable';
@@ -92,7 +93,9 @@ const HistoricalIndicatorPanel: React.FC<{
   markers: SessionPlaybackMarker[];
   review: HistoricalPlaybackResponse['review'];
   syncId: string;
-}> = ({ bars, entryAt, markers, review, syncId }) => {
+  range: { startIndex: number; endIndex: number };
+  onRangeChange: (range: { startIndex?: number; endIndex?: number }) => void;
+}> = ({ bars, entryAt, markers, review, syncId, range, onRangeChange }) => {
   const data = useMemo(() => {
     const ordered = [...bars].sort((a, b) => +new Date(a.bar_time) - +new Date(b.bar_time));
     if (!ordered.length) return [];
@@ -189,9 +192,8 @@ const HistoricalIndicatorPanel: React.FC<{
 
   const nearestSnapshot = (at: string) => {
     const target = +new Date(at);
-    return data.reduce((best, point) => (
-      Math.abs(+new Date(point.at) - target) < Math.abs(+new Date(best.at) - target) ? point : best
-    ), data[0]);
+    const preceding = data.filter((point) => +new Date(point.at) < target);
+    return preceding[preceding.length - 1];
   };
 
   const entrySnapshot = nearestSnapshot(entryAt);
@@ -201,36 +203,10 @@ const HistoricalIndicatorPanel: React.FC<{
   const tooltipStyle = { background: '#090b0f', border: '1px solid #27272a', fontSize: 10 };
 
   return (
-    <div className="mt-2 overflow-hidden rounded-md border border-zinc-800 bg-[#0d1015]">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-800 px-3 py-2.5">
-        <div>
-          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-sky-400">Market + indicator context</div>
-          <div className="mt-1 max-w-4xl text-[10px] leading-relaxed text-zinc-400">
-            {review?.regime_summary ?? 'Indicator context is derived from the cached historical OHLCV bars for this replay window.'}
-          </div>
-          <div className="mt-1 text-[8px] text-zinc-600">
-            These panes share the price chart timeline. Hover and zoom stay aligned so indicator changes can be read against the same decision points.
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          <span className="rounded-sm border border-zinc-700 px-2 py-1 font-mono text-[8px] uppercase text-zinc-300">
-            {review?.regime_label?.replaceAll('_', ' ') ?? 'regime unavailable'}
-          </span>
-          <span className="rounded-sm border border-zinc-800 px-2 py-1 font-mono text-[8px] text-zinc-400">
-            range {metric(review?.session_range_ratio, '×')}
-          </span>
-          <span className="rounded-sm border border-zinc-800 px-2 py-1 font-mono text-[8px] text-zinc-400">
-            efficiency {review?.directional_efficiency === null || review?.directional_efficiency === undefined ? '—' : `${Math.round(review.directional_efficiency * 100)}%`}
-          </span>
-          <span className="rounded-sm border border-zinc-800 px-2 py-1 font-mono text-[8px] text-zinc-400">
-            VWAP {metric(review?.vwap_distance_pct, '%')}
-          </span>
-        </div>
-      </div>
-
-      <div className="border-b border-zinc-800 px-2 pt-2">
+    <div className="overflow-hidden border-t border-zinc-800">
+      <div className="border-b border-zinc-800 pt-1">
         <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">Relative volume</div>
-        <div className="h-[88px]">
+        <div className="h-[48px] sm:h-[72px]">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={data} syncId={syncId} margin={sharedMargin}>
               <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
@@ -238,6 +214,7 @@ const HistoricalIndicatorPanel: React.FC<{
               <YAxis orientation="right" width={58} tick={false} tickLine={false} axisLine={false} domain={[0, 'auto']} />
               <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => timeET(String(value))} />
               <ReferenceLine y={1} stroke="#52525b" strokeDasharray="4 4" />
+              <Brush dataKey="at" height={0} className="hidden" startIndex={range.startIndex} endIndex={range.endIndex} />
               {renderEventLines()}
               <RBar dataKey="relativeVolume" name="Relative volume" fill="#38bdf8" isAnimationActive={false} />
             </ComposedChart>
@@ -245,9 +222,9 @@ const HistoricalIndicatorPanel: React.FC<{
         </div>
       </div>
 
-      <div className="border-b border-zinc-800 px-2 pt-2">
+      <div className="border-b border-zinc-800 pt-1">
         <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">VWAP distance</div>
-        <div className="h-[82px]">
+        <div className="h-[48px] sm:h-[68px]">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={data} syncId={syncId} margin={sharedMargin}>
               <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
@@ -255,6 +232,7 @@ const HistoricalIndicatorPanel: React.FC<{
               <YAxis orientation="right" width={58} tick={false} tickLine={false} axisLine={false} />
               <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => timeET(String(value))} />
               <ReferenceLine y={0} stroke="#52525b" strokeDasharray="4 4" />
+              <Brush dataKey="at" height={0} className="hidden" startIndex={range.startIndex} endIndex={range.endIndex} />
               {renderEventLines()}
               <Line type="monotone" dataKey="vwapDistance" name="VWAP distance %" stroke="#a78bfa" dot={false} isAnimationActive={false} />
             </ComposedChart>
@@ -262,9 +240,9 @@ const HistoricalIndicatorPanel: React.FC<{
         </div>
       </div>
 
-      <div className="border-b border-zinc-800 px-2 pt-2">
+      <div className="border-b border-zinc-800 pt-1">
         <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">30m momentum</div>
-        <div className="h-[82px]">
+        <div className="h-[48px] sm:h-[68px]">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={data} syncId={syncId} margin={sharedMargin}>
               <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
@@ -272,6 +250,7 @@ const HistoricalIndicatorPanel: React.FC<{
               <YAxis orientation="right" width={58} tick={false} tickLine={false} axisLine={false} />
               <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => timeET(String(value))} />
               <ReferenceLine y={0} stroke="#52525b" strokeDasharray="4 4" />
+              <Brush dataKey="at" height={0} className="hidden" startIndex={range.startIndex} endIndex={range.endIndex} />
               {renderEventLines()}
               <Line type="monotone" dataKey="momentum30" name="30m momentum %" stroke="#38bdf8" dot={false} isAnimationActive={false} />
             </ComposedChart>
@@ -279,11 +258,11 @@ const HistoricalIndicatorPanel: React.FC<{
         </div>
       </div>
 
-      <div className="px-2 pt-2">
+      <div className="pt-1">
         <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">RSI 14</div>
-        <div className="h-[104px]">
+        <div className="h-[96px] sm:h-[116px]">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} syncId={syncId} margin={{ ...sharedMargin, bottom: 14 }}>
+            <ComposedChart data={data} syncId={syncId} margin={sharedMargin}>
               <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
               <XAxis
                 dataKey="at"
@@ -299,6 +278,7 @@ const HistoricalIndicatorPanel: React.FC<{
               <ReferenceLine y={50} stroke="#3f3f46" strokeDasharray="2 4" />
               <ReferenceLine y={30} stroke="#52525b" strokeDasharray="3 4" />
               {renderEventLines()}
+              <Brush dataKey="at" height={18} travellerWidth={7} startIndex={range.startIndex} endIndex={range.endIndex} onChange={onRangeChange} tickFormatter={(value: string) => timeET(value)} stroke="#3f3f46" fill="#0b0d10" />
               <Line type="monotone" dataKey="rsi14" name="RSI 14" stroke="#34d399" dot={false} isAnimationActive={false} />
             </ComposedChart>
           </ResponsiveContainer>
@@ -309,7 +289,7 @@ const HistoricalIndicatorPanel: React.FC<{
         <div className="bg-[#0d1015] px-3 py-2">
           <div className="font-mono text-[8px] uppercase tracking-wider text-violet-300/80">At entry</div>
           <div className="mt-1 font-mono text-[9px] leading-relaxed text-zinc-400">
-            RVOL {metric(entrySnapshot.relativeVolume, '×')} · VWAP {metric(entrySnapshot.vwapDistance, '%')} · 30m {metric(entrySnapshot.momentum30, '%')} · RSI {metric(entrySnapshot.rsi14, '', 1)}
+            RVOL {metric(entrySnapshot?.relativeVolume, '×')} · VWAP {metric(entrySnapshot?.vwapDistance, '%')} · 30m {metric(entrySnapshot?.momentum30, '%')} · RSI {metric(entrySnapshot?.rsi14, '', 1)}
           </div>
         </div>
         <div className="bg-[#0d1015] px-3 py-2">
@@ -334,6 +314,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
   const [selectedTradeId, setSelectedTradeId] = useState<number | null>(initialTradeIds[0] ?? null);
   const [selectedDay, setSelectedDay] = useState<string | null>(initialDay);
   const [tradeListCollapsed, setTradeListCollapsed] = useState(false);
+  const [evidenceExpanded, setEvidenceExpanded] = useState(false);
   const [playback, setPlayback] = useState<HistoricalPlaybackResponse | null>(null);
   const [playbackBusy, setPlaybackBusy] = useState(false);
   const [reconstructionBusy, setReconstructionBusy] = useState(false);
@@ -461,6 +442,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
 
   useEffect(() => {
     let active = true;
+    setEvidenceExpanded(false);
     if (!selectedTradeId) {
       setPlayback(null);
       return () => { active = false; };
@@ -526,11 +508,11 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
 
   return (
     <div className="space-y-4">
-      <SectionHeading
+      <div className="hidden sm:block"><SectionHeading
         eyebrow="Historical evidence"
         title="Replay your actual trades against the market"
         description="Historical Evidence starts with your brokerage executions, then layers the underlying market session and TradeCycle evidence around what you actually did. It is not a portfolio-performance report."
-      />
+      /></div>
 
       {error && (
         <div className="flex items-start gap-2 rounded-md border border-amber-500/35 bg-amber-500/[0.07] p-3 text-[11px] text-amber-100">
@@ -539,7 +521,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
         </div>
       )}
 
-      {reconstructionNote && (
+      {reconstructionNote && reconstructionBusy && (
         <div className="flex items-start gap-2 rounded-md border border-sky-500/25 bg-sky-500/[0.04] p-3 text-[11px] text-sky-100">
           {reconstructionBusy
             ? <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-sky-400" aria-hidden="true" />
@@ -560,7 +542,20 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
         />
       ) : (
         <>
+          <div className="grid grid-cols-2 gap-2 xl:hidden">
+            <label className="min-w-0 text-[10px] text-zinc-400">Trade day
+              <select aria-label="Trade day" value={selectedDay ?? ''} onChange={(event) => setSelectedDay(event.target.value)} className="mt-1 h-11 w-full min-w-0 rounded-md border border-zinc-700 bg-[#111419] px-2 text-[12px] text-zinc-100">
+                {tradeDays.map((day) => <option key={day} value={day}>{prettyDay(day)} · {tradesByDay.get(day)?.length} trades</option>)}
+              </select>
+            </label>
+            <label className="min-w-0 text-[10px] text-zinc-400">Trade
+              <select aria-label="Trade" value={selectedTradeId ?? ''} onChange={(event) => setSelectedTradeId(Number(event.target.value))} className="mt-1 h-11 w-full min-w-0 rounded-md border border-zinc-700 bg-[#111419] px-2 text-[12px] text-zinc-100">
+                {visibleTrades.map((trade) => <option key={trade.id} value={trade.id}>{trade.symbol} · {timeET(trade.entry_at ?? trade.created_at)}</option>)}
+              </select>
+            </label>
+          </div>
           <Panel
+            className="hidden xl:block"
             title="Trade-day navigator"
             subtitle="Choose a day, then choose a trade. Trades are grouped by entry date; multi-day positions continue through their actual exit in the replay."
             bodyClassName="p-3"
@@ -617,7 +612,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
               <span className="[writing-mode:vertical-rl] rotate-180">Trades · {visibleTrades.length}</span>
             </button>
           ) : (
-            <div className="space-y-2">
+            <div className="hidden space-y-2 xl:block">
               <button
                 type="button"
                 onClick={() => setTradeListCollapsed(true)}
@@ -688,7 +683,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
 
           <Panel
             title={selectedTrade ? selectedTrade.symbol + ' · ' + dateET(selectedTrade.entry_at ?? selectedTrade.created_at) : 'Trade playback'}
-            subtitle="Underlying price action with your actual executions, reconstructed confirmation, tactical levels, and thesis outcome. Historical thesis evidence is cut off at entry to prevent hindsight leakage."
+            bodyClassName="p-2 sm:p-3"
           >
             {playbackBusy ? (
               <div className="flex min-h-[420px] items-center justify-center">
@@ -696,53 +691,15 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
               </div>
             ) : playback ? (
               <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-sm border border-zinc-700 bg-black/20 px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-zinc-400">
-                    {playback.source}
-                  </span>
-                  {playback.episode.post_invalidation_minutes !== null && (
-                    <span className="rounded-sm border border-red-500/30 bg-red-500/[0.06] px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-red-300">
-                      {playback.episode.post_invalidation_minutes}m after invalidation
-                    </span>
-                  )}
-                </div>
-
-                {playback.instrument?.asset_type === 'option' && (
-                <div className="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-                  <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
-                    <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Contract</div>
-                    <div className="mt-1 font-mono text-[11px] text-zinc-200">
-                      {playback.instrument.symbol} {playback.instrument.strike ?? '—'} {String(playback.instrument.option_type ?? '').toUpperCase()}
-                    </div>
-                  </div>
-                  <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
-                    <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Expiration</div>
-                    <div className="mt-1 font-mono text-[11px] text-zinc-200">
-                      {playback.instrument.expiration ? dateET(playback.instrument.expiration) : '—'}
-                    </div>
-                  </div>
-                  <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
-                    <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Option entry fill</div>
-                    <div className="mt-1 font-mono text-[11px] text-violet-300">
-                      {playback.instrument.entry_option_price === null ? '—' : `${playback.instrument.entry_option_price.toFixed(2)}`}
-                    </div>
-                  </div>
-                  <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
-                    <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Option exit fill</div>
-                    <div className="mt-1 font-mono text-[11px] text-sky-300">
-                      {playback.instrument.exit_option_price === null ? '—' : `${playback.instrument.exit_option_price.toFixed(2)}`}
-                    </div>
-                  </div>
-                  <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
-                    <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Execution source</div>
-                    <div className="mt-1 text-[10px] text-zinc-400">
-                      {playback.instrument.source === 'timestamped_snaptrade_activity'
-                        ? 'Timestamped brokerage activity'
-                        : 'Normalized brokerage episode'}
-                    </div>
+                <div>
+                  <h2 className="text-[15px] font-semibold leading-snug text-zinc-100">{historicalEntryHeadline(playback, selectedTrade?.direction)}</h2>
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-zinc-400">
+                    <span>{playback.instrument?.asset_type === 'option' ? `${playback.instrument.symbol} ${playback.instrument.strike ?? '—'} ${String(playback.instrument.option_type ?? '').toUpperCase()} · ${dateET(playback.instrument.expiration)}` : playback.symbol}</span>
+                    <span>Entry {playback.instrument?.entry_option_price?.toFixed(2) ?? selectedTrade?.entry_price ?? '—'} · {timeET(playback.episode.entry_at)}</span>
+                    <span>Exit {playback.instrument?.exit_option_price?.toFixed(2) ?? selectedTrade?.exit_price ?? '—'} · {timeET(playback.episode.exit_at)}</span>
+                    <span className={Number(playback.episode.realized_pl) >= 0 ? 'text-emerald-400' : 'text-red-400'}>{signedMoney(playback.episode.realized_pl)}</span>
                   </div>
                 </div>
-              )}
 
               <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_330px]">
                 <div className="min-w-0">
@@ -750,26 +707,34 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                     bars={playback.bars}
                     markers={playback.markers}
                     levels={playback.levels}
-                    height={500}
+                    height={380}
+                    responsiveHeight
                     showStructureCards={false}
                     compactEvents
                     syncId={`historical-evidence-${playback.trade_id}`}
-                    afterPlot={playback.review ? (
+                    afterPlot={(range, onRangeChange) => (
                       <HistoricalIndicatorPanel
                         bars={playback.bars}
                         entryAt={playback.episode.entry_at}
                         markers={playback.markers}
                         review={playback.review}
                         syncId={`historical-evidence-${playback.trade_id}`}
+                        range={range}
+                        onRangeChange={onRangeChange}
                       />
-                    ) : null}
+                    )}
                   />
                 </div>
 
                 <aside className="space-y-2 xl:sticky xl:top-3 xl:self-start">
+                  <button type="button" onClick={() => setEvidenceExpanded((value) => !value)} aria-expanded={evidenceExpanded} aria-controls="historical-evidence-breakdown" className="flex min-h-11 w-full items-center justify-between rounded-md border border-zinc-700 px-3 text-[12px] text-sky-300 xl:hidden">
+                    Why this assessment?<ChevronRight className={cn('h-4 w-4', evidenceExpanded && 'rotate-90')} />
+                  </button>
+                  <div id="historical-evidence-breakdown" className={cn('space-y-2 xl:block', !evidenceExpanded && 'hidden')}>
                   {playback.review && playback.replay_summary ? (
                     <div className="rounded-md border border-sky-500/35 bg-sky-500/[0.055] p-3.5">
                       <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-sky-400">Evidence behind the assessment</div>
+                      <div className="mt-2 text-[9px] leading-relaxed text-zinc-500">{playback.source}. Thesis evidence is cut off at entry; later results do not change the entry assessment.</div>
 
                       <div className="mt-3 space-y-3">
                         {playback.review.regime_summary && (
@@ -946,6 +911,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                       </div>
                     </div>
                   </details>
+                  </div>
                 </aside>
               </div>              </div>
             ) : (

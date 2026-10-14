@@ -3,7 +3,7 @@ import {
   Area, AreaChart, Bar, Brush, CartesianGrid, ComposedChart, Line, LineChart, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from 'recharts';
-import type { Bar, ChartHorizon } from '@/lib/types';
+import type { Bar as MarketBar, ChartHorizon } from '@/lib/types';
 import { isMissing } from '@/lib/format';
 import { Unavailable } from '@/components/common/Primitives';
 
@@ -118,7 +118,7 @@ const CandleShape = (props: any) => {
   );
 };
 
-const TooltipBox: React.FC<{ active?: boolean; payload?: { payload: Bar }[]; horizon?: ChartHorizon }> = ({ active, payload, horizon = '1M' }) => {
+const TooltipBox: React.FC<{ active?: boolean; payload?: { payload: MarketBar }[]; horizon?: ChartHorizon }> = ({ active, payload, horizon = '1M' }) => {
   if (!active || !payload?.length) return null;
   const b = payload[0].payload;
   return (
@@ -147,7 +147,7 @@ const TooltipBox: React.FC<{ active?: boolean; payload?: { payload: Bar }[]; hor
 };
 
 export const PriceChart: React.FC<{
-  bars: Bar[];
+  bars: MarketBar[];
   levels?: KeyLevel[];
   height?: number;
   horizon?: ChartHorizon;
@@ -507,14 +507,15 @@ const sessionTime = (iso: string) =>
   }).format(new Date(iso));
 
 export const SessionPlaybackChart: React.FC<{
-  bars: Bar[];
+  bars: MarketBar[];
   markers: SessionPlaybackMarker[];
   levels?: SessionPlaybackLevel[];
   height?: number;
   showStructureCards?: boolean;
   compactEvents?: boolean;
   syncId?: string;
-  afterPlot?: React.ReactNode;
+  afterPlot?: (range: { startIndex: number; endIndex: number }, onRangeChange: (range: { startIndex?: number; endIndex?: number }) => void) => React.ReactNode;
+  responsiveHeight?: boolean;
 }> = ({
   bars,
   markers,
@@ -524,6 +525,7 @@ export const SessionPlaybackChart: React.FC<{
   compactEvents = false,
   syncId,
   afterPlot,
+  responsiveHeight = false,
 }) => {
   const [chartStyle, setChartStyle] = usePriceChartStyle();
   const [zoomStart, setZoomStart] = useState(0);
@@ -579,6 +581,10 @@ export const SessionPlaybackChart: React.FC<{
     setZoomStart(start);
     setZoomEnd(end);
   };
+  const updateRange = (range: { startIndex?: number; endIndex?: number }) => {
+    if (typeof range.startIndex === 'number') setZoomStart(range.startIndex);
+    if (typeof range.endIndex === 'number') setZoomEnd(range.endIndex);
+  };
   const resetZoom = () => {
     setZoomStart(0);
     setZoomEnd(Math.max(0, bars.length - 1));
@@ -605,14 +611,16 @@ export const SessionPlaybackChart: React.FC<{
       </div>
 
       <div
-        className="relative"
-        style={{ height }}
+        className={responsiveHeight ? "relative h-[260px] sm:h-[380px]" : "relative"}
+        style={responsiveHeight ? undefined : { height }}
       >
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={plotBars} syncId={syncId} margin={{ top: 20, right: 64, bottom: 4, left: 0 }}>
             <CartesianGrid stroke="#1c2027" strokeDasharray="2 4" vertical={false} />
             <XAxis
               dataKey="bar_time"
+              hide={Boolean(afterPlot)}
+              height={afterPlot ? 0 : 30}
               tick={axisStyle}
               tickLine={false}
               axisLine={{ stroke: '#1c2027' }}
@@ -677,14 +685,12 @@ export const SessionPlaybackChart: React.FC<{
             ))}
             <Brush
               dataKey="bar_time"
-              height={18}
+              height={afterPlot ? 0 : 18}
+              className={afterPlot ? "hidden" : undefined}
               travellerWidth={7}
               startIndex={zoomStart}
               endIndex={zoomEnd}
-              onChange={(range) => {
-                if (typeof range.startIndex === 'number') setZoomStart(range.startIndex);
-                if (typeof range.endIndex === 'number') setZoomEnd(range.endIndex);
-              }}
+              onChange={updateRange}
               tickFormatter={(value: string) => sessionTime(value)}
               stroke="#3f3f46"
               fill="#0b0d10"
@@ -706,7 +712,7 @@ export const SessionPlaybackChart: React.FC<{
         )}
       </div>
 
-      {afterPlot}
+      {afterPlot?.({ startIndex: zoomStart, endIndex: zoomEnd }, updateRange)}
 
       {showStructureCards && levels.length > 0 && (
         <div className="mt-3">
@@ -727,7 +733,7 @@ export const SessionPlaybackChart: React.FC<{
         </div>
       )}
 
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className={compactEvents ? "mt-2 flex gap-2 overflow-x-auto pb-1 [&>div]:shrink-0" : "mt-3 flex flex-wrap gap-2"}>
         {markers.map((item) => (
           <div key={`${item.kind}-${item.at}-legend`} className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1.5">
             <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider" style={{ color: markerColor(item.kind) }}>
