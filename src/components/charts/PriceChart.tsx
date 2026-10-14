@@ -320,7 +320,39 @@ export const PriceChart: React.FC<{
 
   return (
     <div>
-      <div className="mb-2 flex flex-wrap items-center justify-end gap-1.5">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-1.5">
+        <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">
+          Wheel to zoom · drag to pan
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => zoomBy(0.72)}
+          className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          onClick={() => zoomBy(1.38)}
+          className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
+        >
+          −
+        </button>
+        <button
+          type="button"
+          onClick={() => panBy(-Math.max(3, Math.round((zoomEnd - zoomStart) * 0.3)))}
+          className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
+        >
+          ←
+        </button>
+        <button
+          type="button"
+          onClick={() => panBy(Math.max(3, Math.round((zoomEnd - zoomStart) * 0.3)))}
+          className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
+        >
+          →
+        </button>
         <button
           type="button"
           onClick={zoomToTrade}
@@ -531,6 +563,8 @@ export const SessionPlaybackChart: React.FC<{
   const [chartStyle, setChartStyle] = usePriceChartStyle();
   const [zoomStart, setZoomStart] = useState(0);
   const [zoomEnd, setZoomEnd] = useState(Math.max(0, bars.length - 1));
+  const [hoveredMarker, setHoveredMarker] = useState<SessionPlaybackMarker | null>(null);
+  const panRef = useRef<{ x: number; start: number; end: number } | null>(null);
 
   useEffect(() => {
     setZoomStart(0);
@@ -586,12 +620,86 @@ export const SessionPlaybackChart: React.FC<{
     setZoomEnd(Math.max(0, bars.length - 1));
   };
 
+  const clampWindow = (start: number, end: number) => {
+    const size = Math.max(4, end - start);
+    let nextStart = Math.max(0, Math.min(start, bars.length - 2));
+    let nextEnd = Math.min(bars.length - 1, nextStart + size);
+    if (nextEnd >= bars.length - 1) {
+      nextEnd = bars.length - 1;
+      nextStart = Math.max(0, nextEnd - size);
+    }
+    setZoomStart(Math.round(nextStart));
+    setZoomEnd(Math.round(nextEnd));
+  };
+
+  const zoomBy = (factor: number, anchorRatio = 0.5) => {
+    if (bars.length < 6) return;
+    const width = Math.max(4, zoomEnd - zoomStart);
+    const nextWidth = Math.max(6, Math.min(bars.length - 1, Math.round(width * factor)));
+    const anchor = zoomStart + width * anchorRatio;
+    const nextStart = anchor - nextWidth * anchorRatio;
+    clampWindow(nextStart, nextStart + nextWidth);
+  };
+
+  const panBy = (deltaBars: number) => {
+    const width = zoomEnd - zoomStart;
+    clampWindow(zoomStart + deltaBars, zoomStart + deltaBars + width);
+  };
+
+  const onWheelZoom = (event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const anchorRatio = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)));
+    zoomBy(event.deltaY < 0 ? 0.78 : 1.28, anchorRatio);
+  };
+
+  const onPanStart = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    panRef.current = { x: event.clientX, start: zoomStart, end: zoomEnd };
+  };
+
+  const onPanMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    const pan = panRef.current;
+    if (!pan) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const widthBars = Math.max(1, pan.end - pan.start);
+    const dx = event.clientX - pan.x;
+    const deltaBars = Math.round((-dx / Math.max(1, rect.width)) * widthBars);
+    const size = pan.end - pan.start;
+    let nextStart = pan.start + deltaBars;
+    let nextEnd = nextStart + size;
+    if (nextStart < 0) {
+      nextEnd -= nextStart;
+      nextStart = 0;
+    }
+    if (nextEnd > bars.length - 1) {
+      const overflow = nextEnd - (bars.length - 1);
+      nextStart -= overflow;
+      nextEnd = bars.length - 1;
+    }
+    setZoomStart(Math.max(0, Math.round(nextStart)));
+    setZoomEnd(Math.min(bars.length - 1, Math.round(nextEnd)));
+  };
+
+  const onPanEnd = () => {
+    panRef.current = null;
+  };
+
   return (
     <div>
       <div className="mb-2 flex justify-end">
         <ChartStyleToggle value={chartStyle} onChange={setChartStyle} />
+        </div>
       </div>
-      <div style={{ height }}>
+      <div
+        className="relative cursor-grab active:cursor-grabbing"
+        style={{ height }}
+        onWheel={onWheelZoom}
+        onMouseDown={onPanStart}
+        onMouseMove={onPanMove}
+        onMouseUp={onPanEnd}
+        onMouseLeave={onPanEnd}
+      >
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={plotBars} margin={{ top: 20, right: 64, bottom: 4, left: 0 }}>
             <CartesianGrid stroke="#1c2027" strokeDasharray="2 4" vertical={false} />
@@ -654,6 +762,9 @@ export const SessionPlaybackChart: React.FC<{
                 fill={markerColor(item.kind)}
                 stroke="#0b0d10"
                 strokeWidth={2}
+                onMouseEnter={() => setHoveredMarker(item)}
+                onMouseLeave={() => setHoveredMarker(null)}
+                style={{ cursor: 'help' }}
               />
             ))}
             <Brush
@@ -672,6 +783,19 @@ export const SessionPlaybackChart: React.FC<{
             />
           </ComposedChart>
         </ResponsiveContainer>
+        {hoveredMarker && (
+          <div className="pointer-events-none absolute left-3 top-3 z-20 max-w-[260px] rounded-sm border border-zinc-700 bg-[#0b0d10]/95 px-2.5 py-2 shadow-xl">
+            <div className="font-mono text-[9px] uppercase tracking-wider" style={{ color: markerColor(hoveredMarker.kind) }}>
+              {hoveredMarker.label}
+            </div>
+            <div className="mt-1 font-mono text-[10px] text-zinc-300">
+              {sessionTime(hoveredMarker.at)} · {hoveredMarker.price === null ? '—' : Number(hoveredMarker.price).toFixed(2)}
+            </div>
+            {hoveredMarker.detail && (
+              <div className="mt-1 text-[9px] leading-relaxed text-zinc-500">{hoveredMarker.detail}</div>
+            )}
+          </div>
+        )}
       </div>
 
       {showStructureCards && levels.length > 0 && (
