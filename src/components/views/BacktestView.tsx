@@ -8,6 +8,8 @@ import { SessionPlaybackChart } from '@/components/charts/PriceChart';
 import { Disclaimer, EmptyState, Panel, SectionHeading, Spinner } from '@/components/common/Primitives';
 import { cn } from '@/lib/utils';
 import { signedMoney } from '@/lib/format';
+import { Bar as RBar, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import type { Bar as MarketBar } from '@/lib/types';
 
 const dateET = (value: string | null | undefined) => {
   if (!value) return 'Date unavailable';
@@ -52,6 +54,176 @@ const tradeLabel = (trade: TradeRecord) => {
     return trade.symbol + ' ' + trade.expiration + ' ' + trade.strike + ' ' + trade.option_type.toUpperCase();
   }
   return trade.symbol;
+};
+
+const etKey = (value: string) =>
+  new Date(value).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+
+const etMinute = (value: string) => {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date(value));
+  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+  return get('hour') * 60 + get('minute');
+};
+
+const medianLocal = (values: number[]) => {
+  const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const m = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
+};
+
+const HistoricalIndicatorPanel: React.FC<{
+  bars: MarketBar[];
+  entryAt: string;
+  review: HistoricalPlaybackResponse['review'];
+}> = ({ bars, entryAt, review }) => {
+  const data = useMemo(() => {
+    const ordered = [...bars].sort((a, b) => +new Date(a.bar_time) - +new Date(b.bar_time));
+    const entrySession = etKey(entryAt);
+    const current = ordered.filter((bar) => etKey(bar.bar_time) === entrySession);
+    if (!current.length) return [];
+
+    let cumulativePV = 0;
+    let cumulativeVolume = 0;
+    const closes: number[] = [];
+
+    return current.map((bar, index) => {
+      const volume = Number(bar.volume ?? 0);
+      const typical = (Number(bar.high) + Number(bar.low) + Number(bar.close)) / 3;
+      cumulativePV += typical * Math.max(0, volume);
+      cumulativeVolume += Math.max(0, volume);
+      const vwap = cumulativeVolume > 0 ? cumulativePV / cumulativeVolume : null;
+      closes.push(Number(bar.close));
+
+      const slot = Math.floor((etMinute(bar.bar_time) - 570) / 5);
+      const comparable = ordered
+        .filter((candidate) => etKey(candidate.bar_time) !== entrySession)
+        .filter((candidate) => Math.floor((etMinute(candidate.bar_time) - 570) / 5) === slot)
+        .map((candidate) => Number(candidate.volume ?? 0))
+        .filter((value) => value > 0);
+      const baseVolume = medianLocal(comparable);
+      const relativeVolume = baseVolume && baseVolume > 0 ? volume / baseVolume : null;
+
+      const momentumIndex = Math.max(0, index - 6);
+      const momentumBase = Number(current[momentumIndex]?.close ?? bar.close);
+      const momentum30 = momentumBase !== 0 ? ((Number(bar.close) - momentumBase) / momentumBase) * 100 : null;
+
+      let rsi14: number | null = null;
+      if (closes.length >= 15) {
+        const recent = closes.slice(-15);
+        const changes = recent.slice(1).map((value, i) => value - recent[i]);
+        const gains = changes.map((value) => Math.max(0, value));
+        const losses = changes.map((value) => Math.max(0, -value));
+        const avgGain = gains.reduce((sum, value) => sum + value, 0) / gains.length;
+        const avgLoss = losses.reduce((sum, value) => sum + value, 0) / losses.length;
+        rsi14 = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+      }
+
+      return {
+        at: bar.bar_time,
+        label: timeET(bar.bar_time),
+        relativeVolume,
+        vwapDistance: vwap && vwap !== 0 ? ((Number(bar.close) - vwap) / vwap) * 100 : null,
+        momentum30,
+        rsi14,
+      };
+    });
+  }, [bars, entryAt]);
+
+  if (!data.length) return null;
+
+  const metric = (value: number | null | undefined, suffix = '', digits = 2) =>
+    value === null || value === undefined || !Number.isFinite(value)
+      ? '—'
+      : `${value.toFixed(digits)}${suffix}`;
+
+  return (
+    <div className="mt-3 rounded-md border border-zinc-800 bg-[#0d1015] p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-sky-400">Session regime & indicators</div>
+          <div className="mt-1 max-w-4xl text-[10px] leading-relaxed text-zinc-400">
+            {review?.regime_summary ?? 'Indicator context is derived from the cached historical OHLCV bars for this trade session.'}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <span className="rounded-sm border border-zinc-700 px-2 py-1 font-mono text-[8px] uppercase text-zinc-300">
+            {review?.regime_label?.replaceAll('_', ' ') ?? 'regime unavailable'}
+          </span>
+          <span className="rounded-sm border border-zinc-800 px-2 py-1 font-mono text-[8px] text-zinc-400">
+            range {metric(review?.session_range_ratio, '×')}
+          </span>
+          <span className="rounded-sm border border-zinc-800 px-2 py-1 font-mono text-[8px] text-zinc-400">
+            efficiency {review?.directional_efficiency === null || review?.directional_efficiency === undefined ? '—' : `${Math.round(review.directional_efficiency * 100)}%`}
+          </span>
+          <span className="rounded-sm border border-zinc-800 px-2 py-1 font-mono text-[8px] text-zinc-400">
+            VWAP {metric(review?.vwap_distance_pct, '%')}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 xl:grid-cols-3">
+        <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
+          <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">Relative volume</div>
+          <div className="h-[105px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={data}>
+                <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
+                <XAxis dataKey="label" hide />
+                <YAxis hide domain={[0, 'auto']} />
+                <Tooltip contentStyle={{ background: '#090b0f', border: '1px solid #27272a', fontSize: 10 }} />
+                <ReferenceLine y={1} stroke="#52525b" strokeDasharray="4 4" />
+                <RBar dataKey="relativeVolume" fill="#38bdf8" isAnimationActive={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="mt-1 text-[8px] text-zinc-600">1.0 = typical volume for the same 5-minute slot in prior cached sessions.</div>
+        </div>
+
+        <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
+          <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">VWAP distance / 30m momentum</div>
+          <div className="h-[105px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={data}>
+                <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
+                <XAxis dataKey="label" hide />
+                <YAxis hide />
+                <Tooltip contentStyle={{ background: '#090b0f', border: '1px solid #27272a', fontSize: 10 }} />
+                <ReferenceLine y={0} stroke="#52525b" strokeDasharray="4 4" />
+                <Line type="monotone" dataKey="vwapDistance" stroke="#a78bfa" dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="momentum30" stroke="#38bdf8" dot={false} isAnimationActive={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="mt-1 text-[8px] text-zinc-600">VWAP distance and rolling ~30-minute price change, both in percent.</div>
+        </div>
+
+        <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
+          <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">RSI 14</div>
+          <div className="h-[105px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={data}>
+                <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
+                <XAxis dataKey="label" hide />
+                <YAxis hide domain={[0, 100]} />
+                <Tooltip contentStyle={{ background: '#090b0f', border: '1px solid #27272a', fontSize: 10 }} />
+                <ReferenceLine y={70} stroke="#52525b" strokeDasharray="3 4" />
+                <ReferenceLine y={50} stroke="#3f3f46" strokeDasharray="2 4" />
+                <ReferenceLine y={30} stroke="#52525b" strokeDasharray="3 4" />
+                <Line type="monotone" dataKey="rsi14" stroke="#34d399" dot={false} isAnimationActive={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="mt-1 text-[8px] text-zinc-600">Context only. RSI does not establish or invalidate the thesis by itself.</div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: string | null }> = ({ initialTradeIds = [], initialDay = null }) => {
@@ -207,7 +379,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
         const episodeId = Math.abs(selectedTradeId);
         const reconstructionKey = String(episodeId);
 
-        const needsDecisionEvidence = !result.review || result.review.engine_version !== 'historical-cycle-1.3';
+        const needsDecisionEvidence = !result.review || result.review.engine_version !== 'historical-cycle-1.4';
         if (canonicalEpisode && needsDecisionEvidence && reconstructedKey.current !== reconstructionKey) {
           reconstructedKey.current = reconstructionKey;
           setReconstructionBusy(true);
@@ -481,6 +653,13 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                     showStructureCards={false}
                     compactEvents
                   />
+                  {playback.review && (
+                    <HistoricalIndicatorPanel
+                      bars={playback.bars}
+                      entryAt={playback.episode.entry_at}
+                      review={playback.review}
+                    />
+                  )}
                 </div>
 
                 <aside className="space-y-2 xl:sticky xl:top-3 xl:self-start">
@@ -489,6 +668,25 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                       <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-sky-400">Evidence behind the assessment</div>
 
                       <div className="mt-3 space-y-3">
+                        {playback.review.regime_summary && (
+                          <div className="rounded-sm border border-cyan-500/20 bg-cyan-500/[0.035] p-2.5">
+                            <div className="font-mono text-[8px] uppercase tracking-wider text-cyan-300/80">Session regime</div>
+                            <div className="mt-1 text-[11px] leading-relaxed text-zinc-300">
+                              {playback.review.regime_summary}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-1.5 font-mono text-[8px] text-zinc-500">
+                              {playback.review.context_direction && playback.review.context_direction !== 'neutral' && (
+                                <span>broader context · {playback.review.context_direction}</span>
+                              )}
+                              {playback.review.relative_volume_at_entry !== null && (
+                                <span>· entry rvol {playback.review.relative_volume_at_entry.toFixed(2)}×</span>
+                              )}
+                              {playback.review.momentum_30m_pct !== null && (
+                                <span>· 30m momentum {playback.review.momentum_30m_pct >= 0 ? '+' : ''}{playback.review.momentum_30m_pct.toFixed(2)}%</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
                         <div className="border-l-2 border-sky-500/35 pl-3">
                           <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Before entry</div>
                           <div className="mt-1 text-[11px] leading-relaxed text-zinc-300">
