@@ -4,7 +4,7 @@ import { fetchHistoricalPlayback, normalizeStoredBrokerageTrades, reconstructHis
 import { fetchBrokerageTradeRecords } from '@/lib/behavioral/api';
 import type { TradeRecord } from '@/lib/behavioral/types';
 import { useAuth } from '@/contexts/AuthContext';
-import { SessionPlaybackChart } from '@/components/charts/PriceChart';
+import { SessionPlaybackChart, type SessionPlaybackMarker } from '@/components/charts/PriceChart';
 import { Disclaimer, EmptyState, Panel, SectionHeading, Spinner } from '@/components/common/Primitives';
 import { cn } from '@/lib/utils';
 import { signedMoney } from '@/lib/format';
@@ -77,45 +77,69 @@ const medianLocal = (values: number[]) => {
   return sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
 };
 
+const indicatorMarkerColor = (kind: SessionPlaybackMarker['kind']) =>
+  kind === 'entry' ? '#a78bfa'
+    : kind === 'confirmation' ? '#38bdf8'
+      : kind === 'target' ? '#34d399'
+        : kind === 'weakening' ? '#fbbf24'
+          : kind === 'invalidation' ? '#f87171'
+            : kind === 'conflict' ? '#fb7185'
+              : '#60a5fa';
+
 const HistoricalIndicatorPanel: React.FC<{
   bars: MarketBar[];
   entryAt: string;
+  markers: SessionPlaybackMarker[];
   review: HistoricalPlaybackResponse['review'];
-}> = ({ bars, entryAt, review }) => {
+  syncId: string;
+}> = ({ bars, entryAt, markers, review, syncId }) => {
   const data = useMemo(() => {
     const ordered = [...bars].sort((a, b) => +new Date(a.bar_time) - +new Date(b.bar_time));
-    const entrySession = etKey(entryAt);
-    const current = ordered.filter((bar) => etKey(bar.bar_time) === entrySession);
-    if (!current.length) return [];
+    if (!ordered.length) return [];
 
-    let cumulativePV = 0;
-    let cumulativeVolume = 0;
-    const closes: number[] = [];
+    const sessions = new Map<string, MarketBar[]>();
+    ordered.forEach((bar) => {
+      const key = etKey(bar.bar_time);
+      const list = sessions.get(key) ?? [];
+      list.push(bar);
+      sessions.set(key, list);
+    });
 
-    return current.map((bar, index) => {
-      const volume = Number(bar.volume ?? 0);
-      const typical = (Number(bar.high) + Number(bar.low) + Number(bar.close)) / 3;
-      cumulativePV += typical * Math.max(0, volume);
-      cumulativeVolume += Math.max(0, volume);
+    return ordered.map((bar) => {
+      const sessionKey = etKey(bar.bar_time);
+      const sessionBars = sessions.get(sessionKey) ?? [];
+      const index = sessionBars.findIndex((candidate) => candidate.bar_time === bar.bar_time);
+      const throughBar = sessionBars.slice(0, Math.max(0, index) + 1);
+
+      let cumulativePV = 0;
+      let cumulativeVolume = 0;
+      throughBar.forEach((candidate) => {
+        const volume = Number(candidate.volume ?? 0);
+        const typical = (Number(candidate.high) + Number(candidate.low) + Number(candidate.close)) / 3;
+        cumulativePV += typical * Math.max(0, volume);
+        cumulativeVolume += Math.max(0, volume);
+      });
       const vwap = cumulativeVolume > 0 ? cumulativePV / cumulativeVolume : null;
-      closes.push(Number(bar.close));
 
       const slot = Math.floor((etMinute(bar.bar_time) - 570) / 5);
+      const barTime = +new Date(bar.bar_time);
       const comparable = ordered
-        .filter((candidate) => etKey(candidate.bar_time) !== entrySession)
+        .filter((candidate) => +new Date(candidate.bar_time) < barTime)
+        .filter((candidate) => etKey(candidate.bar_time) !== sessionKey)
         .filter((candidate) => Math.floor((etMinute(candidate.bar_time) - 570) / 5) === slot)
         .map((candidate) => Number(candidate.volume ?? 0))
         .filter((value) => value > 0);
       const baseVolume = medianLocal(comparable);
+      const volume = Number(bar.volume ?? 0);
       const relativeVolume = baseVolume && baseVolume > 0 ? volume / baseVolume : null;
 
       const momentumIndex = Math.max(0, index - 6);
-      const momentumBase = Number(current[momentumIndex]?.close ?? bar.close);
+      const momentumBase = Number(sessionBars[momentumIndex]?.close ?? bar.close);
       const momentum30 = momentumBase !== 0 ? ((Number(bar.close) - momentumBase) / momentumBase) * 100 : null;
 
       let rsi14: number | null = null;
-      if (closes.length >= 15) {
-        const recent = closes.slice(-15);
+      if (throughBar.length >= 15) {
+        const recent = throughBar.slice(-15).map((candidate) => Number(candidate.close));
         const changes = recent.slice(1).map((value, i) => value - recent[i]);
         const gains = changes.map((value) => Math.max(0, value));
         const losses = changes.map((value) => Math.max(0, -value));
@@ -126,14 +150,13 @@ const HistoricalIndicatorPanel: React.FC<{
 
       return {
         at: bar.bar_time,
-        label: timeET(bar.bar_time),
         relativeVolume,
         vwapDistance: vwap && vwap !== 0 ? ((Number(bar.close) - vwap) / vwap) * 100 : null,
         momentum30,
         rsi14,
       };
     });
-  }, [bars, entryAt]);
+  }, [bars]);
 
   if (!data.length) return null;
 
@@ -142,13 +165,51 @@ const HistoricalIndicatorPanel: React.FC<{
       ? '—'
       : `${value.toFixed(digits)}${suffix}`;
 
+  const markerPoints = markers.map((marker) => {
+    const target = +new Date(marker.at);
+    const nearest = data.reduce((best, point) => {
+      const bestDistance = Math.abs(+new Date(best.at) - target);
+      const pointDistance = Math.abs(+new Date(point.at) - target);
+      return pointDistance < bestDistance ? point : best;
+    }, data[0]);
+    return { ...marker, plotAt: nearest.at };
+  });
+
+  const renderEventLines = () =>
+    markerPoints.map((marker) => (
+      <ReferenceLine
+        key={`indicator-event-${marker.kind}-${marker.at}`}
+        x={marker.plotAt}
+        stroke={indicatorMarkerColor(marker.kind)}
+        strokeWidth={1}
+        strokeOpacity={0.45}
+        strokeDasharray="3 4"
+      />
+    ));
+
+  const nearestSnapshot = (at: string) => {
+    const target = +new Date(at);
+    return data.reduce((best, point) => (
+      Math.abs(+new Date(point.at) - target) < Math.abs(+new Date(best.at) - target) ? point : best
+    ), data[0]);
+  };
+
+  const entrySnapshot = nearestSnapshot(entryAt);
+  const weakeningMarker = markers.find((marker) => marker.kind === 'weakening');
+  const weakeningSnapshot = weakeningMarker ? nearestSnapshot(weakeningMarker.at) : null;
+  const sharedMargin = { top: 4, right: 64, bottom: 0, left: 0 };
+  const tooltipStyle = { background: '#090b0f', border: '1px solid #27272a', fontSize: 10 };
+
   return (
-    <div className="mt-3 rounded-md border border-zinc-800 bg-[#0d1015] p-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="mt-2 overflow-hidden rounded-md border border-zinc-800 bg-[#0d1015]">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-800 px-3 py-2.5">
         <div>
-          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-sky-400">Session regime & indicators</div>
+          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-sky-400">Market + indicator context</div>
           <div className="mt-1 max-w-4xl text-[10px] leading-relaxed text-zinc-400">
-            {review?.regime_summary ?? 'Indicator context is derived from the cached historical OHLCV bars for this trade session.'}
+            {review?.regime_summary ?? 'Indicator context is derived from the cached historical OHLCV bars for this replay window.'}
+          </div>
+          <div className="mt-1 text-[8px] text-zinc-600">
+            These panes share the price chart timeline. Hover and zoom stay aligned so indicator changes can be read against the same decision points.
           </div>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -167,59 +228,99 @@ const HistoricalIndicatorPanel: React.FC<{
         </div>
       </div>
 
-      <div className="mt-3 grid gap-2 xl:grid-cols-3">
-        <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
-          <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">Relative volume</div>
-          <div className="h-[105px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={data}>
-                <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
-                <XAxis dataKey="label" hide />
-                <YAxis hide domain={[0, 'auto']} />
-                <Tooltip contentStyle={{ background: '#090b0f', border: '1px solid #27272a', fontSize: 10 }} />
-                <ReferenceLine y={1} stroke="#52525b" strokeDasharray="4 4" />
-                <RBar dataKey="relativeVolume" fill="#38bdf8" isAnimationActive={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="mt-1 text-[8px] text-zinc-600">1.0 = typical volume for the same 5-minute slot in prior cached sessions.</div>
+      <div className="border-b border-zinc-800 px-2 pt-2">
+        <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">Relative volume</div>
+        <div className="h-[88px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={data} syncId={syncId} margin={sharedMargin}>
+              <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
+              <XAxis dataKey="at" hide />
+              <YAxis orientation="right" width={58} tick={false} tickLine={false} axisLine={false} domain={[0, 'auto']} />
+              <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => timeET(String(value))} />
+              <ReferenceLine y={1} stroke="#52525b" strokeDasharray="4 4" />
+              {renderEventLines()}
+              <RBar dataKey="relativeVolume" name="Relative volume" fill="#38bdf8" isAnimationActive={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
         </div>
+      </div>
 
-        <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
-          <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">VWAP distance / 30m momentum</div>
-          <div className="h-[105px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={data}>
-                <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
-                <XAxis dataKey="label" hide />
-                <YAxis hide />
-                <Tooltip contentStyle={{ background: '#090b0f', border: '1px solid #27272a', fontSize: 10 }} />
-                <ReferenceLine y={0} stroke="#52525b" strokeDasharray="4 4" />
-                <Line type="monotone" dataKey="vwapDistance" stroke="#a78bfa" dot={false} isAnimationActive={false} />
-                <Line type="monotone" dataKey="momentum30" stroke="#38bdf8" dot={false} isAnimationActive={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="mt-1 text-[8px] text-zinc-600">VWAP distance and rolling ~30-minute price change, both in percent.</div>
+      <div className="border-b border-zinc-800 px-2 pt-2">
+        <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">VWAP distance</div>
+        <div className="h-[82px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={data} syncId={syncId} margin={sharedMargin}>
+              <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
+              <XAxis dataKey="at" hide />
+              <YAxis orientation="right" width={58} tick={false} tickLine={false} axisLine={false} />
+              <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => timeET(String(value))} />
+              <ReferenceLine y={0} stroke="#52525b" strokeDasharray="4 4" />
+              {renderEventLines()}
+              <Line type="monotone" dataKey="vwapDistance" name="VWAP distance %" stroke="#a78bfa" dot={false} isAnimationActive={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
         </div>
+      </div>
 
-        <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
-          <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">RSI 14</div>
-          <div className="h-[105px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={data}>
-                <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
-                <XAxis dataKey="label" hide />
-                <YAxis hide domain={[0, 100]} />
-                <Tooltip contentStyle={{ background: '#090b0f', border: '1px solid #27272a', fontSize: 10 }} />
-                <ReferenceLine y={70} stroke="#52525b" strokeDasharray="3 4" />
-                <ReferenceLine y={50} stroke="#3f3f46" strokeDasharray="2 4" />
-                <ReferenceLine y={30} stroke="#52525b" strokeDasharray="3 4" />
-                <Line type="monotone" dataKey="rsi14" stroke="#34d399" dot={false} isAnimationActive={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
+      <div className="border-b border-zinc-800 px-2 pt-2">
+        <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">30m momentum</div>
+        <div className="h-[82px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={data} syncId={syncId} margin={sharedMargin}>
+              <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
+              <XAxis dataKey="at" hide />
+              <YAxis orientation="right" width={58} tick={false} tickLine={false} axisLine={false} />
+              <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => timeET(String(value))} />
+              <ReferenceLine y={0} stroke="#52525b" strokeDasharray="4 4" />
+              {renderEventLines()}
+              <Line type="monotone" dataKey="momentum30" name="30m momentum %" stroke="#38bdf8" dot={false} isAnimationActive={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="px-2 pt-2">
+        <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">RSI 14</div>
+        <div className="h-[104px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={data} syncId={syncId} margin={{ ...sharedMargin, bottom: 14 }}>
+              <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
+              <XAxis
+                dataKey="at"
+                tick={{ fill: '#71717a', fontSize: 9, fontFamily: 'JetBrains Mono, monospace' }}
+                tickLine={false}
+                axisLine={{ stroke: '#27272a' }}
+                minTickGap={56}
+                tickFormatter={(value: string) => timeET(value)}
+              />
+              <YAxis orientation="right" width={58} tick={false} tickLine={false} axisLine={false} domain={[0, 100]} />
+              <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => timeET(String(value))} />
+              <ReferenceLine y={70} stroke="#52525b" strokeDasharray="3 4" />
+              <ReferenceLine y={50} stroke="#3f3f46" strokeDasharray="2 4" />
+              <ReferenceLine y={30} stroke="#52525b" strokeDasharray="3 4" />
+              {renderEventLines()}
+              <Line type="monotone" dataKey="rsi14" name="RSI 14" stroke="#34d399" dot={false} isAnimationActive={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="grid gap-px border-t border-zinc-800 bg-zinc-800 sm:grid-cols-2">
+        <div className="bg-[#0d1015] px-3 py-2">
+          <div className="font-mono text-[8px] uppercase tracking-wider text-violet-300/80">At entry</div>
+          <div className="mt-1 font-mono text-[9px] leading-relaxed text-zinc-400">
+            RVOL {metric(entrySnapshot.relativeVolume, '×')} · VWAP {metric(entrySnapshot.vwapDistance, '%')} · 30m {metric(entrySnapshot.momentum30, '%')} · RSI {metric(entrySnapshot.rsi14, '', 1)}
           </div>
-          <div className="mt-1 text-[8px] text-zinc-600">Context only. RSI does not establish or invalidate the thesis by itself.</div>
+        </div>
+        <div className="bg-[#0d1015] px-3 py-2">
+          <div className="font-mono text-[8px] uppercase tracking-wider text-amber-300/80">
+            {weakeningMarker ? `At weakening · ${timeET(weakeningMarker.at)}` : 'Interpretation'}
+          </div>
+          <div className="mt-1 font-mono text-[9px] leading-relaxed text-zinc-400">
+            {weakeningSnapshot
+              ? `RVOL ${metric(weakeningSnapshot.relativeVolume, '×')} · VWAP ${metric(weakeningSnapshot.vwapDistance, '%')} · 30m ${metric(weakeningSnapshot.momentum30, '%')} · RSI ${metric(weakeningSnapshot.rsi14, '', 1)}`
+              : 'Indicators provide local context; they do not independently establish or invalidate the reconstructed thesis.'}
+          </div>
         </div>
       </div>
     </div>
@@ -652,14 +753,17 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                     height={500}
                     showStructureCards={false}
                     compactEvents
+                    syncId={`historical-evidence-${playback.episode.id}`}
+                    afterPlot={playback.review ? (
+                      <HistoricalIndicatorPanel
+                        bars={playback.bars}
+                        entryAt={playback.episode.entry_at}
+                        markers={playback.markers}
+                        review={playback.review}
+                        syncId={`historical-evidence-${playback.episode.id}`}
+                      />
+                    ) : null}
                   />
-                  {playback.review && (
-                    <HistoricalIndicatorPanel
-                      bars={playback.bars}
-                      entryAt={playback.episode.entry_at}
-                      review={playback.review}
-                    />
-                  )}
                 </div>
 
                 <aside className="space-y-2 xl:sticky xl:top-3 xl:self-start">
