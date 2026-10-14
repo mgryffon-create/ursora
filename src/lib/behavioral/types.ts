@@ -76,6 +76,16 @@ export interface HistoricalTradeReview {
   context_confirmation_at: string | null;
   context_confirmation_price: number | null;
   session_state: string | null;
+  regime_label: string | null;
+  regime_direction: string | null;
+  regime_summary: string | null;
+  session_range_ratio: number | null;
+  directional_efficiency: number | null;
+  vwap_at_entry: number | null;
+  vwap_distance_pct: number | null;
+  relative_volume_at_entry: number | null;
+  momentum_30m_pct: number | null;
+  vwap_cross_count: number | null;
   thesis_state: string;
   setup_class: string;
   cycle_event_type: string;
