@@ -517,6 +517,8 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     entryRelationship = betterRetest ? 'confirmed_retest'
       : (extensionUnits ?? 0) > 1.5 ? 'chased_extension'
         : 'confirmed_direction';
+  } else if (agreement === 'aligned' && sessionState === 'existing_thesis') {
+    entryRelationship = unconfirmedRetest ? 'existing_thesis_retest' : 'existing_thesis_continuation';
   }
 
   let exitRelationship = 'thesis_unconfirmed';
@@ -614,8 +616,8 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
       )
     : 0;
 
-  let momentumStateAtEntry = 'unconfirmed';
-  if (direction !== 'neutral') {
+  let momentumStateAtEntry = sessionState === 'existing_thesis' && direction !== 'neutral' ? 'context_active' : 'unconfirmed';
+  if (direction !== 'neutral' && sessionState !== 'existing_thesis') {
     if ((moveConsumedPct ?? 0) >= 65 || (extensionUnits ?? 0) >= 1.25) momentumStateAtEntry = 'extended';
     else if ((preEntryGivebackPct ?? 0) >= 25) momentumStateAtEntry = 'weakening';
     else if (lastDirectionalProgress > levels.move * 0.25) momentumStateAtEntry = 'strengthening';
@@ -624,7 +626,9 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
 
   let entryQualityLabel = 'unconfirmed';
   if (agreement === 'opposed') entryQualityLabel = 'thesis_opposed';
-  else if (direction !== 'neutral' && retestBar) entryQualityLabel = 'confirmed_retest';
+  else if (direction !== 'neutral' && sessionState === 'existing_thesis' && unconfirmedRetest) entryQualityLabel = 'existing_thesis_retest';
+  else if (direction !== 'neutral' && sessionState === 'existing_thesis') entryQualityLabel = 'existing_thesis_continuation';
+  else if (direction !== 'neutral' && confirmedRetestBar) entryQualityLabel = 'confirmed_retest';
   else if (direction !== 'neutral' && momentumStateAtEntry === 'weakening') entryQualityLabel = 'late_weakening';
   else if (direction !== 'neutral' && ((moveConsumedPct ?? 0) >= 80 || (extensionUnits ?? 0) >= 1.5)) entryQualityLabel = 'late_extended';
   else if (direction !== 'neutral' && (moveConsumedPct ?? 0) >= 60) entryQualityLabel = 'late_confirmed_move';
@@ -636,7 +640,7 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     else {
       entryQualityScore -= Math.min(45, Math.max(0, ((moveConsumedPct ?? 0) - 35) * 0.8));
       entryQualityScore -= Math.min(20, Math.max(0, (preEntryGivebackPct ?? 0) - 10) * 0.5);
-      if (retestBar) entryQualityScore += 8;
+      if (confirmedRetestBar) entryQualityScore += 8;
       if (remainingRoomPct !== null && remainingRoomPct <= 0) entryQualityScore -= 25;
       entryQualityScore = Math.max(0, Math.min(100, Math.round(entryQualityScore)));
     }
