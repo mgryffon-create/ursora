@@ -320,53 +320,7 @@ export const PriceChart: React.FC<{
 
   return (
     <div>
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-1.5">
-        <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">
-          Wheel to zoom · drag to pan
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-        <button
-          type="button"
-          onClick={() => zoomBy(0.72)}
-          className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
-        >
-          +
-        </button>
-        <button
-          type="button"
-          onClick={() => zoomBy(1.38)}
-          className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
-        >
-          −
-        </button>
-        <button
-          type="button"
-          onClick={() => panBy(-Math.max(3, Math.round((zoomEnd - zoomStart) * 0.3)))}
-          className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
-        >
-          ←
-        </button>
-        <button
-          type="button"
-          onClick={() => panBy(Math.max(3, Math.round((zoomEnd - zoomStart) * 0.3)))}
-          className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
-        >
-          →
-        </button>
-        <button
-          type="button"
-          onClick={zoomToTrade}
-          className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
-        >
-          Trade zoom
-        </button>
-        <button
-          type="button"
-          onClick={resetZoom}
-          className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
-        >
-          Full
-        </button>
+      <div className="mb-2 flex justify-end">
         <ChartStyleToggle value={chartStyle} onChange={setChartStyle} />
       </div>
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_220px]">
@@ -687,10 +641,57 @@ export const SessionPlaybackChart: React.FC<{
 
   return (
     <div>
-      <div className="mb-2 flex justify-end">
-        <ChartStyleToggle value={chartStyle} onChange={setChartStyle} />
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-1.5">
+        <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">
+          Wheel to zoom · drag to pan
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => zoomBy(0.72)}
+            className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
+          >
+            +
+          </button>
+          <button
+            type="button"
+            onClick={() => zoomBy(1.38)}
+            className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
+          >
+            −
+          </button>
+          <button
+            type="button"
+            onClick={() => panBy(-Math.max(3, Math.round((zoomEnd - zoomStart) * 0.3)))}
+            className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
+          >
+            ←
+          </button>
+          <button
+            type="button"
+            onClick={() => panBy(Math.max(3, Math.round((zoomEnd - zoomStart) * 0.3)))}
+            className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
+          >
+            →
+          </button>
+          <button
+            type="button"
+            onClick={zoomToTrade}
+            className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
+          >
+            Trade zoom
+          </button>
+          <button
+            type="button"
+            onClick={resetZoom}
+            className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
+          >
+            Full
+          </button>
+          <ChartStyleToggle value={chartStyle} onChange={setChartStyle} />
         </div>
       </div>
+
       <div
         className="relative cursor-grab active:cursor-grabbing"
         style={{ height }}
