@@ -319,13 +319,25 @@ Deno.serve(async (req) => {
         price: n(weakening.underlying_price) ?? nearestPrice(weakening.created_at),
         detail: String(weakening.thesis_state ?? weakening.event_type ?? 'Evidence weakened'),
       } : null,
-      historicalReview?.invalidation_at ? {
+      invalidationContext?.status === 'during_trade' ? {
         kind: 'invalidation',
-        label: 'Thesis invalidated',
-        at: historicalReview.invalidation_at,
-        price: n(historicalReview.invalidation_price),
-        detail: 'Price crossed the retroactive thesis invalidation while the position was open.',
-      } : invalidation ? {
+        label: 'Invalidated in trade',
+        at: invalidationContext.at,
+        price: invalidationContext.price,
+        detail: invalidationContext.detail,
+      } : invalidationContext?.status === 'after_exit' ? {
+        kind: 'invalidation',
+        label: 'Invalidated after exit',
+        at: invalidationContext.at,
+        price: invalidationContext.price,
+        detail: invalidationContext.detail,
+      } : invalidationContext?.status === 'pre_entry_conflict' ? {
+        kind: 'conflict',
+        label: 'Direction unsupported before entry',
+        at: invalidationContext.at,
+        price: invalidationContext.price,
+        detail: invalidationContext.detail,
+      } : (!historicalReview && invalidation) ? {
         kind: 'invalidation',
         label: 'Thesis invalidation',
         at: invalidation.created_at,
@@ -352,7 +364,74 @@ Deno.serve(async (req) => {
       } : null,
     ].filter(Boolean);
 
-    const invalidationAt = historicalReview?.invalidation_at ?? invalidation?.created_at ?? null;
+    const reviewDirection = String(historicalReview?.retro_direction ?? '').toLowerCase();
+    const agreement = String(historicalReview?.directional_agreement ?? '');
+    const invalidationLevel = n(historicalReview?.invalidation_price);
+    const entryMs = new Date(entryAt).getTime();
+    const exitMs = exitAt ? new Date(exitAt).getTime() : null;
+
+    const crossesInvalidation = (bar: any) => {
+      if (invalidationLevel === null) return false;
+      return reviewDirection === 'bullish'
+        ? Number(bar.low) <= invalidationLevel
+        : reviewDirection === 'bearish'
+          ? Number(bar.high) >= invalidationLevel
+          : false;
+    };
+
+    const duringTradeInvalidationBar = historicalReview && exitMs !== null
+      ? bars.find((bar: any) => {
+          const t = new Date(bar.bar_time).getTime();
+          return t >= entryMs && t <= exitMs && crossesInvalidation(bar);
+        }) ?? null
+      : null;
+
+    const postExitCutoff = exitMs !== null ? exitMs + 120 * 60000 : null;
+    const postExitInvalidationBar = historicalReview && agreement === 'aligned' && exitMs !== null && !duringTradeInvalidationBar
+      ? bars.find((bar: any) => {
+          const t = new Date(bar.bar_time).getTime();
+          return t > exitMs && t <= Number(postExitCutoff) && crossesInvalidation(bar);
+        }) ?? null
+      : null;
+
+    const preEntryConflictAt = historicalReview && agreement === 'opposed'
+      ? historicalReview.confirmation_at ?? null
+      : null;
+
+    const invalidationContext = historicalReview ? (
+      agreement === 'opposed' && preEntryConflictAt
+        ? {
+            status: 'pre_entry_conflict',
+            at: preEntryConflictAt,
+            price: n(historicalReview.confirmation_price),
+            detail: `The position direction opposed the confirmed ${reviewDirection} thesis before entry.`,
+          }
+        : duringTradeInvalidationBar
+          ? {
+              status: 'during_trade',
+              at: String(duringTradeInvalidationBar.bar_time),
+              price: invalidationLevel,
+              detail: 'The reconstructed thesis invalidated while the position was open.',
+            }
+          : postExitInvalidationBar
+            ? {
+                status: 'after_exit',
+                at: String(postExitInvalidationBar.bar_time),
+                price: invalidationLevel,
+                minutes_after_exit: Math.round((new Date(postExitInvalidationBar.bar_time).getTime() - Number(exitMs)) / 60000),
+                detail: 'The thesis remained intact through exit, then invalidated shortly afterward.',
+              }
+            : {
+                status: 'not_observed',
+                at: null,
+                price: invalidationLevel,
+                detail: 'No thesis invalidation was observed while the trade was open or within two hours after exit.',
+              }
+    ) : null;
+
+    const invalidationAt = invalidationContext?.status === 'during_trade'
+      ? invalidationContext.at
+      : historicalReview?.invalidation_at ?? invalidation?.created_at ?? null;
     const postInvalidationMinutes = invalidationAt && exitAt
       ? Math.max(0, Math.round((new Date(exitAt).getTime() - new Date(invalidationAt).getTime()) / 60000))
       : null;
@@ -382,6 +461,18 @@ Deno.serve(async (req) => {
         thesis_review_status: historicalReview?.thesis_state ?? trade.thesis_review_status ?? null,
       },
       review: historicalReview,
+      invalidation_context: invalidationContext,
+      replay_summary: historicalReview ? {
+        headline: historicalReview.directional_agreement === 'aligned'
+          ? `Position aligned with the confirmed ${historicalReview.retro_direction} thesis.`
+          : historicalReview.directional_agreement === 'opposed'
+            ? `Position opposed the confirmed ${historicalReview.retro_direction} thesis at entry.`
+            : 'No confirmed TradeCycle thesis was available at entry.',
+        execution: historicalReview.entry_relationship
+          ? `Entry: ${String(historicalReview.entry_relationship).replaceAll('_', ' ')}. Exit: ${String(historicalReview.exit_relationship).replaceAll('_', ' ')}.`
+          : null,
+        invalidation: invalidationContext?.detail ?? null,
+      } : null,
       instrument: brokerageEpisode ? {
         asset_type: trade.asset_type ?? (trade.option_symbol ? 'option' : 'equity'),
         symbol,
@@ -389,8 +480,8 @@ Deno.serve(async (req) => {
         option_type: String(entryActivity?.option_type ?? trade.option_type ?? '').toLowerCase() || null,
         strike: n(entryActivity?.strike ?? trade.strike),
         expiration: entryActivity?.expiration ?? trade.expiration ?? null,
-        entry_option_price: n(entryActivity?.price ?? trade.entry_price),
-        exit_option_price: n(exitActivity?.price ?? trade.exit_price),
+        entry_option_price: n(trade.entry_price ?? entryActivity?.price),
+        exit_option_price: n(trade.exit_price ?? exitActivity?.price),
         entry_activity_at: entryActivity?.trade_date ?? entryAt,
         exit_activity_at: exitActivity?.trade_date ?? exitAt,
         source: entryActivity ? 'timestamped_snaptrade_activity' : 'normalized_episode',
