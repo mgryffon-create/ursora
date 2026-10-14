@@ -72,6 +72,10 @@ export interface HistoricalTradeReview {
   entry_at: string;
   exit_at: string | null;
   retro_direction: 'bullish' | 'bearish' | 'neutral';
+  context_direction: 'bullish' | 'bearish' | 'neutral' | null;
+  context_confirmation_at: string | null;
+  context_confirmation_price: number | null;
+  session_state: string | null;
   thesis_state: string;
   setup_class: string;
   cycle_event_type: string;
@@ -84,6 +88,8 @@ export interface HistoricalTradeReview {
   invalidation_price: number | null;
   target_hit_at: string | null;
   invalidation_at: string | null;
+  weakening_at: string | null;
+  weakening_price: number | null;
   directional_agreement: string;
   entry_relationship: string;
   exit_relationship: string;
