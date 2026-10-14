@@ -204,7 +204,7 @@ export const TraderProfileView: React.FC<{ onboarding?: boolean; onSaved?: () =>
     };
     void run();
     return () => { active = false; };
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
     let active = true;
@@ -314,7 +314,12 @@ export const TraderProfileView: React.FC<{ onboarding?: boolean; onSaved?: () =>
     setMessage(null);
     try {
       const { user_id: _userId, created_at: _created, updated_at: _updated, ...payload } = profile;
-      await saveTraderProfile({ user_id: user.id, ...payload });
+      const persisted = await saveTraderProfile({ user_id: user.id, ...payload });
+
+      // Re-read once after persistence so view mode always reflects the durable
+      // account record, not a stale local draft or an auth USER_UPDATED race.
+      const verified = await fetchTraderProfile();
+      setProfile(verified ?? persisted);
       setHasSavedProfile(true);
       setEditing(false);
       setMessage('Trader profile saved.');
