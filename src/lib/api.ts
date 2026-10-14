@@ -580,13 +580,17 @@ const profileFromMetadata = (user: { id: string; user_metadata?: Record<string, 
 };
 
 export async function fetchTraderProfile(): Promise<TraderProfile | null> {
-  const { data: authData } = await db.auth.getUser();
-  const metadataProfile = profileFromMetadata(authData.user);
+  const { data: authData, error: authError } = await db.auth.getUser();
+  if (authError) throw authError;
+  const user = authData.user;
+  if (!user) return null;
+
+  const metadataProfile = profileFromMetadata(user);
 
   const { data, error } = await db
     .from('trader_profiles')
     .select('*')
-    .limit(1)
+    .eq('user_id', user.id)
     .maybeSingle();
 
   if (error) {
@@ -595,28 +599,44 @@ export async function fetchTraderProfile(): Promise<TraderProfile | null> {
   }
 
   const tableProfile = (data as TraderProfile | null) ?? null;
-  return tableProfile ?? metadataProfile;
+  if (!tableProfile) return metadataProfile;
+  if (!metadataProfile) return tableProfile;
+
+  const tableUpdated = tableProfile.updated_at ? new Date(tableProfile.updated_at).getTime() : 0;
+  const metadataUpdated = metadataProfile.updated_at ? new Date(metadataProfile.updated_at).getTime() : 0;
+
+  // Auth metadata and the relational table intentionally mirror the same baseline.
+  // During auth refreshes one copy can briefly lag the other, so always return the
+  // newest persisted version instead of blindly preferring the table.
+  return metadataUpdated > tableUpdated ? metadataProfile : tableProfile;
 }
 
-export async function saveTraderProfile(profile: Omit<TraderProfile, 'user_id'> & { user_id: string }): Promise<void> {
+export async function saveTraderProfile(
+  profile: Omit<TraderProfile, 'user_id'> & { user_id: string },
+): Promise<TraderProfile> {
   const now = new Date().toISOString();
   const durableProfile: TraderProfile = { ...profile, updated_at: now };
 
-  // Auth metadata is the durable account-level profile source available immediately,
-  // including before the trader_profiles migration is applied. This keeps MyURSORA
-  // persistent across logout/login and across devices on the same account.
+  // Persist the relational copy first. Updating auth metadata can emit USER_UPDATED,
+  // which causes profile screens to reload; table-first prevents that reload from
+  // racing against an older/empty table row.
+  const { data: tableData, error: tableError } = await db
+    .from('trader_profiles')
+    .upsert(durableProfile, { onConflict: 'user_id' })
+    .select('*')
+    .single();
+
+  if (tableError && !isMissingTraderProfileTable(tableError)) throw tableError;
+
+  // Mirror to auth metadata so the baseline also survives environments where the
+  // relational table is temporarily unavailable and remains account-portable.
+  const persistedProfile = (tableData as TraderProfile | null) ?? durableProfile;
   const { error: metadataError } = await db.auth.updateUser({
-    data: { ursora_trader_profile: durableProfile },
+    data: { ursora_trader_profile: persistedProfile },
   });
   if (metadataError) throw metadataError;
 
-  // Mirror to the relational table when it exists so analytics and future brokerage
-  // pipelines can query the profile without parsing auth metadata.
-  const { error: tableError } = await db
-    .from('trader_profiles')
-    .upsert(durableProfile, { onConflict: 'user_id' });
-
-  if (tableError && !isMissingTraderProfileTable(tableError)) throw tableError;
+  return persistedProfile;
 }
 
 export interface SymbolAnalysisMemory {
