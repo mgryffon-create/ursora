@@ -59,6 +59,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
   const [loading, setLoading] = useState(true);
   const [selectedTradeId, setSelectedTradeId] = useState<number | null>(initialTradeIds[0] ?? null);
   const [selectedDay, setSelectedDay] = useState<string | null>(initialDay);
+  const [tradeListCollapsed, setTradeListCollapsed] = useState(false);
   const [playback, setPlayback] = useState<HistoricalPlaybackResponse | null>(null);
   const [playbackBusy, setPlaybackBusy] = useState(false);
   const [reconstructionBusy, setReconstructionBusy] = useState(false);
@@ -179,47 +180,6 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
     }
   }, [selectedDay, selectedTradeId, visibleTrades]);
 
-  useEffect(() => {
-    if (!user || !visibleTrades.length) return;
-    const brokerageIds = visibleTrades
-      .filter((trade) => trade.id < 0 && trade.id > -1000000)
-      .map((trade) => Math.abs(trade.id));
-    if (!brokerageIds.length) return;
-
-    const key = brokerageIds.slice().sort((a, b) => a - b).join(',');
-    if (reconstructedKey.current === key) return;
-    reconstructedKey.current = key;
-
-    let active = true;
-    setReconstructionBusy(true);
-    setReconstructionNote('Reconstructing historical TradeCycle evidence from data available at each entry…');
-
-    void reconstructHistoricalTrades(brokerageIds)
-      .then((result) => {
-        if (!active) return;
-        if (result.failures.length) {
-          setReconstructionNote(
-            `Historical review completed for ${result.reviewed + result.cached} episode${result.reviewed + result.cached === 1 ? '' : 's'} with ${result.failures.length} reconstruction warning${result.failures.length === 1 ? '' : 's'}.`,
-          );
-        } else {
-          setReconstructionNote(
-            `Historical TradeCycle evidence is ready for ${result.reviewed + result.cached} episode${result.reviewed + result.cached === 1 ? '' : 's'}.`,
-          );
-        }
-        setReviewGeneration((value) => value + 1);
-      })
-      .catch((reconstructionError) => {
-        if (!active) return;
-        const message = reconstructionError instanceof Error ? reconstructionError.message : String(reconstructionError);
-        setReconstructionNote(`Historical reconstruction could not complete: ${message}`);
-      })
-      .finally(() => {
-        if (active) setReconstructionBusy(false);
-      });
-
-    return () => { active = false; };
-  }, [user, visibleTrades]);
-
   const selectedTrade = useMemo(
     () => visibleTrades.find((trade) => trade.id === selectedTradeId) ?? null,
     [selectedTradeId, visibleTrades],
@@ -232,29 +192,60 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
       return () => { active = false; };
     }
 
-    setPlaybackBusy(true);
-    setError(null);
-    void fetchHistoricalPlayback(selectedTradeId)
-      .then((result) => {
-        if (active) setPlayback(result);
-      })
-      .catch((playbackError) => {
-        if (active) {
-          setPlayback(null);
-          const message = playbackError instanceof Error
-            ? playbackError.message
-            : typeof playbackError === 'string'
-              ? playbackError
-              : (() => { try { return JSON.stringify(playbackError); } catch { return 'Historical playback could not be loaded.'; } })();
-          setError(message);
-        }
-      })
-      .finally(() => {
-        if (active) setPlaybackBusy(false);
-      });
+    const loadSelectedReplay = async () => {
+      setPlaybackBusy(true);
+      setError(null);
+      try {
+        // First load/fill the immutable playback window. If the historical TradeCycle
+        // review does not exist yet, reconstruct from those persisted bars and reload.
+        let result = await fetchHistoricalPlayback(selectedTradeId);
+        if (!active) return;
+        setPlayback(result);
 
+        const canonicalEpisode = selectedTradeId < 0 && selectedTradeId > -1000000;
+        const episodeId = Math.abs(selectedTradeId);
+        const reconstructionKey = String(episodeId);
+
+        if (canonicalEpisode && !result.review && reconstructedKey.current !== reconstructionKey) {
+          reconstructedKey.current = reconstructionKey;
+          setReconstructionBusy(true);
+          setReconstructionNote('Building the TradeCycle lookback from this trade’s stored historical bars…');
+
+          const reconstruction = await reconstructHistoricalTrades([episodeId]);
+          if (!active) return;
+
+          if (reconstruction.failures.length) {
+            setReconstructionNote(
+              `TradeCycle lookback could not fully reconstruct: ${reconstruction.failures[0]}`,
+            );
+          } else {
+            setReconstructionNote('Historical TradeCycle lookback ready.');
+            result = await fetchHistoricalPlayback(selectedTradeId);
+            if (!active) return;
+            setPlayback(result);
+          }
+          setReviewGeneration((value) => value + 1);
+        }
+      } catch (playbackError) {
+        if (!active) return;
+        setPlayback(null);
+        const message = playbackError instanceof Error
+          ? playbackError.message
+          : typeof playbackError === 'string'
+            ? playbackError
+            : (() => { try { return JSON.stringify(playbackError); } catch { return 'Historical playback could not be loaded.'; } })();
+        setError(message);
+      } finally {
+        if (active) {
+          setPlaybackBusy(false);
+          setReconstructionBusy(false);
+        }
+      }
+    };
+
+    void loadSelectedReplay();
     return () => { active = false; };
-  }, [reviewGeneration, selectedTradeId]);
+  }, [selectedTradeId]);
 
   if (loading) return <Spinner label="Loading brokerage trade history" />;
 
@@ -335,7 +326,31 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
             </div>
           </Panel>
 
-          <div className="grid gap-3 xl:grid-cols-[330px_minmax(0,1fr)]">
+          <div className={cn(
+            'grid gap-3',
+            tradeListCollapsed
+              ? 'xl:grid-cols-[44px_minmax(0,1fr)]'
+              : 'xl:grid-cols-[330px_minmax(0,1fr)]',
+          )}>
+          {tradeListCollapsed ? (
+            <button
+              type="button"
+              onClick={() => setTradeListCollapsed(false)}
+              className="hidden min-h-[520px] rounded-md border border-zinc-800 bg-[#111419] font-mono text-[9px] uppercase tracking-[0.18em] text-zinc-500 hover:border-sky-500/40 hover:text-sky-300 xl:flex xl:items-center xl:justify-center"
+              title="Show trades for this day"
+            >
+              <span className="[writing-mode:vertical-rl] rotate-180">Trades · {visibleTrades.length}</span>
+            </button>
+          ) : (
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => setTradeListCollapsed(true)}
+                className="flex w-full items-center justify-between rounded-sm border border-zinc-800 bg-black/20 px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-wider text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
+              >
+                <span>Trades on {selectedDay ? prettyDay(selectedDay) : 'selected day'}</span>
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
           <Panel
             title={selectedDay ? `Trades on ${prettyDay(selectedDay)}` : 'Trade day'}
             subtitle={daySummary
@@ -393,6 +408,8 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
               })}
             </div>
           </Panel>
+            </div>
+          )}
 
           <Panel
             title={selectedTrade ? selectedTrade.symbol + ' · ' + dateET(selectedTrade.entry_at ?? selectedTrade.created_at) : 'Trade playback'}
@@ -452,95 +469,96 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                 </div>
               )}
 
-              <SessionPlaybackChart bars={playback.bars} markers={playback.markers} levels={playback.levels} />
+              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_250px]">
+                <div className="min-w-0">
+                  <SessionPlaybackChart
+                    bars={playback.bars}
+                    markers={playback.markers}
+                    levels={playback.levels}
+                    height={500}
+                    showStructureCards={false}
+                  />
+                </div>
 
-                {selectedTrade?.id && selectedTrade.id < 0 && !playback.review && (
-                  <div className="flex items-start gap-2 rounded-sm border border-sky-500/25 bg-sky-500/[0.04] p-3">
-                    <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" aria-hidden="true" />
-                    <div>
-                      <div className="text-[11px] font-medium text-zinc-200">Historical thesis reconstruction pending</div>
-                      <p className="mt-1 text-[10px] leading-relaxed text-zinc-500">
-                        The brokerage execution is available, but the no-lookahead TradeCycle review has not been materialized yet.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {playback.review && (
-                  <div className="rounded-sm border border-zinc-800 bg-[#0d1015] p-3">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-sky-400">Your position vs TradeCycle</div>
-                        <div className="mt-1 text-sm font-semibold text-zinc-100">
+                <aside className="space-y-2">
+                  <div className="rounded-md border border-zinc-800 bg-[#0d1015] p-3">
+                    <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-sky-400">Historical TradeCycle</div>
+                    {playback.review ? (
+                      <>
+                        <div className="mt-1 text-[12px] font-semibold text-zinc-100">
                           {playback.review.retro_direction === 'neutral'
-                            ? 'No confirmed historical thesis at entry'
+                            ? 'No confirmed thesis at entry'
                             : `${playback.review.retro_direction.toUpperCase()} · ${playback.review.setup_class.replaceAll('_', ' ')}`}
                         </div>
+                        <p className="mt-1.5 text-[9px] leading-relaxed text-zinc-500">{playback.review.review_summary}</p>
+                      </>
+                    ) : (
+                      <div className="mt-2 flex items-start gap-2 text-[10px] leading-relaxed text-zinc-500">
+                        <Clock3 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-400" />
+                        <span>{reconstructionBusy ? 'Building this lookback from cached price history…' : 'TradeCycle lookback is not available yet.'}</span>
                       </div>
-                      <span className={cn(
-                        'rounded-sm border px-2 py-1 font-mono text-[9px] uppercase tracking-wider',
-                        playback.review.directional_agreement === 'aligned'
-                          ? 'border-emerald-500/30 bg-emerald-500/[0.06] text-emerald-300'
-                          : playback.review.directional_agreement === 'opposed'
-                            ? 'border-red-500/30 bg-red-500/[0.06] text-red-300'
-                            : 'border-zinc-700 bg-black/20 text-zinc-400',
-                      )}>
-                        {playback.review.directional_agreement.replaceAll('_', ' ')}
-                      </span>
+                    )}
+                  </div>
+
+                  <div className="rounded-md border border-zinc-800 bg-[#0d1015] p-2.5">
+                    <div className="font-mono text-[8px] uppercase tracking-[0.16em] text-zinc-600">Meaningful levels</div>
+                    <div className="mt-2 space-y-1.5">
+                      {playback.levels.length ? playback.levels.map((level) => (
+                        <div key={`${level.kind}-${level.value}`} className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-mono text-[8px] uppercase tracking-wider text-zinc-400">{level.label}</span>
+                            <span className="font-mono text-[10px] tabular-nums text-zinc-200">{Number(level.value).toFixed(2)}</span>
+                          </div>
+                          <div className="mt-1 text-[8px] leading-relaxed text-zinc-600">{level.detail}</div>
+                        </div>
+                      )) : (
+                        <div className="text-[9px] leading-relaxed text-zinc-600">No reconstructed levels yet.</div>
+                      )}
                     </div>
+                  </div>
 
-                    <p className="mt-2 text-[11px] leading-relaxed text-zinc-400">{playback.review.review_summary}</p>
-
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                      <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
-                        <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Entry relationship</div>
-                        <div className="mt-1 text-[10px] text-zinc-300">{playback.review.entry_relationship.replaceAll('_', ' ')}</div>
-                      </div>
-                      <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
-                        <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Exit relationship</div>
-                        <div className="mt-1 text-[10px] text-zinc-300">{playback.review.exit_relationship.replaceAll('_', ' ')}</div>
-                      </div>
-                      <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
-                        <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">5-day range location</div>
-                        <div className="mt-1 font-mono text-[10px] text-zinc-300">
-                          {playback.review.range_position_5d === null ? '—' : `${Math.round(playback.review.range_position_5d * 100)}th percentile`}
+                  <div className="rounded-md border border-zinc-800 bg-[#0d1015] p-2.5">
+                    <div className="font-mono text-[8px] uppercase tracking-[0.16em] text-zinc-600">Your execution</div>
+                    <div className="mt-2 space-y-2 text-[9px]">
+                      {playback.review && (
+                        <>
+                          <div className="flex justify-between gap-2">
+                            <span className="text-zinc-600">Thesis alignment</span>
+                            <span className={cn(
+                              'font-mono uppercase',
+                              playback.review.directional_agreement === 'aligned' ? 'text-emerald-300'
+                                : playback.review.directional_agreement === 'opposed' ? 'text-red-300'
+                                  : 'text-zinc-400',
+                            )}>{playback.review.directional_agreement.replaceAll('_', ' ')}</span>
+                          </div>
+                          <div className="flex justify-between gap-2">
+                            <span className="text-zinc-600">Entry relationship</span>
+                            <span className="text-right text-zinc-300">{playback.review.entry_relationship.replaceAll('_', ' ')}</span>
+                          </div>
+                          <div className="flex justify-between gap-2">
+                            <span className="text-zinc-600">Exit relationship</span>
+                            <span className="text-right text-zinc-300">{playback.review.exit_relationship.replaceAll('_', ' ')}</span>
+                          </div>
+                        </>
+                      )}
+                      <div className="border-t border-zinc-800 pt-2">
+                        <div className="flex justify-between gap-2">
+                          <span className="text-zinc-600">Entry</span>
+                          <span className="font-mono text-zinc-300">{timeET(playback.episode.entry_at)}</span>
+                        </div>
+                        <div className="mt-1 flex justify-between gap-2">
+                          <span className="text-zinc-600">Exit</span>
+                          <span className="font-mono text-zinc-300">{playback.episode.exit_at ? timeET(playback.episode.exit_at) : '—'}</span>
+                        </div>
+                        <div className="mt-1 flex justify-between gap-2">
+                          <span className="text-zinc-600">Invalidated</span>
+                          <span className="font-mono text-zinc-300">{playback.episode.invalidation_at ? timeET(playback.episode.invalidation_at) : 'not observed'}</span>
                         </div>
                       </div>
-                      <div className="rounded-sm border border-zinc-800 bg-black/20 p-2">
-                        <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Cycle confidence</div>
-                        <div className="mt-1 font-mono text-[10px] text-zinc-300">
-                          {playback.review.confidence_score === null ? '—' : `${Math.round(playback.review.confidence_score)}/100`}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-2 text-[9px] leading-relaxed text-zinc-600">
-                      No-lookahead reconstruction: thesis, levels, and confirmation use only information available at or before the brokerage entry. Post-entry bars are used only to measure subsequent target, invalidation, excursion, and exit behavior.
                     </div>
                   </div>
-                )}
-
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <div className="rounded-sm border border-zinc-800 bg-black/20 p-2.5">
-                    <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Entry</div>
-                    <div className="mt-1 text-[11px] text-zinc-300">
-                      {dateET(playback.episode.entry_at)} · {timeET(playback.episode.entry_at)}
-                    </div>
-                  </div>
-                  <div className="rounded-sm border border-zinc-800 bg-black/20 p-2.5">
-                    <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Thesis invalidation</div>
-                    <div className="mt-1 text-[11px] text-zinc-300">
-                      {playback.episode.invalidation_at ? timeET(playback.episode.invalidation_at) : 'Not reconstructed yet'}
-                    </div>
-                  </div>
-                  <div className="rounded-sm border border-zinc-800 bg-black/20 p-2.5">
-                    <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Exit</div>
-                    <div className="mt-1 text-[11px] text-zinc-300">
-                      {playback.episode.exit_at ? timeET(playback.episode.exit_at) : 'Position still open'}
-                    </div>
-                  </div>
-                </div>
-              </div>
+                </aside>
+              </div>              </div>
             ) : (
               <div className="flex min-h-[360px] items-center justify-center rounded-sm border border-dashed border-zinc-800">
                 <div className="text-center">
