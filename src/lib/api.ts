@@ -383,7 +383,7 @@ export interface HistoricalTradeReview {
 }
 
 export interface HistoricalPlaybackLevel {
-  kind: 'confirmation' | 'target' | 'invalidation' | 'support' | 'resistance';
+  kind: 'reversal' | 'confirmation' | 'target' | 'invalidation' | 'support' | 'resistance';
   label: string;
   value: number;
   detail: string;
