@@ -64,6 +64,43 @@ export interface TradeRecord {
   created_at: string;
 }
 
+export interface HistoricalTradeReview {
+  id: number;
+  user_id: string;
+  brokerage_episode_id: number;
+  symbol: string;
+  entry_at: string;
+  exit_at: string | null;
+  retro_direction: 'bullish' | 'bearish' | 'neutral';
+  thesis_state: string;
+  setup_class: string;
+  cycle_event_type: string;
+  reversal_origin: number | null;
+  confirmation_price: number | null;
+  confirmation_at: string | null;
+  entry_underlying_price: number | null;
+  exit_underlying_price: number | null;
+  target_price: number | null;
+  invalidation_price: number | null;
+  target_hit_at: string | null;
+  invalidation_at: string | null;
+  directional_agreement: string;
+  entry_relationship: string;
+  exit_relationship: string;
+  range_position_5d: number | null;
+  range_position_20d: number | null;
+  volume_confirmation_ratio: number | null;
+  move_extension_at_entry: number | null;
+  mfe_underlying_pct: number | null;
+  mae_underlying_pct: number | null;
+  post_invalidation_minutes: number | null;
+  confidence_score: number | null;
+  review_summary: string | null;
+  evidence: Record<string, unknown>;
+  engine_version: string;
+  computed_at: string;
+}
+
 export interface TradeCycleThesisEvent {
   id: number;
   user_id: string | null;
