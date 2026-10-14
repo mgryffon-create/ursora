@@ -471,7 +471,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                 </div>
               )}
 
-              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_250px]">
+              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_330px]">
                 <div className="min-w-0">
                   <SessionPlaybackChart
                     bars={playback.bars}
@@ -484,156 +484,157 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                 </div>
 
                 <aside className="space-y-2 xl:sticky xl:top-3 xl:self-start">
-                  {playback.replay_summary && (
-                    <div className="rounded-md border border-sky-500/30 bg-sky-500/[0.05] p-3">
-                      <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-sky-400">Decision review</div>
+                  {playback.review && playback.replay_summary ? (
+                    <div className="rounded-md border border-sky-500/35 bg-sky-500/[0.055] p-3.5">
+                      <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-sky-400">Trade storyline</div>
 
-                      <div className="mt-2 space-y-2">
-                        <div>
-                          <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">What the market did</div>
-                          <div className="mt-0.5 text-[10px] leading-relaxed text-zinc-300">{playback.replay_summary.headline}</div>
-                        </div>
-
-                        {playback.review && (
-                          <div className="grid grid-cols-2 gap-1.5">
-                            <div className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1.5">
-                              <div className="font-mono text-[7px] uppercase tracking-wider text-zinc-600">Confirmation → entry</div>
-                              <div className="mt-0.5 font-mono text-[10px] text-zinc-200">
-                                {playback.review.confirmation_to_entry_minutes === null ? '—' : `${playback.review.confirmation_to_entry_minutes} min`}
-                              </div>
-                            </div>
-                            <div className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1.5">
-                              <div className="font-mono text-[7px] uppercase tracking-wider text-zinc-600">Move consumed</div>
-                              <div className="mt-0.5 font-mono text-[10px] text-zinc-200">
-                                {playback.review.move_consumed_to_target_pct === null ? '—' : `${Math.round(playback.review.move_consumed_to_target_pct)}%`}
-                              </div>
-                            </div>
-                            <div className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1.5">
-                              <div className="font-mono text-[7px] uppercase tracking-wider text-zinc-600">Momentum at entry</div>
-                              <div className="mt-0.5 font-mono text-[9px] uppercase text-zinc-300">
-                                {playback.review.momentum_state_at_entry?.replaceAll('_', ' ') ?? '—'}
-                              </div>
-                            </div>
-                            <div className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1.5">
-                              <div className="font-mono text-[7px] uppercase tracking-wider text-zinc-600">Entry quality</div>
-                              <div className="mt-0.5 font-mono text-[9px] uppercase text-zinc-300">
-                                {playback.review.entry_quality_label?.replaceAll('_', ' ') ?? '—'}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        <div>
-                          <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">What your execution means</div>
-                          <div className="mt-0.5 text-[10px] leading-relaxed text-zinc-300">
-                            {playback.replay_summary.guidance ?? playback.replay_summary.execution ?? 'No execution interpretation available.'}
+                      <div className="mt-3 space-y-3">
+                        <div className="border-l-2 border-sky-500/35 pl-3">
+                          <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Before entry</div>
+                          <div className="mt-1 text-[11px] leading-relaxed text-zinc-300">
+                            {playback.review.retro_direction === 'neutral'
+                              ? 'TradeCycle did not find a substantiated directional thesis before this entry.'
+                              : `A ${playback.review.retro_direction} move was confirmed ${playback.review.confirmation_to_entry_minutes === null ? 'before the trade' : `${playback.review.confirmation_to_entry_minutes} minute${playback.review.confirmation_to_entry_minutes === 1 ? '' : 's'} before entry`}.`}
+                            {playback.review.retest_before_entry
+                              ? ' Price then tested and held the confirmed area before the user entered.'
+                              : ''}
                           </div>
                         </div>
 
-                        {playback.replay_summary.invalidation && (
-                          <div>
-                            <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">Thesis outcome</div>
-                            <div className="mt-0.5 text-[9px] leading-relaxed text-zinc-400">{playback.replay_summary.invalidation}</div>
+                        <div className="border-l-2 border-violet-400/35 pl-3">
+                          <div className="font-mono text-[8px] uppercase tracking-wider text-violet-300/80">Your entry</div>
+                          <div className="mt-1 text-[11px] leading-relaxed text-zinc-300">
+                            {playback.review.directional_agreement === 'opposed'
+                              ? `The position was opened against the confirmed ${playback.review.retro_direction} thesis.`
+                              : playback.review.directional_agreement === 'aligned'
+                                ? `The position was directionally aligned with the confirmed ${playback.review.retro_direction} thesis.`
+                                : 'The position was opened without a confirmed directional thesis to compare against.'}
+                            {playback.review.move_consumed_to_target_pct !== null
+                              ? ` About ${Math.round(playback.review.move_consumed_to_target_pct)}% of the confirmation-to-target move had already occurred by entry.`
+                              : ''}
+                            {playback.review.momentum_state_at_entry
+                              ? ` Momentum was ${playback.review.momentum_state_at_entry.replaceAll('_', ' ')}.`
+                              : ''}
                           </div>
-                        )}
+                        </div>
+
+                        <div className="border-l-2 border-emerald-400/35 pl-3">
+                          <div className="font-mono text-[8px] uppercase tracking-wider text-emerald-300/80">While you held</div>
+                          <div className="mt-1 text-[11px] leading-relaxed text-zinc-300">
+                            {playback.review.target_hit_at
+                              ? `The reconstructed tactical target was reached at ${timeET(playback.review.target_hit_at)} while the position was still open.`
+                              : 'The reconstructed tactical target was not reached while the position was open.'}
+                            {' '}
+                            {playback.invalidation_context?.status === 'during_trade'
+                              ? `The thesis then invalidated at ${timeET(playback.invalidation_context.at)} before the position was closed.`
+                              : playback.invalidation_context?.status === 'pre_entry_conflict'
+                                ? 'The user’s direction was already unsupported before entry.'
+                                : 'No thesis invalidation was observed while the position was open.'}
+                          </div>
+                        </div>
+
+                        <div className="border-l-2 border-blue-400/35 pl-3">
+                          <div className="font-mono text-[8px] uppercase tracking-wider text-blue-300/80">Your exit</div>
+                          <div className="mt-1 text-[11px] leading-relaxed text-zinc-300">
+                            {playback.episode.exit_at
+                              ? `The position was closed at ${timeET(playback.episode.exit_at)}.`
+                              : 'No recorded exit timestamp is available.'}
+                            {' '}
+                            {playback.review.exit_relationship
+                              ? `TradeCycle classifies that exit as ${playback.review.exit_relationship.replaceAll('_', ' ')}.`
+                              : ''}
+                            {playback.invalidation_context?.status === 'after_exit' && playback.invalidation_context.at
+                              ? ` The thesis remained intact at exit and invalidated later at ${timeET(playback.invalidation_context.at)}.`
+                              : ''}
+                          </div>
+                        </div>
+
+                        <div className="rounded-sm border border-amber-500/20 bg-amber-500/[0.04] p-2.5">
+                          <div className="font-mono text-[8px] uppercase tracking-wider text-amber-300/80">What URSORA sees</div>
+                          <div className="mt-1 text-[11px] leading-relaxed text-zinc-200">
+                            {playback.replay_summary.guidance ?? playback.replay_summary.execution ?? playback.review.review_summary}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <div className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1.5">
+                            <div className="font-mono text-[7px] uppercase tracking-wider text-zinc-600">Entry quality</div>
+                            <div className="mt-0.5 font-mono text-[9px] uppercase text-zinc-300">
+                              {playback.review.entry_quality_label?.replaceAll('_', ' ') ?? '—'}
+                            </div>
+                          </div>
+                          <div className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1.5">
+                            <div className="font-mono text-[7px] uppercase tracking-wider text-zinc-600">Alignment</div>
+                            <div className={cn(
+                              'mt-0.5 font-mono text-[9px] uppercase',
+                              playback.review.directional_agreement === 'aligned' ? 'text-emerald-300'
+                                : playback.review.directional_agreement === 'opposed' ? 'text-red-300'
+                                  : 'text-zinc-300',
+                            )}>
+                              {playback.review.directional_agreement.replaceAll('_', ' ')}
+                            </div>
+                          </div>
+                        </div>
 
                         <div className="border-t border-sky-500/15 pt-2">
-                          <div className="font-mono text-[8px] uppercase tracking-wider text-amber-300/80">What to compare in your history</div>
-                          <div className="mt-0.5 text-[9px] leading-relaxed text-zinc-400">{playback.replay_summary.compare}</div>
+                          <div className="font-mono text-[8px] uppercase tracking-wider text-zinc-600">What to compare in your history</div>
+                          <div className="mt-1 text-[9px] leading-relaxed text-zinc-400">{playback.replay_summary.compare}</div>
                         </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-zinc-800 bg-[#0d1015] p-3">
+                      <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-sky-400">Trade storyline</div>
+                      <div className="mt-2 flex items-start gap-2 text-[10px] leading-relaxed text-zinc-500">
+                        <Clock3 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-400" />
+                        <span>{reconstructionBusy ? 'Building the historical decision review…' : 'Historical decision evidence is not available yet.'}</span>
                       </div>
                     </div>
                   )}
 
-                  <div className="rounded-md border border-zinc-800 bg-[#0d1015] p-3">
-                    <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-sky-400">Historical TradeCycle</div>
-                    {playback.review ? (
-                      <>
-                        <div className="mt-1 text-[12px] font-semibold text-zinc-100">
-                          {playback.review.retro_direction === 'neutral'
-                            ? 'No confirmed thesis at entry'
-                            : `${playback.review.retro_direction.toUpperCase()} · ${playback.review.setup_class.replaceAll('_', ' ')}`}
-                        </div>
-                        <p className="mt-1.5 text-[9px] leading-relaxed text-zinc-500">{playback.review.review_summary}</p>
-                        {playback.review.directional_agreement === 'opposed' && playback.invalidation_context?.status === 'pre_entry_conflict' && (
-                          <div className="mt-2 rounded-sm border border-red-500/25 bg-red-500/[0.05] px-2 py-1.5 text-[9px] leading-relaxed text-red-200/80">
-                            The position direction was already unsupported before entry; the opposing TradeCycle confirmation occurred at {timeET(playback.invalidation_context.at)}.
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="mt-2 flex items-start gap-2 text-[10px] leading-relaxed text-zinc-500">
-                        <Clock3 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-400" />
-                        <span>{reconstructionBusy ? 'Building this lookback from cached price history…' : 'TradeCycle lookback is not available yet.'}</span>
+                  <details className="group rounded-md border border-zinc-800 bg-[#0d1015]">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5">
+                      <div>
+                        <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-sky-400">Historical TradeCycle details</div>
+                        <div className="mt-0.5 text-[9px] text-zinc-600">Setup classification, levels, and reconstructed evidence</div>
                       </div>
-                    )}
-                  </div>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-zinc-600 transition-transform group-open:rotate-90" />
+                    </summary>
 
-                  <div className="rounded-md border border-zinc-800 bg-[#0d1015] p-2.5">
-                    <div className="font-mono text-[8px] uppercase tracking-[0.16em] text-zinc-600">Meaningful levels</div>
-                    <div className="mt-2 space-y-1.5">
-                      {playback.levels.length ? playback.levels.map((level) => (
-                        <div key={`${level.kind}-${level.value}`} className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-mono text-[8px] uppercase tracking-wider text-zinc-400">{level.kind === 'invalidation' ? 'Invalidation threshold' : level.label}</span>
-                            <span className="font-mono text-[10px] tabular-nums text-zinc-200">{Number(level.value).toFixed(2)}</span>
+                    <div className="space-y-2 border-t border-zinc-800 p-3">
+                      {playback.review ? (
+                        <div>
+                          <div className="text-[12px] font-semibold text-zinc-100">
+                            {playback.review.retro_direction === 'neutral'
+                              ? 'No confirmed thesis at entry'
+                              : `${playback.review.retro_direction.toUpperCase()} · ${playback.review.setup_class.replaceAll('_', ' ')}`}
                           </div>
-                          <div className="mt-1 text-[8px] leading-relaxed text-zinc-600">{level.detail}</div>
+                          <p className="mt-1.5 text-[9px] leading-relaxed text-zinc-500">{playback.review.review_summary}</p>
                         </div>
-                      )) : (
-                        <div className="text-[9px] leading-relaxed text-zinc-600">No reconstructed levels yet.</div>
+                      ) : (
+                        <div className="text-[9px] text-zinc-600">No reconstructed setup available.</div>
                       )}
-                    </div>
-                  </div>
 
-                  <div className="rounded-md border border-zinc-800 bg-[#0d1015] p-2.5">
-                    <div className="font-mono text-[8px] uppercase tracking-[0.16em] text-zinc-600">Your execution</div>
-                    <div className="mt-2 space-y-2 text-[9px]">
-                      {playback.review && (
-                        <>
-                          <div className="flex justify-between gap-2">
-                            <span className="text-zinc-600">Thesis alignment</span>
-                            <span className={cn(
-                              'font-mono uppercase',
-                              playback.review.directional_agreement === 'aligned' ? 'text-emerald-300'
-                                : playback.review.directional_agreement === 'opposed' ? 'text-red-300'
-                                  : 'text-zinc-400',
-                            )}>{playback.review.directional_agreement.replaceAll('_', ' ')}</span>
-                          </div>
-                          <div className="flex justify-between gap-2">
-                            <span className="text-zinc-600">Entry relationship</span>
-                            <span className="text-right text-zinc-300">{playback.review.entry_relationship.replaceAll('_', ' ')}</span>
-                          </div>
-                          <div className="flex justify-between gap-2">
-                            <span className="text-zinc-600">Exit relationship</span>
-                            <span className="text-right text-zinc-300">{playback.review.exit_relationship.replaceAll('_', ' ')}</span>
-                          </div>
-                        </>
-                      )}
                       <div className="border-t border-zinc-800 pt-2">
-                        <div className="flex justify-between gap-2">
-                          <span className="text-zinc-600">Entry</span>
-                          <span className="font-mono text-zinc-300">{timeET(playback.episode.entry_at)}</span>
-                        </div>
-                        <div className="mt-1 flex justify-between gap-2">
-                          <span className="text-zinc-600">Exit</span>
-                          <span className="font-mono text-zinc-300">{playback.episode.exit_at ? timeET(playback.episode.exit_at) : '—'}</span>
-                        </div>
-                        <div className="mt-1 flex justify-between gap-2">
-                          <span className="text-zinc-600">Invalidation</span>
-                          <span className="max-w-[150px] text-right font-mono text-zinc-300">
-                            {playback.invalidation_context?.status === 'during_trade' && playback.invalidation_context.at
-                              ? `during trade · ${timeET(playback.invalidation_context.at)}`
-                              : playback.invalidation_context?.status === 'after_exit' && playback.invalidation_context.at
-                                ? `after exit · ${timeET(playback.invalidation_context.at)}`
-                                : playback.invalidation_context?.status === 'pre_entry_conflict' && playback.invalidation_context.at
-                                  ? `before entry · ${timeET(playback.invalidation_context.at)}`
-                                  : 'not observed'}
-                          </span>
+                        <div className="font-mono text-[8px] uppercase tracking-[0.16em] text-zinc-600">Meaningful levels</div>
+                        <div className="mt-2 space-y-1.5">
+                          {playback.levels.length ? playback.levels.map((level) => (
+                            <div key={`${level.kind}-${level.value}`} className="rounded-sm border border-zinc-800 bg-black/20 px-2 py-1.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-mono text-[8px] uppercase tracking-wider text-zinc-400">
+                                  {level.kind === 'invalidation' ? 'Invalidation threshold' : level.label}
+                                </span>
+                                <span className="font-mono text-[10px] tabular-nums text-zinc-200">{Number(level.value).toFixed(2)}</span>
+                              </div>
+                              <div className="mt-1 text-[8px] leading-relaxed text-zinc-600">{level.detail}</div>
+                            </div>
+                          )) : (
+                            <div className="text-[9px] leading-relaxed text-zinc-600">No reconstructed levels yet.</div>
+                          )}
                         </div>
                       </div>
                     </div>
-                  </div>
+                  </details>
                 </aside>
               </div>              </div>
             ) : (
