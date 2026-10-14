@@ -514,8 +514,8 @@ export const SessionPlaybackChart: React.FC<{
   showStructureCards?: boolean;
   compactEvents?: boolean;
   syncId?: string;
-  afterPlot?: (range: { startIndex: number; endIndex: number }, onRangeChange: (range: { startIndex?: number; endIndex?: number }) => void) => React.ReactNode;
   responsiveHeight?: boolean;
+  indicatorOverlay?: (at: string | null) => React.ReactNode;
 }> = ({
   bars,
   markers,
@@ -524,17 +524,19 @@ export const SessionPlaybackChart: React.FC<{
   showStructureCards = true,
   compactEvents = false,
   syncId,
-  afterPlot,
   responsiveHeight = false,
+  indicatorOverlay,
 }) => {
   const [chartStyle, setChartStyle] = usePriceChartStyle();
   const [zoomStart, setZoomStart] = useState(0);
   const [zoomEnd, setZoomEnd] = useState(Math.max(0, bars.length - 1));
+  const [indicatorAt, setIndicatorAt] = useState<string | null>(null);
   const [hoveredMarker, setHoveredMarker] = useState<SessionPlaybackMarker | null>(null);
 
   useEffect(() => {
     setZoomStart(0);
     setZoomEnd(Math.max(0, bars.length - 1));
+    setIndicatorAt(null);
   }, [bars]);
 
   if (!bars.length) {
@@ -611,16 +613,17 @@ export const SessionPlaybackChart: React.FC<{
       </div>
 
       <div
-        className={responsiveHeight ? "relative h-[260px] sm:h-[380px]" : "relative"}
+        className={responsiveHeight ? "relative h-[340px] sm:h-[440px]" : "relative"}
         style={responsiveHeight ? undefined : { height }}
       >
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={plotBars} syncId={syncId} margin={{ top: 20, right: 64, bottom: 4, left: 0 }}>
+          <ComposedChart data={plotBars} syncId={syncId} margin={{ top: indicatorOverlay ? 88 : 20, right: 64, bottom: 4, left: 0 }}
+            onMouseMove={(state) => { if (indicatorOverlay) setIndicatorAt(typeof state.activeLabel === 'string' ? state.activeLabel : null); }}
+            onMouseLeave={() => setIndicatorAt(null)}
+          >
             <CartesianGrid stroke="#1c2027" strokeDasharray="2 4" vertical={false} />
             <XAxis
               dataKey="bar_time"
-              hide={Boolean(afterPlot)}
-              height={afterPlot ? 0 : 30}
               tick={axisStyle}
               tickLine={false}
               axisLine={{ stroke: '#1c2027' }}
@@ -685,8 +688,7 @@ export const SessionPlaybackChart: React.FC<{
             ))}
             <Brush
               dataKey="bar_time"
-              height={afterPlot ? 0 : 18}
-              className={afterPlot ? "hidden" : undefined}
+              height={18}
               travellerWidth={7}
               startIndex={zoomStart}
               endIndex={zoomEnd}
@@ -697,8 +699,9 @@ export const SessionPlaybackChart: React.FC<{
             />
           </ComposedChart>
         </ResponsiveContainer>
+        {indicatorOverlay?.(indicatorAt)}
         {hoveredMarker && (
-          <div className="pointer-events-none absolute left-3 top-3 z-20 max-w-[260px] rounded-sm border border-zinc-700 bg-[#0b0d10]/95 px-2.5 py-2 shadow-xl">
+          <div className={`pointer-events-none absolute left-3 ${indicatorOverlay ? "top-24" : "top-3"} z-20 max-w-[260px] rounded-sm border border-zinc-700 bg-[#0b0d10]/95 px-2.5 py-2 shadow-xl`}>
             <div className="font-mono text-[9px] uppercase tracking-wider" style={{ color: markerColor(hoveredMarker.kind) }}>
               {hoveredMarker.label}
             </div>
@@ -711,8 +714,6 @@ export const SessionPlaybackChart: React.FC<{
           </div>
         )}
       </div>
-
-      {afterPlot?.({ startIndex: zoomStart, endIndex: zoomEnd }, updateRange)}
 
       {showStructureCards && levels.length > 0 && (
         <div className="mt-3">

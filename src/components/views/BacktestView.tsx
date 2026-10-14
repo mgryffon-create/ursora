@@ -4,11 +4,10 @@ import { fetchHistoricalPlayback, normalizeStoredBrokerageTrades, reconstructHis
 import { fetchBrokerageTradeRecords } from '@/lib/behavioral/api';
 import type { TradeRecord } from '@/lib/behavioral/types';
 import { useAuth } from '@/contexts/AuthContext';
-import { SessionPlaybackChart, type SessionPlaybackMarker } from '@/components/charts/PriceChart';
+import { SessionPlaybackChart } from '@/components/charts/PriceChart';
 import { Disclaimer, EmptyState, Panel, SectionHeading, Spinner } from '@/components/common/Primitives';
 import { cn } from '@/lib/utils';
 import { signedMoney } from '@/lib/format';
-import { Bar as RBar, Brush, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { Bar as MarketBar } from '@/lib/types';
 import { historicalEntryHeadline } from '@/lib/historicalEntryHeadline';
 
@@ -78,24 +77,11 @@ const medianLocal = (values: number[]) => {
   return sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
 };
 
-const indicatorMarkerColor = (kind: SessionPlaybackMarker['kind']) =>
-  kind === 'entry' ? '#a78bfa'
-    : kind === 'confirmation' ? '#38bdf8'
-      : kind === 'target' ? '#34d399'
-        : kind === 'weakening' ? '#fbbf24'
-          : kind === 'invalidation' ? '#f87171'
-            : kind === 'conflict' ? '#fb7185'
-              : '#60a5fa';
-
-const HistoricalIndicatorPanel: React.FC<{
+const HistoricalIndicatorReadouts: React.FC<{
   bars: MarketBar[];
   entryAt: string;
-  markers: SessionPlaybackMarker[];
-  review: HistoricalPlaybackResponse['review'];
-  syncId: string;
-  range: { startIndex: number; endIndex: number };
-  onRangeChange: (range: { startIndex?: number; endIndex?: number }) => void;
-}> = ({ bars, entryAt, markers, review, syncId, range, onRangeChange }) => {
+  at: string | null;
+}> = ({ bars, entryAt, at }) => {
   const data = useMemo(() => {
     const ordered = [...bars].sort((a, b) => +new Date(a.bar_time) - +new Date(b.bar_time));
     if (!ordered.length) return [];
@@ -138,7 +124,7 @@ const HistoricalIndicatorPanel: React.FC<{
 
       const momentumIndex = Math.max(0, index - 6);
       const momentumBase = Number(sessionBars[momentumIndex]?.close ?? bar.close);
-      const momentum30 = momentumBase !== 0 ? ((Number(bar.close) - momentumBase) / momentumBase) * 100 : null;
+      const momentum30 = index >= 6 && momentumBase !== 0 ? ((Number(bar.close) - momentumBase) / momentumBase) * 100 : null;
 
       let rsi14: number | null = null;
       if (throughBar.length >= 15) {
@@ -148,7 +134,7 @@ const HistoricalIndicatorPanel: React.FC<{
         const losses = changes.map((value) => Math.max(0, -value));
         const avgGain = gains.reduce((sum, value) => sum + value, 0) / gains.length;
         const avgLoss = losses.reduce((sum, value) => sum + value, 0) / losses.length;
-        rsi14 = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+        rsi14 = avgLoss === 0 ? (avgGain === 0 ? 50 : 100) : 100 - (100 / (1 + avgGain / avgLoss));
       }
 
       return {
@@ -168,141 +154,42 @@ const HistoricalIndicatorPanel: React.FC<{
       ? '—'
       : `${value.toFixed(digits)}${suffix}`;
 
-  const markerPoints = markers.map((marker) => {
-    const target = +new Date(marker.at);
-    const nearest = data.reduce((best, point) => {
-      const bestDistance = Math.abs(+new Date(best.at) - target);
-      const pointDistance = Math.abs(+new Date(point.at) - target);
-      return pointDistance < bestDistance ? point : best;
-    }, data[0]);
-    return { ...marker, plotAt: nearest.at };
-  });
-
-  const renderEventLines = () =>
-    markerPoints.map((marker) => (
-      <ReferenceLine
-        key={`indicator-event-${marker.kind}-${marker.at}`}
-        x={marker.plotAt}
-        stroke={indicatorMarkerColor(marker.kind)}
-        strokeWidth={1}
-        strokeOpacity={0.45}
-        strokeDasharray="3 4"
-      />
-    ));
-
-  const nearestSnapshot = (at: string) => {
-    const target = +new Date(at);
-    const preceding = data.filter((point) => +new Date(point.at) < target);
-    return preceding[preceding.length - 1];
-  };
-
-  const entrySnapshot = nearestSnapshot(entryAt);
-  const weakeningMarker = markers.find((marker) => marker.kind === 'weakening');
-  const weakeningSnapshot = weakeningMarker ? nearestSnapshot(weakeningMarker.at) : null;
-  const sharedMargin = { top: 4, right: 64, bottom: 0, left: 0 };
-  const tooltipStyle = { background: '#090b0f', border: '1px solid #27272a', fontSize: 10 };
-
+  const cutoff = +new Date(at ?? entryAt);
+  const preceding = data.filter((point) => at ? +new Date(point.at) <= cutoff : +new Date(point.at) + 5 * 60_000 <= cutoff);
+  const snapshot = preceding[preceding.length - 1];
+  const recent = preceding.slice(-12);
+  const metrics = [
+    { key: 'relativeVolume' as const, label: 'RVOL', suffix: '×', color: '#38bdf8', digits: 2 },
+    { key: 'vwapDistance' as const, label: 'VWAP Δ', suffix: '%', color: '#a78bfa', digits: 2 },
+    { key: 'momentum30' as const, label: '30m MOM', suffix: '%', color: '#38bdf8', digits: 2 },
+    { key: 'rsi14' as const, label: 'RSI 14', suffix: '', color: '#34d399', digits: 1 },
+  ];
   return (
-    <div className="overflow-hidden border-t border-zinc-800">
-      <div className="border-b border-zinc-800 pt-1">
-        <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">Relative volume</div>
-        <div className="h-[48px] sm:h-[72px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} syncId={syncId} margin={sharedMargin}>
-              <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
-              <XAxis dataKey="at" hide />
-              <YAxis orientation="right" width={58} tick={false} tickLine={false} axisLine={false} domain={[0, 'auto']} />
-              <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => timeET(String(value))} />
-              <ReferenceLine y={1} stroke="#52525b" strokeDasharray="4 4" />
-              <Brush dataKey="at" height={0} className="hidden" startIndex={range.startIndex} endIndex={range.endIndex} />
-              {renderEventLines()}
-              <RBar dataKey="relativeVolume" name="Relative volume" fill="#38bdf8" isAnimationActive={false} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
+    <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[80px] border-b border-zinc-800 bg-[#14171c]">
+      <div className="grid grid-cols-4 divide-x divide-zinc-800">
+        {metrics.map(({ key, label, suffix, color, digits }) => {
+          const values = recent.map((point) => point[key]).filter((value): value is number => value !== null && Number.isFinite(value));
+          const min = Math.min(...values), max = Math.max(...values);
+          const span = max - min || 1;
+          const points = recent.map((point, index) => point[key] === null ? null : `${(index / Math.max(1, recent.length - 1)) * 100},${20 - ((Number(point[key]) - min) / span) * 18}`);
+          // Missing values break the trace instead of being plotted as zero.
+          const segments = points.reduce<string[][]>((result, point) => {
+            if (point === null) result.push([]);
+            else result[result.length - 1].push(point);
+            return result;
+          }, [[]]);
+          return (
+            <div key={key} className="min-w-0 px-2 pt-1">
+              <div className="font-mono text-[8px] text-zinc-500">{label}</div>
+              <div className="font-mono text-[11px] tabular-nums" style={{ color }}>{metric(snapshot?.[key], suffix, digits)}</div>
+              <svg aria-hidden="true" className="mt-0.5 h-[20px] w-full" viewBox="0 0 100 22" preserveAspectRatio="none">
+                {segments.filter((segment) => segment.length > 1).map((segment, index) => <polyline key={index} points={segment.join(' ')} fill="none" stroke={color} strokeWidth="1.2" vectorEffect="non-scaling-stroke" />)}
+              </svg>
+            </div>
+          );
+        })}
       </div>
-
-      <div className="border-b border-zinc-800 pt-1">
-        <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">VWAP distance</div>
-        <div className="h-[48px] sm:h-[68px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} syncId={syncId} margin={sharedMargin}>
-              <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
-              <XAxis dataKey="at" hide />
-              <YAxis orientation="right" width={58} tick={false} tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => timeET(String(value))} />
-              <ReferenceLine y={0} stroke="#52525b" strokeDasharray="4 4" />
-              <Brush dataKey="at" height={0} className="hidden" startIndex={range.startIndex} endIndex={range.endIndex} />
-              {renderEventLines()}
-              <Line type="monotone" dataKey="vwapDistance" name="VWAP distance %" stroke="#a78bfa" dot={false} isAnimationActive={false} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="border-b border-zinc-800 pt-1">
-        <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">30m momentum</div>
-        <div className="h-[48px] sm:h-[68px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} syncId={syncId} margin={sharedMargin}>
-              <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
-              <XAxis dataKey="at" hide />
-              <YAxis orientation="right" width={58} tick={false} tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => timeET(String(value))} />
-              <ReferenceLine y={0} stroke="#52525b" strokeDasharray="4 4" />
-              <Brush dataKey="at" height={0} className="hidden" startIndex={range.startIndex} endIndex={range.endIndex} />
-              {renderEventLines()}
-              <Line type="monotone" dataKey="momentum30" name="30m momentum %" stroke="#38bdf8" dot={false} isAnimationActive={false} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="pt-1">
-        <div className="mb-1 font-mono text-[8px] uppercase tracking-wider text-zinc-500">RSI 14</div>
-        <div className="h-[96px] sm:h-[116px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} syncId={syncId} margin={sharedMargin}>
-              <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#27272a" />
-              <XAxis
-                dataKey="at"
-                tick={{ fill: '#71717a', fontSize: 9, fontFamily: 'JetBrains Mono, monospace' }}
-                tickLine={false}
-                axisLine={{ stroke: '#27272a' }}
-                minTickGap={56}
-                tickFormatter={(value: string) => timeET(value)}
-              />
-              <YAxis orientation="right" width={58} tick={false} tickLine={false} axisLine={false} domain={[0, 100]} />
-              <Tooltip contentStyle={tooltipStyle} labelFormatter={(value) => timeET(String(value))} />
-              <ReferenceLine y={70} stroke="#52525b" strokeDasharray="3 4" />
-              <ReferenceLine y={50} stroke="#3f3f46" strokeDasharray="2 4" />
-              <ReferenceLine y={30} stroke="#52525b" strokeDasharray="3 4" />
-              {renderEventLines()}
-              <Brush dataKey="at" height={18} travellerWidth={7} startIndex={range.startIndex} endIndex={range.endIndex} onChange={onRangeChange} tickFormatter={(value: string) => timeET(value)} stroke="#3f3f46" fill="#0b0d10" />
-              <Line type="monotone" dataKey="rsi14" name="RSI 14" stroke="#34d399" dot={false} isAnimationActive={false} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="grid gap-px border-t border-zinc-800 bg-zinc-800 sm:grid-cols-2">
-        <div className="bg-[#0d1015] px-3 py-2">
-          <div className="font-mono text-[8px] uppercase tracking-wider text-violet-300/80">At entry</div>
-          <div className="mt-1 font-mono text-[9px] leading-relaxed text-zinc-400">
-            RVOL {metric(entrySnapshot?.relativeVolume, '×')} · VWAP {metric(entrySnapshot?.vwapDistance, '%')} · 30m {metric(entrySnapshot?.momentum30, '%')} · RSI {metric(entrySnapshot?.rsi14, '', 1)}
-          </div>
-        </div>
-        <div className="bg-[#0d1015] px-3 py-2">
-          <div className="font-mono text-[8px] uppercase tracking-wider text-amber-300/80">
-            {weakeningMarker ? `At weakening · ${timeET(weakeningMarker.at)}` : 'Interpretation'}
-          </div>
-          <div className="mt-1 font-mono text-[9px] leading-relaxed text-zinc-400">
-            {weakeningSnapshot
-              ? `RVOL ${metric(weakeningSnapshot.relativeVolume, '×')} · VWAP ${metric(weakeningSnapshot.vwapDistance, '%')} · 30m ${metric(weakeningSnapshot.momentum30, '%')} · RSI ${metric(weakeningSnapshot.rsi14, '', 1)}`
-              : 'Indicators provide local context; they do not independently establish or invalidate the reconstructed thesis.'}
-          </div>
-        </div>
-      </div>
+      <div className="px-2 pt-1 font-mono text-[8px] text-zinc-500">{at ? 'Bar' : 'Before entry'} · {timeET(at ?? entryAt)} · recent indicator context</div>
     </div>
   );
 };
@@ -718,16 +605,8 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                     showStructureCards={false}
                     compactEvents
                     syncId={`historical-evidence-${playback.trade_id}`}
-                    afterPlot={(range, onRangeChange) => (
-                      <HistoricalIndicatorPanel
-                        bars={playback.bars}
-                        entryAt={playback.episode.entry_at}
-                        markers={playback.markers}
-                        review={playback.review}
-                        syncId={`historical-evidence-${playback.trade_id}`}
-                        range={range}
-                        onRangeChange={onRangeChange}
-                      />
+                    indicatorOverlay={(at) => (
+                      <HistoricalIndicatorReadouts bars={playback.bars} entryAt={playback.episode.entry_at} at={at} />
                     )}
                   />}
                 </div>
