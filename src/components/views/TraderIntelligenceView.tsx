@@ -236,55 +236,30 @@ export const TraderIntelligenceView: React.FC<{
     if (!user || !trades.length) return;
 
     const syntheticFallback = trades.some((trade) => trade.broker === 'SnapTrade' && trade.id <= -1000000);
-    const reviewIds = new Set(historicalReviews.map((review) => Number(review.brokerage_episode_id)));
-    const canonicalMissingIds = trades
-      .filter((trade) =>
-        trade.broker === 'SnapTrade' &&
-        trade.id < 0 &&
-        trade.id > -1000000 &&
-        Boolean(trade.exit_at ?? trade.closed_at)
-      )
-      .map((trade) => Math.abs(trade.id))
-      .filter((id) => !reviewIds.has(id));
+    if (!syntheticFallback) return;
 
-    const key = syntheticFallback
-      ? `normalize:${user.id}`
-      : canonicalMissingIds.slice().sort((a, b) => a - b).join(',');
-    if (!key || historicalBackfillKey.current === key) return;
+    const key = `normalize:${user.id}`;
+    if (historicalBackfillKey.current === key) return;
     historicalBackfillKey.current = key;
 
     let active = true;
     setHistoricalReviewBusy(true);
 
     void (async () => {
-      if (syntheticFallback) {
-        // Normalize the stored activity feed into canonical episodes without
-        // contacting SnapTrade again, then reload Trader Intelligence.
-        await normalizeStoredBrokerageTrades();
-        if (active) await load();
-        return;
-      }
-
-      if (!canonicalMissingIds.length) return;
-      await reconstructHistoricalTrades(canonicalMissingIds);
-      if (!active) return;
-      const next = await fetchHistoricalTradeReviews(user.id);
-      if (active) setHistoricalReviews(next);
+      // Canonicalize already-synced activities locally. Do not launch account-wide
+      // historical market-data reconstruction from Trader Intelligence.
+      await normalizeStoredBrokerageTrades();
+      if (active) await load();
     })()
       .catch((reviewError) => {
-        console.warn('Historical Trader Intelligence reconstruction did not complete:', reviewError);
+        console.warn('Historical Trader Intelligence normalization did not complete:', reviewError);
       })
       .finally(() => {
         if (active) setHistoricalReviewBusy(false);
       });
 
     return () => { active = false; };
-  }, [historicalReviews, load, trades, user]);
-
-  const activeTrades = useMemo<TradeRecord[]>(
-    () => (demoProfile ? generateProfile(demoProfile) : trades),
-    [demoProfile, trades],
-  );
+  }, [load, trades, user]);
 
   const intel = useMemo(
     () => computeTraderIntelligence(activeTrades, {
