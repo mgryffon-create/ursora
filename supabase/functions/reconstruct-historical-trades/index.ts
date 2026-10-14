@@ -148,7 +148,45 @@ function rangePosition(price: number, sessionBars: AnyRow[], count: number) {
   return hi > lo ? Math.max(0, Math.min(1, (price - lo) / (hi - lo))) : null;
 }
 
-function deriveCycle(bars30: AnyRow[]) {
+function decorate5(bars5: AnyRow[]) {
+  return bars5.map((bar) => {
+    const p = etParts(String(bar.bar_time));
+    const mins = p.hour * 60 + p.minute;
+    return {
+      ...bar,
+      session: p.session,
+      slot: Math.max(0, Math.floor((mins - 570) / 5)),
+    };
+  });
+}
+
+function detectUnconfirmedSessionRetest(bars: AnyRow[], tradeDirection: string) {
+  if (!['bullish', 'bearish'].includes(tradeDirection) || bars.length < 4) return null;
+  const medianRange = median(bars.map((b) => Number(b.high) - Number(b.low)).filter((v) => v > 0)) ?? 0;
+  if (!(medianRange > 0)) return null;
+  const tolerance = medianRange * 0.28;
+
+  for (let i = bars.length - 1; i >= 3; i--) {
+    const bar = bars[i];
+    const prior = bars.slice(Math.max(0, i - 6), i);
+    if (tradeDirection === 'bullish') {
+      const level = Math.min(...prior.map((b) => Number(b.low)));
+      const touched = Number(bar.low) <= level + tolerance;
+      const held = Number(bar.close) >= level + tolerance * 0.15;
+      const rejected = Number(bar.close) - Number(bar.low) >= medianRange * 0.25;
+      if (touched && held && rejected) return { at: String(bar.bar_time), price: Number(bar.close), level };
+    } else {
+      const level = Math.max(...prior.map((b) => Number(b.high)));
+      const touched = Number(bar.high) >= level - tolerance;
+      const held = Number(bar.close) <= level - tolerance * 0.15;
+      const rejected = Number(bar.high) - Number(bar.close) >= medianRange * 0.25;
+      if (touched && held && rejected) return { at: String(bar.bar_time), price: Number(bar.close), level };
+    }
+  }
+  return null;
+}
+
+function deriveCycle(bars30: AnyRow[], minBars = 10, maxSessions = 5) {
   const empty = {
     confirmed: false, direction: 'neutral' as Direction, event: 'unconfirmed',
     origin: null as number | null, confirmation: null as number | null,
@@ -156,9 +194,9 @@ function deriveCycle(bars30: AnyRow[]) {
     volumeRatio: null as number | null, retest: 'not_observed',
     confidence: 0, reason: 'No substantiated directional cycle was confirmed before entry.',
   };
-  if (bars30.length < 10) return empty;
+  if (bars30.length < minBars) return empty;
 
-  const sessions = [...new Set(bars30.map((b) => b.session))].slice(-5);
+  const sessions = [...new Set(bars30.map((b) => b.session))].slice(-maxSessions);
   const bars = bars30.filter((b) => sessions.includes(b.session));
   const medianRange = median(bars.map((b) => Number(b.high) - Number(b.low)).filter((v) => v > 0)) ?? 0;
   if (!(medianRange > 0)) return empty;
@@ -339,14 +377,56 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
 
   const regularBars = symbolBars.filter(regular);
   const beforeEntry5 = regularBars.filter((b) => new Date(b.bar_time).getTime() <= entryMs);
-  const bars30 = aggregate30(beforeEntry5);
+  const broadBars30 = aggregate30(beforeEntry5);
   const entryUnderlying = nearestPrice(regularBars, entryAt);
   const exitUnderlying = nearestPrice(regularBars, exitAt);
   if (entryUnderlying === null) throw new Error(`No underlying market price found near ${episode.symbol} entry.`);
 
-  const cycle = deriveCycle(bars30);
+  const entrySession = etParts(entryAt).session;
+  const exitSession = exitAt ? etParts(exitAt).session : entrySession;
+  const sameSessionTrade = entrySession === exitSession;
+  const tradeDirection = String(episode.direction ?? '').toLowerCase();
+
+  const heldSessionCount = Math.max(
+    1,
+    new Set(
+      regularBars
+        .filter((bar) => {
+          const t = new Date(bar.bar_time).getTime();
+          return t >= entryMs && t <= exitMs;
+        })
+        .map((bar) => etParts(String(bar.bar_time)).session),
+    ).size,
+  );
+
+  let analysisBars: AnyRow[];
+  let analysisSessions: string[];
+  let cycleMinBars: number;
+  let cycleMaxSessions: number;
+
+  if (sameSessionTrade) {
+    // Intraday reviews must stand on evidence from the actual trade session.
+    // Do not borrow a confirmation from yesterday merely to satisfy the cycle detector.
+    analysisBars = decorate5(
+      beforeEntry5.filter((bar) => etParts(String(bar.bar_time)).session === entrySession),
+    );
+    analysisSessions = [entrySession];
+    cycleMinBars = 3;
+    cycleMaxSessions = 1;
+  } else {
+    // Multi-day reviews can use a wider pre-entry frame proportional to the actual
+    // holding span, while remaining capped so old market regimes do not leak in.
+    const lookbackSessions = Math.min(5, Math.max(2, heldSessionCount));
+    const availableSessions = [...new Set(broadBars30.map((bar) => bar.session))];
+    analysisSessions = availableSessions.slice(-lookbackSessions);
+    analysisBars = broadBars30.filter((bar) => analysisSessions.includes(bar.session));
+    cycleMinBars = 6;
+    cycleMaxSessions = lookbackSessions;
+  }
+
+  const cycle = deriveCycle(analysisBars, cycleMinBars, cycleMaxSessions);
   const direction = cycle.confirmed ? cycle.direction : 'neutral';
-  const levels = structuralLevels(bars30, entryUnderlying, direction);
+  const levels = structuralLevels(analysisBars.length ? analysisBars : broadBars30, entryUnderlying, direction);
   let invalidation = cycle.invalidation;
   if (direction === 'bullish' && (invalidation === null || invalidation >= entryUnderlying)) invalidation = levels.support < entryUnderlying ? levels.support : entryUnderlying - levels.move * 0.8;
   if (direction === 'bearish' && (invalidation === null || invalidation <= entryUnderlying)) invalidation = levels.resistance > entryUnderlying ? levels.resistance : entryUnderlying + levels.move * 0.8;
@@ -359,7 +439,6 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
 
   const targetHitAt = firstCross(holdingBars, target, direction, 'target');
   const invalidationAt = firstCross(holdingBars, invalidation, direction, 'invalidation');
-  const tradeDirection = String(episode.direction ?? '').toLowerCase();
   const agreement = direction === 'neutral' ? 'no_confirmed_thesis'
     : tradeDirection === direction ? 'aligned'
       : 'opposed';
@@ -401,8 +480,8 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     ? Math.max(0, Math.round((exitMs - invalidationMs) / 60000))
     : null;
 
-  const range5 = rangePosition(entryUnderlying, bars30, 5);
-  const range20 = rangePosition(entryUnderlying, bars30, 20);
+  const range5 = rangePosition(entryUnderlying, broadBars30, 5);
+  const range20 = rangePosition(entryUnderlying, broadBars30, 20);
 
   const confirmationAtMs = cycle.confirmationAt ? new Date(cycle.confirmationAt).getTime() : null;
   const confirmationToEntryMinutes = confirmationAtMs !== null
@@ -431,7 +510,7 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     : [];
 
   const retestTolerance = Math.max(levels.move * 0.18, entryUnderlying * 0.0015);
-  const retestBar = cycle.confirmation !== null
+  const confirmedRetestBar = cycle.confirmation !== null
     ? postConfirmationBars.find((bar) => {
         const low = Number(bar.low), high = Number(bar.high), close = Number(bar.close);
         const touched = low <= cycle.confirmation! + retestTolerance && high >= cycle.confirmation! - retestTolerance;
@@ -443,6 +522,12 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
         return touched && held;
       }) ?? null
     : null;
+  const unconfirmedRetest = !cycle.confirmed && sameSessionTrade
+    ? detectUnconfirmedSessionRetest(analysisBars, tradeDirection)
+    : null;
+  const retestBar = confirmedRetestBar ?? (unconfirmedRetest
+    ? { bar_time: unconfirmedRetest.at, close: unconfirmedRetest.price }
+    : null);
 
   let preEntryGivebackPct: number | null = null;
   if (postConfirmationBars.length && cycle.confirmation !== null && direction !== 'neutral') {
@@ -497,7 +582,7 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
   const decisionTimeline = [
     reversalAt && cycle.origin !== null ? { kind: 'reversal_origin', at: reversalAt, price: cycle.origin } : null,
     cycle.confirmationAt && cycle.confirmation !== null ? { kind: 'confirmation', at: cycle.confirmationAt, price: cycle.confirmation } : null,
-    retestBar ? { kind: 'retest_hold', at: String(retestBar.bar_time), price: Number(retestBar.close) } : null,
+    retestBar ? { kind: unconfirmedRetest ? 'retest_hold_unconfirmed' : 'retest_hold', at: String(retestBar.bar_time), price: Number(retestBar.close) } : null,
     { kind: 'entry', at: entryAt, price: entryUnderlying },
     targetHitAt && target !== null ? { kind: 'target_reached', at: targetHitAt, price: target } : null,
     invalidationAt && invalidation !== null ? { kind: 'invalidation', at: invalidationAt, price: invalidation } : null,
@@ -505,7 +590,9 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
   ].filter(Boolean);
 
   const guidanceSummary = direction === 'neutral'
-    ? 'No substantiated pre-entry thesis was available, so URSORA cannot grade entry timing against confirmation.'
+    ? (unconfirmedRetest
+        ? 'A local session level was tested and held before entry, but the session did not produce a fresh substantiated directional confirmation. URSORA therefore treats this as an unconfirmed retest rather than borrowing an older confirmation.'
+        : 'No substantiated directional confirmation occurred within the relevant pre-entry trade window, so URSORA cannot grade entry timing against confirmation.')
     : agreement === 'opposed'
       ? `The position opposed the confirmed ${direction} thesis at entry. Review the confirmation/flip that occurred before the trade rather than treating the position as a late-but-aligned entry.`
       : entryQualityLabel === 'confirmed_retest'
@@ -525,7 +612,9 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
         : 'confirmed_reversal';
 
   const summary = direction === 'neutral'
-    ? `No sufficiently substantiated TradeCycle direction was confirmed before this entry. The trade is evaluated as an unconfirmed discretionary entry rather than retroactively forcing a thesis.`
+    ? (unconfirmedRetest
+        ? `No fresh TradeCycle direction was confirmed within this trade's relevant session window. A local level was retested and held before entry, but that retest did not independently satisfy confirmation criteria.`
+        : `No sufficiently substantiated TradeCycle direction was confirmed within this trade's relevant pre-entry window. The trade is evaluated as an unconfirmed discretionary entry rather than retroactively forcing an older thesis.`)
     : agreement === 'aligned'
       ? `The ${tradeDirection} position aligned with a confirmed ${direction} ${cycle.event} at entry. ${entryRelationship === 'chased_extension' ? 'Entry occurred after the confirmed move was already extended.' : entryRelationship === 'confirmed_retest' ? 'Entry improved on the original confirmation through a valid retest area.' : 'Entry occurred near the confirmed directional move.'}`
       : `The position was ${tradeDirection || 'directional'}, while the market evidence available at entry supported a ${direction} thesis.`;
@@ -576,7 +665,17 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     evidence: {
       no_lookahead: true,
       decision_cutoff: entryAt,
-      source_timeframe: '5m aggregated to 30m for pre-entry cycle analysis',
+      source_timeframe: sameSessionTrade
+        ? '5m regular-session bars from the trade entry session only'
+        : '5m bars aggregated to 30m across a duration-scaled pre-entry window',
+      thesis_window: {
+        same_session_trade: sameSessionTrade,
+        entry_session: entrySession,
+        exit_session: exitSession,
+        holding_sessions: heldSessionCount,
+        analysis_sessions: analysisSessions,
+      },
+      session_retest_without_confirmation: Boolean(unconfirmedRetest),
       cycle_reason: cycle.reason,
       retest_status_at_entry: cycle.retest,
       support: levels.support,
@@ -594,7 +693,7 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
       realized_pl: n(episode.realized_pl),
       realized_return_pct: n(episode.realized_return_pct),
     },
-    engine_version: 'historical-cycle-1.1',
+    engine_version: 'historical-cycle-1.2',
     computed_at: new Date().toISOString(),
   };
 }
@@ -632,7 +731,7 @@ Deno.serve(async (req) => {
     if (existingError) throw existingError;
 
     const current = new Set((existing ?? [])
-      .filter((r: AnyRow) => r.engine_version === 'historical-cycle-1.1')
+      .filter((r: AnyRow) => r.engine_version === 'historical-cycle-1.2')
       .map((r: AnyRow) => Number(r.brokerage_episode_id)));
     const pending = rows.filter((r: AnyRow) => !current.has(Number(r.id)));
     if (!pending.length) return json({ success: true, reviewed: 0, cached: rows.length, failures: [] });
@@ -711,7 +810,7 @@ Deno.serve(async (req) => {
       reviewed: reviews.length,
       cached: rows.length - pending.length,
       failures,
-      engine_version: 'historical-cycle-1.1',
+      engine_version: 'historical-cycle-1.2',
     });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : String(error) }, 500);
