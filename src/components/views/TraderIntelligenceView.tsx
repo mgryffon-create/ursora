@@ -13,7 +13,7 @@ import { dateLabel, minutesLabel, multiple, signedMoney, timeLabel } from '@/lib
 
 import { fetchTraderProfile, normalizeStoredBrokerageTrades, reconstructHistoricalTrades, track } from '@/lib/api';
 import {
-  ALERT_CATEGORIES, MODEL_VERSION, SENSITIVITY, TRADE_ORIGINS, bandTone,
+  ALERT_CATEGORIES, MODEL_VERSION, SENSITIVITY, TRADE_ORIGINS, bandTone, confidenceFor,
   type Sensitivity,
 } from '@/lib/behavioral/config';
 import {
@@ -27,7 +27,7 @@ import {
 } from '@/lib/behavioral/api';
 import { generateProfile, PROFILES, type ProfileKey } from '@/lib/behavioral/synthetic';
 import { runBehavioralTests, summariseTests, type TestResult } from '@/lib/behavioral/tests';
-import type { HistoricalTradeReview, LitConstruct, LitLink, LitStudy, TradeCycleThesisEvent, TradeModification, TradePlan, TradeRecord } from '@/lib/behavioral/types';
+import type { HistoricalTradeReview, LitConstruct, LitLink, LitStudy, Observation, TradeCycleThesisEvent, TradeModification, TradePlan, TradeRecord } from '@/lib/behavioral/types';
 import type { TraderProfile } from '@/lib/types';
 
 type Tab = 'today' | 'baseline' | 'patterns' | 'process' | 'performance' | 'research';
@@ -325,6 +325,65 @@ export const TraderIntelligenceView: React.FC<{
       postInvalidationPct: pct(heldAfterInvalidation.length, invalidated.length),
     };
   }, [historicalReviews]);
+
+  const lateEntryPattern = useMemo(() => {
+    const comparable = historicalReviews.filter((review) =>
+      review.directional_agreement === 'aligned' &&
+      review.retro_direction !== 'neutral' &&
+      review.confirmation_to_entry_minutes !== null &&
+      review.move_consumed_to_target_pct !== null
+    );
+
+    const late = comparable.filter((review) =>
+      ['late_confirmed_move', 'late_extended', 'late_weakening'].includes(review.entry_quality_label ?? '') ||
+      (review.move_consumed_to_target_pct ?? 0) >= 60
+    );
+
+    if (comparable.length < 8) return null;
+
+    const median = (values: number[]) => {
+      const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
+      if (!sorted.length) return null;
+      const middle = Math.floor(sorted.length / 2);
+      return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+    };
+
+    const lateShare = Math.round((late.length / comparable.length) * 100);
+    const medianDelay = median(late.map((review) => Number(review.confirmation_to_entry_minutes)));
+    const medianConsumed = median(late.map((review) => Number(review.move_consumed_to_target_pct)));
+    const medianRoom = median(late.map((review) => Number(review.remaining_room_to_target_pct)).filter(Number.isFinite));
+
+    const observation: Observation = {
+      observation_type: 'late_confirmed_move_entry',
+      category: 'EXECUTION',
+      statement: lateShare >= 50
+        ? `Across ${comparable.length} confirmed-direction trades, ${lateShare}% of entries occurred after at least 60% of the confirmation-to-target move had already been consumed. Median delay among those late entries was ${medianDelay === null ? 'unavailable' : `${Math.round(medianDelay)} minutes`}.`
+        : `Across ${comparable.length} confirmed-direction trades, ${lateShare}% met URSORA's late-entry signature. Most entries occurred before the move became substantially consumed.`,
+      baseline_value: 60,
+      current_value: lateShare,
+      deviation_pct: lateShare - 60,
+      unit: '% late entries',
+      sample_size: comparable.length,
+      observation_period: 'historical confirmed-direction trades',
+      confidence_label: confidenceFor(comparable.length),
+      construct_key: 'late_confirmed_move_entry',
+      evidence_trade_ids: late.map((review) => -Math.abs(review.brokerage_episode_id)),
+      severity: lateShare >= 70 ? 'ELEVATED' : lateShare >= 50 ? 'MODERATE' : 'LOW',
+      model_version: 'historical-cycle-1.1',
+      formula: 'Comparable = aligned trades with confirmed pre-entry direction and measurable confirmation→target geometry. Late entry = >=60% of confirmation→target move consumed OR historical entry-quality label late_confirmed_move / late_extended / late_weakening.',
+    };
+
+    return {
+      observation,
+      late,
+      comparable,
+      lateShare,
+      medianDelay,
+      medianConsumed,
+      medianRoom,
+    };
+  }, [historicalReviews]);
+
   const profileContext = useMemo(
     () => deriveProfileContext(traderProfile, activeTrades, baseline, thesisEvents),
     [traderProfile, activeTrades, baseline, thesisEvents],
@@ -902,6 +961,69 @@ export const TraderIntelligenceView: React.FC<{
               <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
                 These measurements describe execution relative to reconstructed market evidence. They do not infer intent from profit or loss, and a profitable trade can still have been entered against the confirmed thesis or held through invalidation.
               </p>
+            </Panel>
+          )}
+
+          {lateEntryPattern && (
+            <Panel
+              title="Entry timing intelligence"
+              subtitle="A repeated execution-location pattern derived from no-lookahead historical TradeCycle replays. This describes what your entries did; research context is shown separately and does not establish motive."
+              right={onOpenHistoricalEvidence && lateEntryPattern.observation.evidence_trade_ids.length > 0
+                ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenHistoricalEvidence(lateEntryPattern.observation.evidence_trade_ids)}
+                    className="inline-flex items-center gap-1 rounded-sm border border-sky-500/30 bg-sky-500/[0.06] px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-sky-300 hover:border-sky-400/60"
+                  >
+                    <History className="h-3 w-3" />
+                    Review late entries
+                  </button>
+                )
+                : undefined}
+            >
+              <div className="grid gap-2 lg:grid-cols-[1.2fr_.8fr]">
+                <div className="rounded-sm border border-zinc-800 bg-black/20 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-sky-400">Observed personal pattern</span>
+                    <ConfidenceTag label={lateEntryPattern.observation.confidence_label} sample={lateEntryPattern.observation.sample_size} />
+                  </div>
+                  <p className="mt-2 text-[12px] leading-relaxed text-zinc-200">{lateEntryPattern.observation.statement}</p>
+                  <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                    <Stat label="Late entries" value={`${lateEntryPattern.lateShare}%`} hint={`${lateEntryPattern.late.length} of ${lateEntryPattern.comparable.length}`} tone={lateEntryPattern.lateShare >= 50 ? 'text-amber-300' : 'text-emerald-300'} />
+                    <Stat label="Median delay" value={lateEntryPattern.medianDelay === null ? '—' : `${Math.round(lateEntryPattern.medianDelay)}m`} hint="confirmation → entry" />
+                    <Stat label="Move consumed" value={lateEntryPattern.medianConsumed === null ? '—' : `${Math.round(lateEntryPattern.medianConsumed)}%`} hint="median among late entries" />
+                    <Stat label="Room left" value={lateEntryPattern.medianRoom === null ? '—' : `${lateEntryPattern.medianRoom.toFixed(2)}%`} hint="to tactical target" />
+                  </div>
+                </div>
+
+                <div className="rounded-sm border border-zinc-800 bg-black/20 p-3">
+                  <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-indigo-300">Research context</div>
+                  {(() => {
+                    const construct = constructFor('late_confirmed_move_entry');
+                    const links = lit.links.filter((link) => link.construct_key === 'late_confirmed_move_entry');
+                    if (!construct) return <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">Research context is not loaded yet.</p>;
+                    return (
+                      <>
+                        <p className="mt-2 text-[10px] leading-relaxed text-zinc-400">
+                          {construct.known_limitations}
+                        </p>
+                        <div className="mt-2 space-y-1.5 border-t border-zinc-800 pt-2">
+                          {links.slice(0, 2).map((link) => {
+                            const study = lit.studies.find((candidate) => candidate.study_key === link.study_key);
+                            if (!study) return null;
+                            return (
+                              <div key={link.study_key} className="text-[9px] leading-relaxed text-zinc-500">
+                                <span className="font-mono uppercase text-indigo-300/80">{link.relation}</span>{' '}
+                                <span className="text-zinc-300">{study.authors} ({study.year})</span> — {study.finding_summary}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
             </Panel>
           )}
 
