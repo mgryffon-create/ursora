@@ -11,7 +11,7 @@ import PatternCard, { ConfidenceTag } from '@/components/trader/PatternCard';
 import { classifyError, reportError } from '@/lib/errors';
 import { dateLabel, minutesLabel, multiple, signedMoney, timeLabel } from '@/lib/format';
 
-import { fetchTraderProfile, reconstructHistoricalTrades, track } from '@/lib/api';
+import { fetchTraderProfile, normalizeStoredBrokerageTrades, reconstructHistoricalTrades, track } from '@/lib/api';
 import {
   ALERT_CATEGORIES, MODEL_VERSION, SENSITIVITY, TRADE_ORIGINS, bandTone,
   type Sensitivity,
@@ -235,25 +235,42 @@ export const TraderIntelligenceView: React.FC<{
   useEffect(() => {
     if (!user || !trades.length) return;
 
+    const syntheticFallback = trades.some((trade) => trade.broker === 'SnapTrade' && trade.id <= -1000000);
     const reviewIds = new Set(historicalReviews.map((review) => Number(review.brokerage_episode_id)));
-    const missingIds = trades
-      .filter((trade) => trade.broker === 'SnapTrade' && trade.id < 0 && Boolean(trade.exit_at ?? trade.closed_at))
+    const canonicalMissingIds = trades
+      .filter((trade) =>
+        trade.broker === 'SnapTrade' &&
+        trade.id < 0 &&
+        trade.id > -1000000 &&
+        Boolean(trade.exit_at ?? trade.closed_at)
+      )
       .map((trade) => Math.abs(trade.id))
       .filter((id) => !reviewIds.has(id));
 
-    if (!missingIds.length) return;
-    const key = missingIds.slice().sort((a, b) => a - b).join(',');
-    if (historicalBackfillKey.current === key) return;
+    const key = syntheticFallback
+      ? `normalize:${user.id}`
+      : canonicalMissingIds.slice().sort((a, b) => a - b).join(',');
+    if (!key || historicalBackfillKey.current === key) return;
     historicalBackfillKey.current = key;
 
     let active = true;
     setHistoricalReviewBusy(true);
-    void reconstructHistoricalTrades(missingIds)
-      .then(async () => {
-        if (!active) return;
-        const next = await fetchHistoricalTradeReviews(user.id);
-        if (active) setHistoricalReviews(next);
-      })
+
+    void (async () => {
+      if (syntheticFallback) {
+        // Normalize the stored activity feed into canonical episodes without
+        // contacting SnapTrade again, then reload Trader Intelligence.
+        await normalizeStoredBrokerageTrades();
+        if (active) await load();
+        return;
+      }
+
+      if (!canonicalMissingIds.length) return;
+      await reconstructHistoricalTrades(canonicalMissingIds);
+      if (!active) return;
+      const next = await fetchHistoricalTradeReviews(user.id);
+      if (active) setHistoricalReviews(next);
+    })()
       .catch((reviewError) => {
         console.warn('Historical Trader Intelligence reconstruction did not complete:', reviewError);
       })
@@ -262,7 +279,7 @@ export const TraderIntelligenceView: React.FC<{
       });
 
     return () => { active = false; };
-  }, [historicalReviews, trades, user]);
+  }, [historicalReviews, load, trades, user]);
 
   const activeTrades = useMemo<TradeRecord[]>(
     () => (demoProfile ? generateProfile(demoProfile) : trades),
