@@ -505,48 +505,8 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     : tradeDirection === direction ? 'aligned'
       : 'opposed';
 
-  const confirmationDistance = sessionConfirmationPrice !== null ? Math.abs(entryUnderlying - sessionConfirmationPrice) : null;
-  const extensionUnits = confirmationDistance !== null && levels.move > 0 ? confirmationDistance / levels.move : null;
-
-  let entryRelationship = 'no_confirmed_thesis';
-  if (agreement === 'opposed') entryRelationship = 'against_confirmed_thesis';
-  else if (agreement === 'aligned' && sessionConfirmationPrice !== null) {
-    const betterRetest = direction === 'bullish'
-      ? entryUnderlying < sessionConfirmationPrice && entryUnderlying > Number(invalidation)
-      : entryUnderlying > sessionConfirmationPrice && entryUnderlying < Number(invalidation);
-    entryRelationship = betterRetest ? 'confirmed_retest'
-      : (extensionUnits ?? 0) > 1.5 ? 'chased_extension'
-        : 'confirmed_direction';
-  } else if (agreement === 'aligned' && sessionState === 'existing_thesis') {
-    entryRelationship = unconfirmedRetest ? 'existing_thesis_retest' : 'existing_thesis_continuation';
-  }
-
-  let exitRelationship = 'thesis_unconfirmed';
-  if (direction !== 'neutral' && exitAt) {
-    if (invalidationAt && new Date(invalidationAt).getTime() <= exitMs) exitRelationship = 'exited_after_invalidation';
-    else if (targetHitAt && new Date(targetHitAt).getTime() <= exitMs) exitRelationship = 'exited_after_target';
-    else exitRelationship = 'exited_with_thesis_intact';
-  }
-
-  let mfe: number | null = null, mae: number | null = null;
-  if (holdingBars.length && direction !== 'neutral') {
-    if (direction === 'bullish') {
-      mfe = ((Math.max(...holdingBars.map((b) => Number(b.high))) - entryUnderlying) / entryUnderlying) * 100;
-      mae = ((Math.min(...holdingBars.map((b) => Number(b.low))) - entryUnderlying) / entryUnderlying) * 100;
-    } else {
-      mfe = ((entryUnderlying - Math.min(...holdingBars.map((b) => Number(b.low))) / 1) / entryUnderlying) * 100;
-      mae = ((entryUnderlying - Math.max(...holdingBars.map((b) => Number(b.high))) / 1) / entryUnderlying) * 100;
-    }
-  }
-
-  const invalidationMs = invalidationAt ? new Date(invalidationAt).getTime() : null;
-  const postInvalidationMinutes = invalidationMs !== null && exitAt
-    ? Math.max(0, Math.round((exitMs - invalidationMs) / 60000))
-    : null;
-
-  const range5 = rangePosition(entryUnderlying, broadBars30, 5);
-  const range20 = rangePosition(entryUnderlying, broadBars30, 20);
-
+  // Fresh session confirmation is intentionally separate from broader context.
+  // User-facing confirmation timing is only calculated from this session-local event.
   const sessionConfirmationAt = sessionCycle.confirmed ? sessionCycle.confirmationAt : null;
   const sessionConfirmationPrice = sessionCycle.confirmed ? sessionCycle.confirmation : null;
   const confirmationAtMs = sessionConfirmationAt ? new Date(sessionConfirmationAt).getTime() : null;
@@ -588,12 +548,59 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
         return touched && held;
       }) ?? null
     : null;
+
   const unconfirmedRetest = !sessionCycle.confirmed && sameSessionTrade
     ? detectUnconfirmedSessionRetest(analysisBars, tradeDirection || broadDirection)
     : null;
   const retestBar = confirmedRetestBar ?? (unconfirmedRetest
     ? { bar_time: unconfirmedRetest.at, close: unconfirmedRetest.price }
     : null);
+
+  const confirmationDistance = sessionConfirmationPrice !== null
+    ? Math.abs(entryUnderlying - sessionConfirmationPrice)
+    : null;
+  const extensionUnits = confirmationDistance !== null && levels.move > 0
+    ? confirmationDistance / levels.move
+    : null;
+
+  let entryRelationship = 'no_confirmed_thesis';
+  if (agreement === 'opposed') entryRelationship = 'against_confirmed_thesis';
+  else if (agreement === 'aligned' && sessionConfirmationPrice !== null) {
+    const betterRetest = direction === 'bullish'
+      ? entryUnderlying < sessionConfirmationPrice && entryUnderlying > Number(invalidation)
+      : entryUnderlying > sessionConfirmationPrice && entryUnderlying < Number(invalidation);
+    entryRelationship = betterRetest ? 'confirmed_retest'
+      : (extensionUnits ?? 0) > 1.5 ? 'chased_extension'
+        : 'confirmed_direction';
+  } else if (agreement === 'aligned' && sessionState === 'existing_thesis') {
+    entryRelationship = unconfirmedRetest ? 'existing_thesis_retest' : 'existing_thesis_continuation';
+  }
+
+  let exitRelationship = 'thesis_unconfirmed';
+  if (direction !== 'neutral' && exitAt) {
+    if (invalidationAt && new Date(invalidationAt).getTime() <= exitMs) exitRelationship = 'exited_after_invalidation';
+    else if (targetHitAt && new Date(targetHitAt).getTime() <= exitMs) exitRelationship = 'exited_after_target';
+    else exitRelationship = 'exited_with_thesis_intact';
+  }
+
+  let mfe: number | null = null, mae: number | null = null;
+  if (holdingBars.length && direction !== 'neutral') {
+    if (direction === 'bullish') {
+      mfe = ((Math.max(...holdingBars.map((b) => Number(b.high))) - entryUnderlying) / entryUnderlying) * 100;
+      mae = ((Math.min(...holdingBars.map((b) => Number(b.low))) - entryUnderlying) / entryUnderlying) * 100;
+    } else {
+      mfe = ((entryUnderlying - Math.min(...holdingBars.map((b) => Number(b.low)))) / entryUnderlying) * 100;
+      mae = ((entryUnderlying - Math.max(...holdingBars.map((b) => Number(b.high)))) / entryUnderlying) * 100;
+    }
+  }
+
+  const invalidationMs = invalidationAt ? new Date(invalidationAt).getTime() : null;
+  const postInvalidationMinutes = invalidationMs !== null && exitAt
+    ? Math.max(0, Math.round((exitMs - invalidationMs) / 60000))
+    : null;
+
+  const range5 = rangePosition(entryUnderlying, broadBars30, 5);
+  const range20 = rangePosition(entryUnderlying, broadBars30, 20);
 
   let preEntryGivebackPct: number | null = null;
   if (postConfirmationBars.length && sessionConfirmationPrice !== null && direction !== 'neutral') {
@@ -616,7 +623,9 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
       )
     : 0;
 
-  let momentumStateAtEntry = sessionState === 'existing_thesis' && direction !== 'neutral' ? 'context_active' : 'unconfirmed';
+  let momentumStateAtEntry = sessionState === 'existing_thesis' && direction !== 'neutral'
+    ? 'context_active'
+    : 'unconfirmed';
   if (direction !== 'neutral' && sessionState !== 'existing_thesis') {
     if ((moveConsumedPct ?? 0) >= 65 || (extensionUnits ?? 0) >= 1.25) momentumStateAtEntry = 'extended';
     else if ((preEntryGivebackPct ?? 0) >= 25) momentumStateAtEntry = 'weakening';
@@ -646,11 +655,27 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     }
   }
 
-  const reversalAt = nearestOriginTime(beforeEntry5, cycle.origin, direction, sessionConfirmationPriceAt);
+  const reversalAt = sessionCycle.confirmed
+    ? nearestOriginTime(beforeEntry5, sessionCycle.origin, direction, sessionConfirmationAt)
+    : null;
   const decisionTimeline = [
-    reversalAt && cycle.origin !== null ? { kind: 'reversal_origin', at: reversalAt, price: cycle.origin } : null,
-    sessionConfirmationPriceAt && sessionConfirmationPrice !== null ? { kind: 'confirmation', at: sessionConfirmationPriceAt, price: sessionConfirmationPrice } : null,
-    retestBar ? { kind: unconfirmedRetest ? 'retest_hold_unconfirmed' : 'retest_hold', at: String(retestBar.bar_time), price: Number(retestBar.close) } : null,
+    reversalAt && sessionCycle.origin !== null
+      ? { kind: 'reversal_origin', at: reversalAt, price: sessionCycle.origin }
+      : null,
+    sessionConfirmationAt && sessionConfirmationPrice !== null
+      ? {
+          kind: sessionState === 'session_reconfirmed' ? 'reconfirmation' : 'confirmation',
+          at: sessionConfirmationAt,
+          price: sessionConfirmationPrice,
+        }
+      : null,
+    retestBar
+      ? {
+          kind: unconfirmedRetest ? 'retest_hold_unconfirmed' : 'retest_hold',
+          at: String(retestBar.bar_time),
+          price: Number(retestBar.close),
+        }
+      : null,
     { kind: 'entry', at: entryAt, price: entryUnderlying },
     targetHitAt && target !== null ? { kind: 'target_reached', at: targetHitAt, price: target } : null,
     weakening ? { kind: 'weakening', at: weakening.at, price: weakening.price } : null,
@@ -703,12 +728,16 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     entry_at: entryAt,
     exit_at: exitAt,
     retro_direction: direction,
+    context_direction: broadDirection,
+    context_confirmation_at: broadCycle.confirmationAt,
+    context_confirmation_price: broadCycle.confirmation,
+    session_state: sessionState,
     thesis_state: direction === 'neutral' ? 'unconfirmed' : 'supported',
     setup_class: setup,
-    cycle_event_type: cycle.event,
-    reversal_origin: cycle.origin,
+    cycle_event_type: sessionCycle.confirmed ? sessionCycle.event : 'context_carry',
+    reversal_origin: sessionCycle.confirmed ? sessionCycle.origin : null,
     confirmation_price: sessionConfirmationPrice,
-    confirmation_at: sessionConfirmationPriceAt,
+    confirmation_at: sessionConfirmationAt,
     entry_underlying_price: entryUnderlying,
     exit_underlying_price: exitUnderlying,
     target_price: target,
@@ -722,7 +751,7 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     exit_relationship: exitRelationship,
     range_position_5d: range5,
     range_position_20d: range20,
-    volume_confirmation_ratio: cycle.volumeRatio,
+    volume_confirmation_ratio: sessionCycle.confirmed ? sessionCycle.volumeRatio : broadCycle.volumeRatio,
     move_extension_at_entry: extensionUnits,
     confirmation_to_entry_minutes: confirmationToEntryMinutes,
     confirmation_to_entry_pct: confirmationToEntryPct,
