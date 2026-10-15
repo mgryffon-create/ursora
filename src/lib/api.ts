@@ -405,7 +405,11 @@ export interface HistoricalTradeReview {
   post_invalidation_minutes: number | null;
   confidence_score: number | null;
   review_summary: string | null;
-  evidence: Record<string, unknown>;
+  evidence: Record<string, unknown> & { thesis_entry?: {
+    summary: string; established_at: string; prior_sessions: number;
+    move_before_entry_pct: number; move_consumed_pct: number | null;
+    elapsed_minutes: number; entry_quality_label: string; pullback_status: string;
+  } | null };
   engine_version: string;
   computed_at: string;
 }

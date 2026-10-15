@@ -739,6 +739,7 @@ Deno.serve(async (req) => {
         swing_cycle_event_type: cycleEventType,
         swing_cycle_reason: cycleReason,
         swing_cycle_confidence_score: cycleConfidence,
+        thesis_entry: persistedCycle?.details?.thesis_entry ?? null,
         market_cycle_state: persistedCycle ? {
           cycle_state: persistedCycle.cycle_state,
           direction: persistedCycle.direction,

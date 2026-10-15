@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { replayThesis, assessThesisEntry } from '../_shared/thesis-lifecycle.ts';
 import { historicalMarketSymbol } from '../_shared/historical-market-symbol.ts';
 
 const corsHeaders = {
@@ -268,6 +269,8 @@ function aggregate30(bars5: AnyRow[]) {
   }
   return [...groups.values()].map((rows) => ({
     bar_time: rows[0].bar_time,
+    available_at: new Date(+new Date(rows.at(-1)!.bar_time) + 5 * 60000).toISOString(),
+    complete: rows.length === 6,
     session: etParts(String(rows[0].bar_time)).session,
     slot: Math.floor(((etParts(String(rows[0].bar_time)).hour * 60 + etParts(String(rows[0].bar_time)).minute) - 570) / 30),
     open: Number(rows[0].open),
@@ -318,6 +321,9 @@ function decorate5(bars5: AnyRow[]) {
     const mins = p.hour * 60 + p.minute;
     return {
       ...bar,
+      bar_time: String(bar.bar_time), open: Number(bar.open), high: Number(bar.high),
+      low: Number(bar.low), close: Number(bar.close),
+      available_at: new Date(+new Date(bar.bar_time) + 5 * 60000).toISOString(),
       session: p.session,
       slot: Math.max(0, Math.floor((mins - 570) / 5)),
     };
@@ -390,7 +396,7 @@ function deriveCycle(bars30: AnyRow[], minBars = 10, maxSessions = 5) {
         if (rejection >= 0.42 && held && follow && (volumeRatio === null || volumeRatio >= 0.85)) {
           candidates.push({
             direction: 'bullish', event: 'reversal', origin: low, confirmation: Number(bars[j].close),
-            confirmationAt: String(bars[j].bar_time), confirmationIndex: j,
+            confirmationAt: String(bars[j].available_at ?? bars[j].bar_time), confirmationIndex: j,
             invalidation: low - medianRange * 0.15, volumeRatio, rejection,
             score: j * 0.12 + rejection * 2 + Math.min(2, volumeRatio ?? 1),
             reason: `Buyers rejected ${low.toFixed(2)} and confirmed a move higher around ${Number(bars[j].close).toFixed(2)}.`,
@@ -410,7 +416,7 @@ function deriveCycle(bars30: AnyRow[], minBars = 10, maxSessions = 5) {
         if (rejection >= 0.42 && held && follow && (volumeRatio === null || volumeRatio >= 0.85)) {
           candidates.push({
             direction: 'bearish', event: 'reversal', origin: high, confirmation: Number(bars[j].close),
-            confirmationAt: String(bars[j].bar_time), confirmationIndex: j,
+            confirmationAt: String(bars[j].available_at ?? bars[j].bar_time), confirmationIndex: j,
             invalidation: high + medianRange * 0.15, volumeRatio, rejection,
             score: j * 0.12 + rejection * 2 + Math.min(2, volumeRatio ?? 1),
             reason: `Sellers rejected ${high.toFixed(2)} and confirmed a move lower around ${Number(bars[j].close).toFixed(2)}.`,
@@ -429,7 +435,7 @@ function deriveCycle(bars30: AnyRow[], minBars = 10, maxSessions = 5) {
     if (Number(last.close) > priorHigh && (volumeRatio === null || volumeRatio >= 0.95)) {
       candidates.push({
         direction: 'bullish', event: 'breakout', origin: priorHigh, confirmation: Number(last.close),
-        confirmationAt: String(last.bar_time), confirmationIndex: bars.length - 1,
+        confirmationAt: String(last.available_at ?? last.bar_time), confirmationIndex: bars.length - 1,
         invalidation: priorHigh - medianRange * 0.2, volumeRatio, rejection: 1,
         score: bars.length + 4 + Math.min(2, volumeRatio ?? 1),
         reason: `Price confirmed a breakout above ${priorHigh.toFixed(2)} before entry.`,
@@ -438,7 +444,7 @@ function deriveCycle(bars30: AnyRow[], minBars = 10, maxSessions = 5) {
     if (Number(last.close) < priorLow && (volumeRatio === null || volumeRatio >= 0.95)) {
       candidates.push({
         direction: 'bearish', event: 'breakout', origin: priorLow, confirmation: Number(last.close),
-        confirmationAt: String(last.bar_time), confirmationIndex: bars.length - 1,
+        confirmationAt: String(last.available_at ?? last.bar_time), confirmationIndex: bars.length - 1,
         invalidation: priorLow + medianRange * 0.2, volumeRatio, rejection: 1,
         score: bars.length + 4 + Math.min(2, volumeRatio ?? 1),
         reason: `Price confirmed a breakdown below ${priorLow.toFixed(2)} before entry.`,
@@ -570,9 +576,10 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
   const exitMs = exitAt ? new Date(exitAt).getTime() : entryMs + 86400000;
 
   const regularBars = symbolBars.filter(regular);
-  const beforeEntry5 = regularBars.filter((b) => new Date(b.bar_time).getTime() <= entryMs);
-  const broadBars30 = aggregate30(beforeEntry5);
-  const entryUnderlying = nearestPrice(regularBars, entryAt);
+  // Provider timestamps mark bar OPEN. Only completed candles may inform entry.
+  const beforeEntry5 = regularBars.filter((b) => new Date(b.bar_time).getTime() + 5 * 60000 <= entryMs);
+  const broadBars30 = aggregate30(beforeEntry5).filter(b => b.complete);
+  const entryUnderlying = beforeEntry5.length ? n(beforeEntry5.at(-1)!.close) : null;
   const exitUnderlying = nearestPrice(regularBars, exitAt);
   if (entryUnderlying === null) throw new Error(`No underlying market price found near ${episode.symbol} entry.`);
 
@@ -619,6 +626,7 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
   }
 
   const broadCycle = deriveCycle(broadBars30, 8, 5);
+  const ancestry = replayThesis(broadBars30, prefix => deriveCycle(prefix, 8, 5));
   const sessionCycle = deriveCycle(analysisBars, cycleMinBars, cycleMaxSessions);
 
   const broadDirection = broadCycle.confirmed ? broadCycle.direction : 'neutral';
@@ -776,6 +784,9 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     ? Math.max(0, Math.round((exitMs - invalidationMs) / 60000))
     : null;
 
+  const entryTiming = ancestry?.direction === direction
+    ? assessThesisEntry(ancestry, decorate5(beforeEntry5), entryAt, entryUnderlying) : null;
+
   const range5 = rangePosition(entryUnderlying, broadBars30, 5);
   const range20 = rangePosition(entryUnderlying, broadBars30, 20);
 
@@ -820,13 +831,23 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
   else if (direction !== 'neutral' && (moveConsumedPct ?? 0) >= 60) entryQualityLabel = 'late_confirmed_move';
   else if (direction !== 'neutral') entryQualityLabel = 'confirmed_location';
 
-  let entryQualityScore: number | null = direction === 'neutral' ? null : 100;
+  if (agreement === 'aligned' && entryTiming) {
+    entryQualityLabel = entryTiming.entry_quality_label;
+    if (['late_extended', 'late_confirmed_move'].includes(entryQualityLabel)) entryRelationship = 'chased_extension';
+    else if (entryQualityLabel === 'pullback_unconfirmed') entryRelationship = 'unconfirmed_pullback';
+    if (entryQualityLabel === 'late_extended') momentumStateAtEntry = 'extended';
+    else if (entryQualityLabel === 'pullback_unconfirmed') momentumStateAtEntry = 'pullback_unconfirmed';
+  }
+
+  let entryQualityScore: number | null = direction === 'neutral' || (sessionState === 'existing_thesis' && entryTiming?.move_consumed_pct == null) ? null : 100;
   if (entryQualityScore !== null) {
     if (agreement === 'opposed') entryQualityScore = 10;
     else {
-      entryQualityScore -= Math.min(45, Math.max(0, ((moveConsumedPct ?? 0) - 35) * 0.8));
+      entryQualityScore -= Math.min(45, Math.max(0, ((entryTiming?.move_consumed_pct ?? moveConsumedPct ?? 0) - 35) * 0.8));
       entryQualityScore -= Math.min(20, Math.max(0, (preEntryGivebackPct ?? 0) - 10) * 0.5);
-      if (confirmedRetestBar) entryQualityScore += 8;
+      if (confirmedRetestBar && !['late_extended', 'pullback_unconfirmed'].includes(entryQualityLabel)) entryQualityScore += 8;
+      if (entryQualityLabel === 'pullback_unconfirmed') entryQualityScore = Math.min(entryQualityScore, 50);
+      if (entryQualityLabel === 'late_extended') entryQualityScore = Math.min(entryQualityScore, 40);
       if (remainingRoomPct !== null && remainingRoomPct <= 0) entryQualityScore -= 25;
       entryQualityScore = Math.max(0, Math.min(100, Math.round(entryQualityScore)));
     }
@@ -860,7 +881,7 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     exitAt && exitUnderlying !== null ? { kind: 'exit', at: exitAt, price: exitUnderlying } : null,
   ].filter(Boolean);
 
-  const guidanceSummary = direction === 'neutral'
+  const legacyGuidanceSummary = direction === 'neutral'
     ? (unconfirmedRetest
         ? 'A local session level was tested and held before entry, but neither the broader context nor this trade window produced a substantiated directional thesis. URSORA treats this as an unconfirmed retest.'
         : 'No substantiated directional thesis was available in the broader context or this trade window, so URSORA cannot grade entry timing against confirmation.')
@@ -877,6 +898,8 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
             : entryQualityLabel === 'late_extended' || entryQualityLabel === 'late_confirmed_move'
               ? `The direction was supported, but entry came ${confirmationToEntryMinutes ?? 'later'} minute${confirmationToEntryMinutes === 1 ? '' : 's'} after fresh session confirmation after about ${Math.round(moveConsumedPct ?? 0)}% of the confirmation-to-target move had already been consumed.`
               : `The entry occurred after fresh session confirmation while the move still retained meaningful room to its tactical target.`;
+
+  const guidanceSummary = agreement === 'aligned' && entryTiming ? entryTiming.summary : legacyGuidanceSummary;
 
   const setup = direction === 'neutral'
     ? 'unconfirmed'
@@ -906,8 +929,8 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     exit_at: exitAt,
     retro_direction: direction,
     context_direction: broadDirection,
-    context_confirmation_at: broadCycle.confirmationAt,
-    context_confirmation_price: broadCycle.confirmation,
+    context_confirmation_at: ancestry?.established_at ?? null,
+    context_confirmation_price: ancestry?.confirmation_price ?? null,
     session_state: sessionState,
     regime_label: regime.label,
     regime_direction: regime.direction,
@@ -956,8 +979,9 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
     mae_underlying_pct: mae,
     post_invalidation_minutes: postInvalidationMinutes,
     confidence_score: sessionCycle.confirmed ? sessionCycle.confidence : broadCycle.confidence,
-    review_summary: summary,
+    review_summary: agreement === 'aligned' && entryTiming ? entryTiming.summary : summary,
     evidence: {
+      thesis_entry: entryTiming,
       no_lookahead: true,
       decision_cutoff: entryAt,
       source_timeframe: sameSessionTrade
@@ -1007,7 +1031,7 @@ function reviewEpisode(episode: AnyRow, symbolBars: AnyRow[]) {
       realized_pl: n(episode.realized_pl),
       realized_return_pct: n(episode.realized_return_pct),
     },
-    engine_version: 'historical-cycle-1.4',
+    engine_version: 'historical-cycle-1.5',
     computed_at: new Date().toISOString(),
   };
 }
@@ -1045,7 +1069,7 @@ Deno.serve(async (req) => {
     if (existingError) throw existingError;
 
     const current = new Set((existing ?? [])
-      .filter((r: AnyRow) => r.engine_version === 'historical-cycle-1.4')
+      .filter((r: AnyRow) => r.engine_version === 'historical-cycle-1.5')
       .map((r: AnyRow) => Number(r.brokerage_episode_id)));
     const pending = rows.filter((r: AnyRow) => !current.has(Number(r.id)));
     if (!pending.length) return json({ success: true, reviewed: 0, cached: rows.length, failures: [] });
@@ -1126,7 +1150,7 @@ Deno.serve(async (req) => {
       reviewed: reviews.length,
       cached: rows.length - pending.length,
       failures,
-      engine_version: 'historical-cycle-1.4',
+      engine_version: 'historical-cycle-1.5',
     });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : String(error) }, 500);
