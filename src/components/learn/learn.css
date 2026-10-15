@@ -50,3 +50,40 @@
  .learn-module-sidebar { display: block; position: sticky; top: 110px; align-self: start; }
  .learn-workspace .learn-mobile-modules { display: none; }
 }
+.learn-focus-stage { display: flex; align-items: center; justify-content: center; min-height: calc(100dvh - 220px); padding: 24px 0; }
+.learn-focus-stage > section { margin: auto; padding: clamp(20px, 4vw, 40px); }
+/* Learn is an intentionally light workspace, independent of TradeCycle's theme. */
+.learn-app-shell { background: #f4f7fc; color: #18324d; }
+.learn-app-shell > header { background: #fff; border-color: #d9e4ef; }
+.learn-app-shell > header > div { border-color: #d9e4ef; }
+.learn-app-shell > header button { color: #1e4e8c; background: #f0f6ff; border-color: #b8cfe9; }
+.learn-app-shell > header span { color: #48637f; }
+.learn-workspace { color: #18324d; color-scheme: light; }
+.learn-workspace .learn-panel { background: #fff; border-color: #d6e2ee; box-shadow: 0 3px 16px #28476508; }
+.learn-workspace h1, .learn-workspace h2, .learn-workspace h3 { color: #164d8d; }
+.learn-workspace .text-zinc-400, .learn-workspace .text-zinc-300, .learn-workspace .text-zinc-200 { color: #52677c; }
+.learn-workspace .text-sky-200, .learn-workspace .text-sky-300 { color: #1d57a3; }
+.learn-workspace .text-amber-200 { color: #835619; }
+.learn-workspace .text-rose-300 { color: #b42318; }
+.learn-workspace input, .learn-workspace select, .learn-workspace textarea { background: #fff; color: #17324d; border-color: #a6bdd5; accent-color: #2563eb; }
+.learn-workspace button { background: #edf4ff; color: #164d8d; border-color: #b7cde7; }
+.learn-workspace button:hover { background: #dbeafe; }
+.learn-workspace button:disabled { opacity: .6; }
+.learn-workspace button[type=submit], .learn-workspace button.learn-primary { background: #1d5dc1; color: #fff; border-color: #1d5dc1; }
+.learn-workspace button[aria-pressed=true], .learn-module-links button[aria-current=page] { background: #dbeafe; border-color: #2563eb; color: #123f7b; }
+.learn-module-links button { background: #fff; border-color: #d6e2ee; }
+.learn-module-links small { display: block; margin-top: 3px; font-size: 11px; color: #5b7086; }
+.learn-module-links button[aria-current=page] small { color: #1d57a3; font-weight: 500; }
+.learn-quote-pair { border-color: #d6e2ee; }
+.learn-quote-pair small, .learn-candle-readout dt { color: #536b84; }
+.learn-candle-readout { color: #17324d; }
+.learn-coach, .learn-activity-context { color: #34516e; border-color: #85b6f1; background: #f0f6ff; padding: 12px; border-radius: 6px; }
+.learn-total { border-color: #d6e2ee; }
+.learn-lesson-visual { margin: 12px 0; padding: 14px; background: #f4f8fe; border-radius: 10px; }
+.learn-lesson-visual figcaption { color: #1d57a3; font-size: 14px; font-weight: 500; }
+.learn-lesson-visual svg { width: 100%; max-width: 380px; height: auto; display: block; margin: 8px auto; }
+.learn-lesson-visual text { fill: #34516e; font-size: 13px; }
+.learn-lesson-visual > p { color: #667d94; font-size: 11px; }
+.learn-feedback-correct { color: #12633c; background: #e8f7ef; padding: 12px; border-radius: 6px; }
+.learn-feedback-incorrect { color: #a32626; background: #fff0f0; padding: 12px; border-radius: 6px; }
+.learn-workspace [aria-label="Chart and quick trade controls"] button:has(strong) { background: #eaf6ee; color: #14603b; border-color: #8dc7a7; }

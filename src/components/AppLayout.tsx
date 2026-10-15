@@ -482,7 +482,7 @@ export const AppLayout: React.FC = () => {
   const activeLabel = labelForView(view);
 
   return (
-    <div className="min-h-screen bg-[#0b0d10] text-zinc-200">
+    <div className={cn('min-h-screen', view === 'learn' ? 'learn-app-shell' : 'bg-[#0b0d10] text-zinc-200')}>
       <header className="sticky top-0 z-40 border-b border-zinc-800 bg-[#0b0d10]/95 backdrop-blur">
         {view === 'learn' ? <div className="border-b border-zinc-800 px-3 py-1.5 font-mono text-xs text-sky-300">URSORA Learn · Training workspace · Synthetic market</div> : <StatusBar snapshot={snapshot} />}
         <div className="flex flex-wrap items-center gap-3 px-3 py-2">

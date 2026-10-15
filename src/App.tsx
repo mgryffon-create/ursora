@@ -9,6 +9,7 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { ExplanationProvider } from '@/contexts/ExplanationContext';
 import Index from './pages/Index';
 import NotFound from './pages/NotFound';
+import DeploymentUpdateNotice from '@/components/DeploymentUpdateNotice';
 
 const queryClient = new QueryClient();
 
@@ -61,6 +62,7 @@ const App = () => (
           <ExplanationProvider>
             <Toaster />
             <Sonner />
+            <DeploymentUpdateNotice />
             <BrowserRouter>
               <Routes>
                 <Route path="/" element={<Index />} />

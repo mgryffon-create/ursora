@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React from 'react';
+import { useLearnState } from './LearnProgress';
 import { contracts, quote, type Tick } from '@/lib/learn/market';
 import { responseComplete } from '@/lib/learn/sentence-prompts';
 import SentenceResponse from './SentenceResponse';
 const money = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 export type TicketRequest = { side: 'buy' | 'sell'; contract: number; quantity: number; id: number };
 export type TicketValues = { side: 'buy' | 'sell'; contract: number; quantity: number; limit: number | null; reason: string };
-export default function OrderTicket({ request, ticks, second, available, error, onPlace, onCancel }: { request: TicketRequest; ticks: Tick[]; second: number; available: number; error: string; onPlace: (ticket: TicketValues) => void; onCancel: () => void }) {
-  const [step, setStep] = useState(0), [quantity, setQuantity] = useState(request.quantity), [type, setType] = useState('market'), [limit, setLimit] = useState(''), [reason, setReason] = useState('');
+export default function OrderTicket({ draftKey, request, ticks, second, available, error, onPlace, onCancel }: { draftKey: string; request: TicketRequest; ticks: Tick[]; second: number; available: number; error: string; onPlace: (ticket: TicketValues) => void; onCancel: () => void }) {
+  const [step, setStep] = useLearnState(`${draftKey}:step`, 0), [quantity, setQuantity] = useLearnState(`${draftKey}:quantity`, request.quantity), [type, setType] = useLearnState(`${draftKey}:type`, 'market'), [limit, setLimit] = useLearnState(`${draftKey}:limit`, ''), [reason, setReason] = useLearnState(`${draftKey}:reason`, '');
   const q = quote(ticks, second, request.contract);
   const price = type === 'limit' ? Number(limit) : request.side === 'buy' ? q.ask : q.bid;
   const valid = Number.isInteger(quantity) && quantity > 0 && Number.isFinite(price) && price > 0 && (request.side === 'buy' || quantity <= available);

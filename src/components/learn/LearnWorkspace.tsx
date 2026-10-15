@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useLearnState } from './LearnProgress';
+import { PREPARE_UPDATE_EVENT } from '@/lib/deployment-update';
 import PracticeDialog from './PracticeDialog';
 import Placement from './Placement';
 import SentenceResponse from './SentenceResponse';
@@ -13,18 +14,19 @@ const money = (n: number) => n.toLocaleString('en-US', { style: 'currency', curr
 const defaultPlan: Plan = { thesis: '', trigger: 101.5, invalidation: 100.3, target: 102.8, budget: 600 };
 type Saved = { version: string; seed: number; second: number; account: Account; plan: Plan; locked: boolean; path: 'foundations' | 'practice' | null; guided: boolean; checkpoints: number[]; decisions: { second: number; action: string; reason: string }[]; changes?: PlanChange[] };
 function fresh(): Saved { return { version: VERSION, seed: Math.floor(Math.random() * 1000000), second: 0, account: initialAccount(), plan: defaultPlan, locked: false, path: null, guided: true, checkpoints: [], decisions: [], changes: [] }; }
-function restore(key: string): Saved { try { const value = JSON.parse(localStorage.getItem(key) ?? 'null'); if (value?.version === VERSION && Number.isInteger(value.seed) && Number.isInteger(value.second) && value.second >= 0 && value.second <= DURATION && value.account?.fills && Array.isArray(value.checkpoints) && value.plan && ['foundations', 'practice', null].includes(value.path)) return value; } catch { /* Unavailable or old storage starts fresh. */ } return fresh(); }
 export default function LearnWorkspace({ placementPath, reviewMode = false, onNextLesson }: { placementPath?: 'foundations' | 'practice'; reviewMode?: boolean; onNextLesson?: () => void } = {}) {
-  const { user } = useAuth();
-  const key = `ursora:${VERSION}:${user?.id}`;
-  const [state, setState] = useState<Saved>(() => { const saved = restore(key); return saved.path || !placementPath ? saved : { ...saved, path: placementPath }; });
-  const [playing, setPlaying] = useState(false), [speed, setSpeed] = useState(30), [review, setReview] = useState(reviewMode), [error, setError] = useState(''), [storageWarning, setStorageWarning] = useState(false);
-  const [contract, setContract] = useState(0), [request, setRequest] = useState<TicketRequest | null>(null), [editingPlan, setEditingPlan] = useState(false), [decision, setDecision] = useState(''), [notice, setNotice] = useState('');
+  const [state, setState] = useLearnState<Saved>('workspace', () => ({ ...fresh(), path: placementPath ?? null }));
+  const [speed, setSpeed] = useLearnState('playbackSpeed', 30);
+  const [playing, setPlaying] = useState(false), [review, setReview] = useState(reviewMode), [error, setError] = useState('');
+  const [contract, setContract] = useLearnState('selectedContract', 0);
+  const [request, setRequest] = useLearnState<TicketRequest | null>('ticketRequest', null);
+  const [editingPlan, setEditingPlan] = useLearnState('editingPlan', false);
+  const [decision, setDecision] = useLearnState('waitDraft', '');
+  const [notice, setNotice] = useState('');
   const [wide, setWide] = useState(() => window.matchMedia('(min-width: 1050px)').matches);
   useEffect(() => { const query = window.matchMedia('(min-width: 1050px)'); const update = () => setWide(query.matches); query.addEventListener('change', update); return () => query.removeEventListener('change', update); }, []);
   const ticks = useMemo(() => generateSession(state.seed), [state.seed]);
   const current = useMemo(() => evidence(ticks, state.second), [ticks, state.second]);
-  useEffect(() => { try { localStorage.setItem(key, JSON.stringify(state)); } catch { setStorageWarning(true); } }, [state, key]);
   useEffect(() => {
     if (!playing) return;
     const id = window.setInterval(() => setState(s => {
@@ -35,8 +37,9 @@ export default function LearnWorkspace({ placementPath, reviewMode = false, onNe
       return { ...s, second, account: s.locked ? settleOrders(s.account, ticks, second, s.plan) : s.account, checkpoints };
     }), 1000 / speed);
     return () => window.clearInterval(id);
-  }, [playing, speed, ticks]);
+  }, [playing, speed, ticks, setState]);
   useEffect(() => { const pause = () => { if (document.hidden) setPlaying(false); }; document.addEventListener('visibilitychange', pause); return () => document.removeEventListener('visibilitychange', pause); }, []);
+  useEffect(() => { const pause = () => setPlaying(false); window.addEventListener(PREPARE_UPDATE_EVENT, pause); return () => window.removeEventListener(PREPARE_UPDATE_EVENT, pause); }, []);
   const openTicket = (side: 'buy' | 'sell', id = contract, quantity = 1) => { setContract(id); setError(''); setNotice(''); setRequest({ side, contract: id, quantity, id: Date.now() }); };
   const place = (ticket: TicketValues) => {
     try {
@@ -54,11 +57,10 @@ export default function LearnWorkspace({ placementPath, reviewMode = false, onNe
   const buys = state.account.fills.filter(f => f.side === 'buy');
   const q = quote(ticks, state.second, contract);
   const finished = state.second >= DURATION || review;
-  const ticketPanel = request ? <OrderTicket key={request.id} request={request} ticks={ticks} second={state.second} available={available(request.contract)} error={error} onPlace={place} onCancel={() => { setRequest(null); setError(''); }}/> : null;
+  const ticketPanel = request ? <OrderTicket key={request.id} draftKey={`ticket:${state.seed}:${request.id}`} request={request} ticks={ticks} second={state.second} available={available(request.contract)} error={error} onPlace={place} onCancel={() => { setRequest(null); setError(''); }}/> : null;
   const restart = (independent = false) => { setPlaying(false); setReview(false); setRequest(null); setError(''); setNotice(''); setState(s => ({ ...fresh(), path: independent ? 'practice' : s.path, guided: independent ? false : s.guided })); };
   return <div className="learn-workspace space-y-4">
-    <header className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-widest text-sky-300">Learn · Private alpha · Synthetic market</p><h1 className="mt-1 text-xl">Read the pullback. Make your plan.</h1><p className="text-xs text-zinc-400">Fictional SIM · No real orders · Progress saved on this browser</p></div><button onClick={() => { setPlaying(false); setRequest(null); setReview(true); }}>Review session</button></header>
-    {storageWarning && <p role="alert">Browser storage is unavailable. Keep this page open to retain this attempt.</p>}
+    <header className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-widest text-sky-300">Learn · Private alpha · Synthetic market</p><h1 className="mt-1 text-xl">Read the pullback. Make your plan.</h1><p className="text-xs text-zinc-400">Fictional SIM · No real orders · Progress saved to your account with browser backup</p></div><button onClick={() => { setPlaying(false); setRequest(null); setReview(true); }}>Review session</button></header>
     <div className="learn-account-strip"><span>Virtual equity <strong>{money(equity(state.account, ticks, state.second))}</strong></span><span>Cash <strong>{money(state.account.cash)}</strong></span><span>Net realized <strong>{money(state.account.realized - state.account.fees)}</strong></span><span className="text-zinc-400">Fees paid {money(state.account.fees)}</span></div>
     <div className="learn-workstation">
       <section className="learn-panel min-w-0 space-y-3" aria-label="Chart and quick trade controls">
@@ -99,8 +101,8 @@ export default function LearnWorkspace({ placementPath, reviewMode = false, onNe
     {(review || state.second === DURATION) && <section className="learn-panel space-y-3"><h2>Process review · {state.guided ? 'Assisted practice' : 'Independent attempt'}</h2><p>{state.second < DURATION ? 'Interim review. Return to resume.' : 'Replay complete. Open positions remain marked at the last bid; they were not automatically sold.'}</p><p>Buy decisions: {buys.length}. Below the trigger recorded for that order: {buys.filter(f => f.evidence.price < f.plan.trigger).length}. At or below its invalidation: {buys.filter(f => f.evidence.price <= f.plan.invalidation).length}. Beyond its target: {buys.filter(f => f.evidence.price >= f.plan.target).length}.</p><p>Before the training confirmation rule: {buys.filter(f => !f.evidence.confirmed).length}. This rule requires two completed session candles above $101.50; alternative reasoning still needs review.</p><p className="text-sm">Net equity change {money(equity(state.account, ticks, state.second) - 10000)}. Outcome is separate from process. Selected explanations are recorded, not treated as verified observations. Plan edits do not rewrite earlier fill evidence. No competency milestones are awarded in this alpha.</p>{state.second < DURATION && <button onClick={() => setReview(false)}>Return to session</button>}<button onClick={() => restart()}>Start a fresh variation</button>{state.path === 'foundations' && <button onClick={() => restart(true)}>Try independent practice (no milestone awarded)</button>}</section>}
     <details className="learn-panel"><summary>Decision journal · {state.account.fills.length} fills · {(state.changes ?? []).length} plan changes</summary><div className="mt-3 space-y-3">{state.account.fills.map((f, i) => <p key={i} className="text-sm">{clock(f.second)} · {f.side} {f.quantity} × {contracts[f.contract].label} @ {money(f.price)} · {f.reason}<span className="block text-xs text-zinc-400">At order: entry level {money(f.plan.trigger)} · invalidation {money(f.plan.invalidation)} · target {money(f.plan.target)} · budget {money(f.plan.budget)}. Evidence at fill: {money(f.evidence.price)} stock price; {f.evidence.closedCount} completed session candles.</span></p>)}{state.decisions.map((d, i) => <p key={`d${i}`}>{clock(d.second)} · {d.action} · {d.reason}</p>)}{(state.changes ?? []).map((change, i) => <div key={`p${i}`} className="text-sm"><p>{clock(change.second)} · Plan changed · {change.reason}</p><p className="text-xs text-zinc-400">Before: {change.before.thesis} · Entry {money(change.before.trigger)}, invalidation {money(change.before.invalidation)}, target {money(change.before.target)}, budget {money(change.before.budget)}.</p><p className="text-xs text-zinc-400">After: {change.after.thesis} · Entry {money(change.after.trigger)}, invalidation {money(change.after.invalidation)}, target {money(change.after.target)}, budget {money(change.after.budget)}.</p></div>)}</div></details>
     <PracticeDialog open={Boolean(request && !finished && !wide)} onOpenChange={open => { if (!open) { setRequest(null); setError(''); } }} title="Simulated order ticket" description={`SIM stock ${money(current.price)} · ${clock(state.second)} simulated. Playback continues while this ticket is open.`}>{ticketPanel}</PracticeDialog>
-    <PracticeDialog open={editingPlan} onOpenChange={setEditingPlan} title="Thesis and risk plan" description="Stock-price levels and total option budget for this simulated exercise.">{editingPlan && <PlanEditor plan={state.plan} recorded={state.locked} onCancel={() => setEditingPlan(false)} onSave={(plan, reason) => { setState(s => ({ ...s, plan, locked: true, changes: s.locked ? [...(s.changes ?? []), { second: s.second, before: { ...s.plan }, after: { ...plan }, reason }] : (s.changes ?? []), account: { ...s.account, orders: s.account.orders.map(o => ({ ...o, plan: o.plan ?? { ...s.plan } })) } })); setEditingPlan(false); setNotice(state.locked ? 'Plan updated. Earlier trade evidence is unchanged.' : 'Plan recorded. Trading is now available.'); }}/>}</PracticeDialog>
+    <PracticeDialog open={editingPlan} onOpenChange={setEditingPlan} title="Thesis and risk plan" description="Stock-price levels and total option budget for this simulated exercise.">{editingPlan && <PlanEditor draftKey={`plan:${state.seed}:${(state.changes ?? []).length}`} plan={state.plan} recorded={state.locked} onCancel={() => setEditingPlan(false)} onSave={(plan, reason) => { setState(s => ({ ...s, plan, locked: true, changes: s.locked ? [...(s.changes ?? []), { second: s.second, before: { ...s.plan }, after: { ...plan }, reason }] : (s.changes ?? []), account: { ...s.account, orders: s.account.orders.map(o => ({ ...o, plan: o.plan ?? { ...s.plan } })) } })); setEditingPlan(false); setNotice(state.locked ? 'Plan updated. Earlier trade evidence is unchanged.' : 'Plan recorded. Trading is now available.'); }}/>}</PracticeDialog>
     {onNextLesson && <button onClick={onNextLesson}>Next lesson: {reviewMode ? 'Candles in plain language' : 'Review your decisions'}</button>}
-    <p className="text-xs text-zinc-400">Original synthetic data. Prices and execution are educational approximations; no partial fills, settlement, exercise or assignment. Practice never enters brokerage statistics. Progress is saved on this browser.</p>
+    <p className="text-xs text-zinc-400">Original synthetic data. Prices and execution are educational approximations; no partial fills, settlement, exercise or assignment. Practice never enters brokerage statistics. Resume your session on this account. Playback resumes paused.</p>
   </div>;
 }

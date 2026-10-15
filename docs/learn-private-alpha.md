@@ -1,45 +1,34 @@
 # Learn private alpha
 
-This first vertical slice uses original, seeded synthetic price/volume updates; it never requests Massive data. It is not historical replay. Three scenario endings share the same authored opening structure. Timestamps are fictional winter-session ET labels; all timing is simulated.
+Learn is an opt-in header workspace, visible only to accounts granted administrator-controlled `app_metadata.learn_tester`. It has independent light styling, a complete module sidebar, current-activity highlighting, a compact module menu on small screens, introductory lesson pages, and Next lesson progression. Placement precedes lesson access; all modules remain visible during placement with their availability labeled.
 
-## Access and operation
+## Learning and simulated market
 
-An administrator-controlled `app_metadata.learn_tester === true` enables the Learn control beside MyURSORA in the header. It is enabled only for the verified owner account during this rollout. No user IDs or email addresses are embedded in source. Refresh authentication to pick up a metadata change. Use Enable Learn / Learn in the header. Learn has its own module sidebar and replaces the TradeCycle navigation while open. This is a presentation/rollout gate, not a protected data boundary: source is public and synthetic scenarios contain no secrets or private data.
+The placement assessment and foundation recaps use centered, click-through cards. Concept diagrams accompany plain-language definitions, activity context and practical purpose. The seven introductory modules are a beginning, not the full planned interactive curriculum or a validated competency/readiness assessment. Passing, waiting and alternative reasoning remain legitimate; dropdown explanations are not automatically treated as true observations.
 
-Learn is lazy-loaded only when opened. Progress is versioned and scoped by authenticated user ID in browser localStorage. Disabling Learn keeps the attempt. Leaving the view pauses/unmounts playback. Different users never load each other's saved attempt. There is no database schema change, shared market-data cache, real brokerage execution, or modification of brokerage statistics. Browser clearing loses progress; cross-device progress is deferred.
+Original, seeded per-second synthetic price/volume updates form five-minute candles. Prior-session context is synthetic too. Nothing in Learn requests Massive. Three scenario endings share an authored opening structure. Replay supports 1/10/30/60x, guided stops, pause, and background-tab pause. Opening a ticket leaves playback running; editing a plan pauses it. Candle OHLCV supports hover, tap-to-pin and keyboard inspection without future-candle leakage.
 
-## Included
+Chart-adjacent bid/ask and buy/sell controls launch a contextual three-step ticket. Desktop places the ticket beside the chart; narrower screens use a modal. Two fictional calls use an illustrative intrinsic/time/volatility-sensitive model with spreads, a 100-share multiplier and fees. There is no claim to calibrated exchange pricing, American-option accuracy, partial fills, settlement or assignment. Market and limit orders, reservations, trim/add/close and bid-marked positions are included. Plan levels do not place automatic orders. Fills and working orders retain their original plan snapshots; edits have a timestamp and reason. Brokerage history/statistics remain separate.
 
-- Self-report and four-question foundations screening before the practice view. Novices or any missed foundation receive a four-part introductory recap and guided practice. This is an alpha routing screen, not the final visual competency test or the full ground-zero curriculum.
-- Original per-second synthetic ticks, forming five-minute candles, prior-session context, automatic replay at 1/10/30/60x, pause and background-tab pause. No step-through candle control.
-- Guided stops at 10, 20 and 35 simulated minutes; independent attempts do not stop. Opening a ticket leaves playback running.
-- Recorded bullish thesis, entry trigger, invalidation, exit area and total committed-premium budget. A plan locks before orders; every fill stores a plan/evidence snapshot.
-- Two fictional calls with intrinsic/time/volatility-sensitive illustrative premiums, bid/ask spread, 100-share multiplier and fees. No claim to market calibration, American-option accuracy, queue simulation, partial fills, settlement or assignment.
-- Market and working limit orders, cash/exposure reservations, oversell prevention, weighted costs, trims/adds/closes, bid-marked positions, realized gross result and separate fees.
-- Frozen decision journal, wait/pass observations, interim/end review, and new seeded variations. Net equity outcome remains separate from rule checks. No automated interpretation-quality grades or competency milestones.
+The training adapter uses production `replayThesis` and `assessThesisEntry` with closed prefixes and a disclosed simplified direction detector. It is not the complete production regime/direction detector. Scenario outcome metadata is never input to evidence detection.
 
-## Engine boundary
+## Durable progress
 
-The training adapter imports the exact production `replayThesis` and `assessThesisEntry` ancestry/geometry functions. It supplies only closed candle prefixes plus a simplified, disclosed training direction detector. It does not run the full historical regime/direction detector or assert full production-thesis agreement. Completed-candle confirmation requires two session closes at/above $101.50. The active candle is excluded from confirmation/ancestry. Live visible price is used for entry movement. Scenario seeds/endings are never input to the detector.
+`learn_progress` stores one owner-scoped account document with optimistic revision checks. `save_learn_progress(owner_id, expected_revision, next_payload)` checks authenticated identity, row ownership and revision before saving. A stale write returns a conflict instead of overwriting newer work. `learn_progress_history` preserves recovery checkpoints at decisions/plan changes/new attempts and periodic intervals. Functions use security invoker and a fixed search path; anonymous access is revoked. Existing browser simulation records are imported when no account save exists and left untouched.
+
+The stable `ursora:learn-progress:<user-id>` browser key is independent of deployment/scenario build IDs. It provides immediate local backup; the account save is throttled during replay and debounced for forms. Saved data includes assessment answers/recap card, current lesson and lesson answers, practice seed/clock/account/plan/journal, plan edits and unfinished editor, selected contract, partial order ticket/quantity/limit/reason/step, wait/pass draft, and replay speed. Replay always resumes paused. The actual account document loads before defaults mount, preventing a blank mount from replacing a saved attempt.
+
+The UI reports account saves, pending saves, local-only recovery, load failure and conflicting revisions. A failed initial account read without a browser copy blocks starting fresh. Offline changes are retained and retried; switching devices requires an account-confirmed save. Conflicting copies are backed up before the learner chooses which to resume. Before a new attempt replaces an existing seed, the browser saves the previous attempt as a recovery copy. Account requests include the expected owner ID so a sign-out/account-switch race cannot write the prior user's document into the newly signed-in account.
+
+The old client did not save mid-assessment answers, recap cards, lesson position or unfinished forms. Data that was never recorded cannot be reconstructed; available browser simulation checkpoints can be recovered.
+
+## Deployment interruption fix
+
+The previous app automatically navigated to a new deployment every 15 seconds, on focus and on returning to a visible tab. It now announces an update without navigating. The learner chooses Later or Save & update. An active Learn provider must confirm its account save before the manual update can navigate. Failed or conflicted saves leave the session open.
 
 ## Verification
 
-`node --test tests/*.test.cjs` covers 26 tests across existing historical behavior and synthetic determinism, causal candles/evidence, quotes, fills, costs, limits and exposure. `npm run build` passes. Focused ESLint passes. Existing unrelated app TypeScript errors remain; none originate in Learn or its AppLayout integration.
-
-A DOM harness additionally exercises first-entry screening, foundations, recorded plan, order review/fill, interim review, continuous playback, pause and browser restoration. Headless Chromium browser checks now cover desktop and 390px mobile widths, candle hover/keyboard inspection, plan correction with preserved fill snapshots, buy execution, mobile sell tickets, and module/Next lesson navigation without horizontal overflow or page errors. Live account authentication is separate from the isolated browser harness.
-
-## Next boundaries
-
-Before broader release: full visual placement and foundation modules; competency/routing records; reviewed indicator teaching; calibrated option model and execution scenarios; deeper causal production-detector adapter; accessible mobile browser QA; durable server progress and appropriate access policies. Synthetic practice does not establish readiness for live trading.
-
-## Supported response update
-
-Thesis, buy/add, sell/trim/close and wait/pass prompts now use sentence blanks with native dropdown choices. No answers are preselected. Each selected phrase has a plain-language explanation; the assembled response is displayed before recording. Incomplete responses cannot be recorded or submitted. The journal preserves the actual choices without treating them as validated observations. Numeric price/exposure limits remain editable. Older recorded plans and fills remain unchanged; partial dropdown drafts use the existing browser-persistence format.
-
-## Chart, ticket, correction and workspace revision
-
-OHLCV inspection supports mouse hover, tap-to-pin and arrow keys. Forming candles expose only observed prices/volume. Chart-adjacent quotes and Buy at ask / Sell at bid launch a three-step order ticket. Desktop places the ticket beside the chart; narrower screens use an accessible modal. Contract price units, multiplier, fees, strike, expiry and position actions have explicit labels and explanations.
-
-Recorded plans can be edited through a modal. A reason and timestamp accompany each change. Existing fills retain their original plan. Working orders also freeze their plan at placement, including legacy orders when a plan is edited; execution still checks current resource limits. No automatic stop or target order is implied by a plan level.
-
-Learn is a separate header workspace, with seven introductory lesson pages, optional understanding checks, desktop module navigation, a mobile module selector, and Next lesson routes through practice and review. These are introductory pages, not the full previously planned interactive course or a validated competency assessment. Assessment still precedes module access for new learners. Returning learners can revisit or skip pages without losing their browser-saved trading attempt.
+- `node --test tests/*.test.cjs`: 33 passing tests, including synthetic execution, causal evidence, legacy migration, clean-browser account hydration, offline retries, stale-tab conflicts, separate user keys and non-interrupting deployment checks.
+- Focused ESLint and production build pass. Existing unrelated TypeScript errors remain; changed Learn files have no new errors.
+- Chromium tests cover mid-recap reload, lesson answer/page reload, partial plan and partial order reload, completed fill retention, account hydration after clearing local storage, offline recovery/retry, update announcements with no navigation, manual update refusal while unsaved, successful manual update with retained position, current module navigation, and 390px overflow checks. Backend transport is isolated in that UI test; live database ownership/revision/history behavior is separately verified using authenticated-role transactions rolled back after assertions.
+- Database tests verify stale-write rejection, owner mismatch rejection, cross-user read isolation, recovery checkpoints and revoked anonymous/legacy-RPC access. Security advisors report no findings for the new Learn tables/functions.

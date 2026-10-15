@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
+import { announceDeployment } from '@/lib/deployment-update';
 import './index.css';
 import { prepareBrokerageBootstrap, startBrokerageDailyRefresh } from '@/lib/brokerage-bootstrap';
 
@@ -53,13 +54,8 @@ async function checkForNewDeployment() {
 
     const payload = await response.json() as { buildId?: string };
     if (payload.buildId && payload.buildId !== CURRENT_BUILD_ID) {
-      const nextUrl = new URL(window.location.href);
-      nextUrl.searchParams.set('__ursora_build', payload.buildId.slice(0, 12));
-      // Always change the URL on a build mismatch. If a browser reuses stale HTML
-      // once, a build-only query can become identical on the next check and fail to
-      // force another network navigation.
-      nextUrl.searchParams.set('__ursora_reload', String(Date.now()));
-      window.location.replace(nextUrl.toString());
+      // A deployment must never navigate away from an active learning/form session.
+      announceDeployment(payload.buildId);
     }
   } catch {
     // A failed version check should never interrupt the application.
