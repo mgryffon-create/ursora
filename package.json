@@ -8,7 +8,9 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:thesis-tracking": "tsc -p tsconfig.thesis-tracking.json",
+    "test:thesis-tracking": "node --test tests/thesis-tracking/*.test.cjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
