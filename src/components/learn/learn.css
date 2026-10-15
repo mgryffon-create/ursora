@@ -87,3 +87,27 @@
 .learn-feedback-correct { color: #12633c; background: #e8f7ef; padding: 12px; border-radius: 6px; }
 .learn-feedback-incorrect { color: #a32626; background: #fff0f0; padding: 12px; border-radius: 6px; }
 .learn-workspace [aria-label="Chart and quick trade controls"] button:has(strong) { background: #eaf6ee; color: #14603b; border-color: #8dc7a7; }
+.learn-study-chart { background: #f7faff; border: 1px solid #d9e4ef; border-radius: 10px; padding: 14px; }
+.learn-study-chart figcaption { color: #164d8d; font-weight: 500; }
+.learn-study-chart svg { width: 100%; height: auto; display: block; }
+.learn-study-chart svg text { font-size: 12px; fill: #4d6680; }
+.learn-chart-inspector { flex-direction: row !important; align-items: center; margin-bottom: 10px; }
+.learn-chart-values { font-size: 13px; font-variant-numeric: tabular-nums; min-height: 40px; margin: 8px 0; }
+.learn-chart-caption { color: #52677c; font-size: 12px; margin-top: 10px; }
+.learn-pattern-notes { display: grid; gap: 12px; }
+.learn-pattern-notes > div { border-left: 3px solid #85b6f1; padding: 8px 12px; background: #f7faff; }
+.learn-pattern-notes h3 { font-weight: 600; margin-bottom: 6px; }
+.learn-pattern-sources { font-size: 13px; color: #52677c; }
+.learn-pattern-sources a { display: block; color: #1d57a3; text-decoration: underline; margin-top: 8px; }
+.learn-exercise-inputs { display: grid; gap: 12px; }
+.learn-position-blocks { display: flex; gap: 6px; flex-wrap: wrap; }
+.learn-position-blocks span { width: 32px; padding: 6px; border: 1px dashed #9cb5d0; text-align: center; border-radius: 4px; }
+.learn-position-blocks .filled { background: #dbeafe; border: 1px solid #2563eb; color: #164d8d; }
+.learn-workspace input[type=range] { padding: 8px 0; width: 100%; }
+.learn-module-sidebar { max-height: calc(100dvh - 130px); overflow-y: auto; padding-right: 6px; }
+@media (min-width: 640px) { .learn-exercise-inputs { grid-template-columns: repeat(3,minmax(0,1fr)); } }
+@media (prefers-reduced-motion: reduce) { .learn-workspace * { scroll-behavior: auto !important; } }
+@media (min-width: 760px) { .learn-pattern-notes { grid-template-columns: repeat(3,minmax(0,1fr)); font-size: 14px; } }
+.learn-workspace fieldset { min-inline-size: 0; }
+.learn-exercise select { width: 100%; }
+.learn-study-chart { min-width: 0; }
