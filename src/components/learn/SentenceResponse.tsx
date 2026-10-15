@@ -16,7 +16,7 @@ export default function SentenceResponse({ kind, value, onChange, disabled = fal
       return <div key={blank.prefix} className="space-y-1">
         <label className="learn-blank" htmlFor={`${id}-${index}`}>
           <span>{blank.prefix}</span>
-          <select id={`${id}-${index}`} aria-describedby={choice ? `${id}-${index}-help` : undefined} value={selected[index]} onChange={event => {
+          <select id={`${id}-${index}`} aria-label={blank.prefix} aria-describedby={choice ? `${id}-${index}-help` : undefined} value={selected[index]} onChange={event => {
             const next = [...selected]; next[index] = event.target.value; onChange(buildSentence(kind, next));
           }}>
             <option value="">Choose a phrase…</option>

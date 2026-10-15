@@ -15,3 +15,38 @@
   .learn-workspace .learn-blank { flex-direction: row; flex-wrap: wrap; align-items: center; }
   .learn-workspace .learn-blank select { width: auto; flex: 1 1 240px; }
 }
+.learn-workstation { display: grid; gap: 16px; align-items: start; grid-template-columns: minmax(0, 1fr); }
+.learn-account-strip { display: flex; flex-wrap: wrap; gap: 10px 24px; font-size: 13px; }
+.learn-account-strip strong { margin-left: 6px; font-variant-numeric: tabular-nums; }
+.learn-chart-tradebar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.learn-chart-tradebar label { grid-column: 1 / -1; }
+.learn-chart-tradebar strong { display: block; font-variant-numeric: tabular-nums; }
+.learn-quote-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px 0; border-bottom: 1px solid #303038; font-variant-numeric: tabular-nums; }
+.learn-quote-pair small { display: block; color: #a1a1aa; font-size: 12px; }
+.learn-candle-readout { font-size: 12px; min-height: 72px; color: #d4d4d8; }
+.learn-candle-readout dl { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; }
+.learn-candle-readout dt { color: #a1a1aa; }
+.learn-candle-readout dd { font-variant-numeric: tabular-nums; }
+.learn-order-breakdown { font-size: 14px; }
+.learn-order-breakdown > div { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; }
+.learn-order-breakdown dd { text-align: right; }
+.learn-total { border-top: 1px solid #303038; padding-top: 10px; font-size: 14px; }
+.learn-total strong { display: block; font-variant-numeric: tabular-nums; }
+.learn-coach { border-left: 2px solid #075985; padding-left: 12px; color: #d4d4d8; font-size: 13px; }
+@media (min-width: 1050px) {
+  .learn-workstation { grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr); }
+  .learn-chart-tradebar { grid-template-columns: minmax(120px, 1fr) 1fr 1fr; }
+  .learn-chart-tradebar label { grid-column: auto; }
+}
+.learn-environment { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.learn-module-sidebar { display: none; }
+.learn-module-links { display: grid; gap: 6px; margin-top: 16px; }
+.learn-module-links button { text-align: left; background: transparent; font-size: 13px; }
+.learn-module-links button[aria-current=page] { background: #12314a; border-color: #38bdf8; }
+.learn-choice { flex-direction: row !important; align-items: center; padding: 8px 0; }
+.learn-choice input { flex: 0 0 auto; width: 18px; height: 18px; }
+@media (min-width: 1050px) {
+ .learn-environment { grid-template-columns: 200px minmax(0, 1fr); }
+ .learn-module-sidebar { display: block; position: sticky; top: 110px; align-self: start; }
+ .learn-workspace .learn-mobile-modules { display: none; }
+}

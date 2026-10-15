@@ -6,7 +6,7 @@ export type Tick = { second: number; price: number; volume: number };
 export type Candle = ThesisBar & { second: number; volume: number; complete: boolean };
 export type Plan = { thesis: string; trigger: number; invalidation: number; target: number; budget: number };
 export type Fill = { second: number; side: 'buy' | 'sell'; contract: number; quantity: number; price: number; fee: number; reason: string; evidence: ReturnType<typeof evidence>; plan: Plan };
-export type Order = { id: number; side: 'buy' | 'sell'; contract: number; quantity: number; limit: number | null; reason: string };
+export type Order = { id: number; side: 'buy' | 'sell'; contract: number; quantity: number; limit: number | null; reason: string; plan?: Plan };
 export type Account = { cash: number; realized: number; fees: number; positions: Record<number, { quantity: number; average: number }>; fills: Fill[]; orders: Order[] };
 export const initialAccount = (): Account => ({ cash: 10000, realized: 0, fees: 0, positions: {}, fills: [], orders: [] });
 const at = (second: number) => new Date(Date.UTC(2026, 0, 15, 14, 30) + second * 1000).toISOString();
@@ -81,13 +81,13 @@ export function submit(account: Account, order: Order, ticks: Tick[], second: nu
   const invested = Object.values(account.positions).reduce((s, p) => s + p.quantity * p.average * 100, 0);
   if (order.side === 'buy' && (cost + reserved > account.cash || cost + reserved + invested > plan.budget)) throw new Error('Order exceeds available cash or your total premium budget, including fees.');
   const executable = order.limit === null || (order.side === 'buy' ? q.ask <= order.limit : q.bid >= order.limit);
-  if (!executable) return { ...account, orders: [...account.orders, order] };
+  if (!executable) return { ...account, orders: [...account.orders, { ...order, plan: { ...(order.plan ?? plan) } }] };
   const price = order.side === 'buy' ? q.ask : q.bid;
   const old = account.positions[order.contract] ?? { quantity: 0, average: 0 };
   const quantity = old.quantity + (order.side === 'buy' ? order.quantity : -order.quantity);
   const fee = round(order.quantity * .65);
   const average = order.side === 'buy' ? (old.quantity * old.average + order.quantity * price) / quantity : old.average;
-  return { ...account, cash: round(account.cash + (order.side === 'buy' ? -1 : 1) * price * 100 * order.quantity - fee), fees: round(account.fees + fee), realized: round(account.realized + (order.side === 'sell' ? (price - old.average) * order.quantity * 100 : 0)), positions: { ...account.positions, [order.contract]: { quantity, average: quantity ? average : 0 } }, fills: [...account.fills, { second, side: order.side, quantity: order.quantity, contract: order.contract, price, fee, reason: order.reason, evidence: evidence(ticks, second), plan: { ...plan } }] };
+  return { ...account, cash: round(account.cash + (order.side === 'buy' ? -1 : 1) * price * 100 * order.quantity - fee), fees: round(account.fees + fee), realized: round(account.realized + (order.side === 'sell' ? (price - old.average) * order.quantity * 100 : 0)), positions: { ...account.positions, [order.contract]: { quantity, average: quantity ? average : 0 } }, fills: [...account.fills, { second, side: order.side, quantity: order.quantity, contract: order.contract, price, fee, reason: order.reason, evidence: evidence(ticks, second), plan: { ...(order.plan ?? plan) } }] };
 }
 export function settleOrders(account: Account, ticks: Tick[], second: number, plan: Plan): Account {
   let next = account;

@@ -59,7 +59,7 @@ class ViewErrorBoundary extends Component<
   }
 }
 
-const LearnWorkspace = lazy(() => import('@/components/learn/LearnWorkspace'));
+const LearnWorkspace = lazy(() => import('@/components/learn/LearnEnvironment'));
 
 type ViewKey =
   | 'opportunities' | 'command' | 'trades' | 'history'
@@ -161,7 +161,7 @@ const StatusBar: React.FC<{ snapshot: MarketSnapshot | null }> = ({ snapshot }) 
           </span>
         ))}
       </div>
-      <span className="ml-auto flex items-center gap-2">
+      <span className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
         <span className="hidden font-mono text-[10px] text-zinc-600 lg:inline">
           {stampET(snapshot?.as_of) ?? 'DATA UNAVAILABLE'}
         </span>
@@ -180,11 +180,6 @@ export const AppLayout: React.FC = () => {
     try { setLearnEnabled(Boolean(learnTester && localStorage.getItem(`ursora_learn_enabled_${user?.id}`) === 'true')); }
     catch { setLearnEnabled(false); }
   }, [user?.id, learnTester]);
-  const toggleLearn = useCallback(() => {
-    const next = !learnEnabled;
-    try { localStorage.setItem(`ursora_learn_enabled_${user?.id}`, String(next)); } catch { /* Optional preference only. */ }
-    setLearnEnabled(next);
-  }, [learnEnabled, user?.id]);
   const [entered, setEntered] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup' | null>(null);
   const [view, setView] = useState<ViewKey>('opportunities');
@@ -437,15 +432,15 @@ export const AppLayout: React.FC = () => {
           />
         );
       case 'learn':
-        return learnTester && learnEnabled && user ? <ViewErrorBoundary key={user.id} name="Learn"><Suspense fallback={<Spinner label="Opening Learn" />}><LearnWorkspace key={user.id} /></Suspense></ViewErrorBoundary> : <TraderProfileView />;
+        return learnTester && learnEnabled && user ? <ViewErrorBoundary key={user.id} name="Learn"><Suspense fallback={<Spinner label="Opening Learn" />}><LearnWorkspace key={user.id} onDisable={() => { try { localStorage.setItem(`ursora_learn_enabled_${user.id}`, 'false'); } catch { /* Optional preference. */ } setLearnEnabled(false); go('opportunities'); }} /></Suspense></ViewErrorBoundary> : <TraderProfileView />;
       case 'profile':
-        return <><TraderProfileView />{learnTester && <section className="mt-5 rounded border border-zinc-700 bg-[#11151b] p-4"><h2 className="text-sky-200">Optional workspaces · Private testing</h2><p className="mt-2 text-sm text-zinc-400">Learn uses fictional market sessions and a separate virtual account. Progress stays on this browser. Disabling it preserves your attempt.</p><button className="mt-3 min-h-11 rounded border border-sky-700 px-4 py-2" onClick={toggleLearn}>{learnEnabled ? 'Disable Learn' : 'Enable Learn'}</button>{learnEnabled && <button className="ml-3 min-h-11 rounded border border-zinc-600 px-4 py-2" onClick={() => go('learn')}>Open Learn</button>}</section>}</>;
+        return <TraderProfileView />;
       case 'about':
         return <AboutView />;
       default:
         return <OpportunitiesView onOpenThesis={openThesis} />;
     }
-  }, [go, historicalEvidenceDay, historicalEvidenceTradeIds, openHistoricalEvidence, openThesis, thesisFocusNewsId, thesisId, thesisInitialTab, view, learnTester, learnEnabled, user, toggleLearn]);
+  }, [go, historicalEvidenceDay, historicalEvidenceTradeIds, openHistoricalEvidence, openThesis, thesisFocusNewsId, thesisId, thesisInitialTab, view, learnTester, learnEnabled, user]);
 
   if (loading) {
     return (
@@ -489,28 +484,28 @@ export const AppLayout: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#0b0d10] text-zinc-200">
       <header className="sticky top-0 z-40 border-b border-zinc-800 bg-[#0b0d10]/95 backdrop-blur">
-        <StatusBar snapshot={snapshot} />
-        <div className="flex items-center gap-3 px-3 py-2">
-          <button
+        {view === 'learn' ? <div className="border-b border-zinc-800 px-3 py-1.5 font-mono text-xs text-sky-300">URSORA Learn · Training workspace · Synthetic market</div> : <StatusBar snapshot={snapshot} />}
+        <div className="flex flex-wrap items-center gap-3 px-3 py-2">
+          {view !== 'learn' && <button
             type="button"
             onClick={() => setNavOpen((v) => !v)}
             aria-label="Toggle navigation"
             className="rounded-sm border border-zinc-800 p-1.5 text-zinc-400 transition-colors hover:text-sky-300 lg:hidden"
           >
             {navOpen ? <X className="h-4 w-4" aria-hidden="true" /> : <Menu className="h-4 w-4" aria-hidden="true" />}
-          </button>
+          </button>}
           <button
             type="button"
             onClick={() => go('opportunities')}
             className="flex items-center gap-2 font-mono text-[13px] font-semibold tracking-[0.2em] text-zinc-100 transition-colors hover:text-sky-300"
           >
             <CompactMark className="h-6 w-6" title="URSORA" />
-            URSORA
+            {view === 'learn' ? 'URSORA Learn' : 'URSORA'}
           </button>
           <span className="hidden font-mono text-[10px] uppercase tracking-wider text-zinc-500 md:inline">
             {activeLabel}
           </span>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               onClick={() => go('about')}
@@ -520,11 +515,13 @@ export const AppLayout: React.FC = () => {
               <CircleHelp className="h-3 w-3" aria-hidden="true" />
               <span className="hidden md:inline">About</span>
             </button>
+            {view === 'learn' && <button type="button" className="min-h-11 rounded border border-zinc-700 px-3 py-2 text-sm" onClick={() => go('opportunities')}>TradeCycle</button>}
+            {learnTester && <button type="button" aria-pressed={view === 'learn'} className="min-h-11 rounded border border-sky-700 bg-sky-950/40 px-3 py-2 text-sm text-sky-200" onClick={() => { try { localStorage.setItem(`ursora_learn_enabled_${user?.id}`, 'true'); } catch { /* In-memory preference is sufficient. */ } setLearnEnabled(true); go('learn'); }}>{learnEnabled ? 'Learn' : 'Enable Learn'}</button>}
             {user ? (
               <button
                 type="button"
                 onClick={() => go('profile')}
-                className="hidden items-center gap-1.5 rounded-sm border border-sky-500/50 bg-sky-500/10 px-2.5 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-sky-200 shadow-[0_0_18px_rgba(14,165,233,0.08)] transition-colors hover:border-sky-400/70 hover:bg-sky-500/15 hover:text-sky-100 sm:inline-flex"
+                className="inline-flex items-center gap-1.5 rounded-sm border border-sky-500/50 bg-sky-500/10 px-2.5 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-sky-200 shadow-[0_0_18px_rgba(14,165,233,0.08)] transition-colors hover:border-sky-400/70 hover:bg-sky-500/15 hover:text-sky-100"
                 title="Open MyURSORA"
               >
                 <UserRound className="h-3.5 w-3.5" aria-hidden="true" />
@@ -561,14 +558,13 @@ export const AppLayout: React.FC = () => {
       </header>
 
       <div className="flex">
-        <aside
+        {view !== 'learn' && <aside
           className={cn(
             'fixed inset-y-0 left-0 z-30 w-56 shrink-0 overflow-y-auto border-r border-zinc-800 bg-[#0e1116] pt-[94px] transition-transform lg:sticky lg:top-[94px] lg:h-[calc(100vh-94px)] lg:translate-x-0 lg:pt-0',
             navOpen ? 'translate-x-0' : '-translate-x-full',
           )}
         >
           <nav aria-label="Primary" className="p-2">
-            {learnTester && learnEnabled && <button type="button" className="mb-3 w-full rounded border border-sky-800 px-3 py-3 text-left text-sky-200" onClick={() => go('learn')}>Learn · Private alpha</button>}
             {NAV_GROUPS.map((group) => {
               const GroupIcon = group.Icon;
               const expanded = expandedGroup === group.key;
@@ -621,7 +617,7 @@ export const AppLayout: React.FC = () => {
               );
             })}
           </nav>
-        </aside>
+        </aside>}
 
         {navOpen && (
           <button
@@ -637,7 +633,7 @@ export const AppLayout: React.FC = () => {
         </main>
       </div>
 
-      <nav
+      {view !== 'learn' && <nav
         aria-label="Mobile primary"
         className="fixed bottom-0 left-0 right-0 z-40 grid grid-cols-3 border-t border-zinc-800 bg-[#0b0d10]/98 backdrop-blur lg:hidden"
       >
@@ -659,7 +655,7 @@ export const AppLayout: React.FC = () => {
             </button>
           );
         })}
-      </nav>
+      </nav>}
 
       {authMode && !user && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-fade-in">

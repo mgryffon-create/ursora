@@ -4,7 +4,7 @@ This first vertical slice uses original, seeded synthetic price/volume updates; 
 
 ## Access and operation
 
-An administrator-controlled `app_metadata.learn_tester === true` enables the Optional workspaces control in MyURSORA. It is enabled only for the verified owner account during this rollout. No user IDs or email addresses are embedded in source. Refresh authentication to pick up a metadata change. Enable Learn, then open it from MyURSORA or the navigation drawer. This is a presentation/rollout gate, not a protected data boundary: source is public and synthetic scenarios contain no secrets or private data.
+An administrator-controlled `app_metadata.learn_tester === true` enables the Learn control beside MyURSORA in the header. It is enabled only for the verified owner account during this rollout. No user IDs or email addresses are embedded in source. Refresh authentication to pick up a metadata change. Use Enable Learn / Learn in the header. Learn has its own module sidebar and replaces the TradeCycle navigation while open. This is a presentation/rollout gate, not a protected data boundary: source is public and synthetic scenarios contain no secrets or private data.
 
 Learn is lazy-loaded only when opened. Progress is versioned and scoped by authenticated user ID in browser localStorage. Disabling Learn keeps the attempt. Leaving the view pauses/unmounts playback. Different users never load each other's saved attempt. There is no database schema change, shared market-data cache, real brokerage execution, or modification of brokerage statistics. Browser clearing loses progress; cross-device progress is deferred.
 
@@ -24,9 +24,9 @@ The training adapter imports the exact production `replayThesis` and `assessThes
 
 ## Verification
 
-`node --test tests/*.test.cjs` covers 23 tests across existing historical behavior and synthetic determinism, causal candles/evidence, quotes, fills, costs, limits and exposure. `npm run build` passes. Focused ESLint passes. Existing unrelated app TypeScript errors remain; none originate in Learn or its AppLayout integration.
+`node --test tests/*.test.cjs` covers 26 tests across existing historical behavior and synthetic determinism, causal candles/evidence, quotes, fills, costs, limits and exposure. `npm run build` passes. Focused ESLint passes. Existing unrelated app TypeScript errors remain; none originate in Learn or its AppLayout integration.
 
-A DOM harness additionally exercises first-entry screening, foundations, recorded plan, order review/fill, interim review, continuous playback, pause and browser restoration. Browser engine installation was unavailable in this execution environment, so real mobile visual QA remains for owner testing.
+A DOM harness additionally exercises first-entry screening, foundations, recorded plan, order review/fill, interim review, continuous playback, pause and browser restoration. Headless Chromium browser checks now cover desktop and 390px mobile widths, candle hover/keyboard inspection, plan correction with preserved fill snapshots, buy execution, mobile sell tickets, and module/Next lesson navigation without horizontal overflow or page errors. Live account authentication is separate from the isolated browser harness.
 
 ## Next boundaries
 
@@ -35,3 +35,11 @@ Before broader release: full visual placement and foundation modules; competency
 ## Supported response update
 
 Thesis, buy/add, sell/trim/close and wait/pass prompts now use sentence blanks with native dropdown choices. No answers are preselected. Each selected phrase has a plain-language explanation; the assembled response is displayed before recording. Incomplete responses cannot be recorded or submitted. The journal preserves the actual choices without treating them as validated observations. Numeric price/exposure limits remain editable. Older recorded plans and fills remain unchanged; partial dropdown drafts use the existing browser-persistence format.
+
+## Chart, ticket, correction and workspace revision
+
+OHLCV inspection supports mouse hover, tap-to-pin and arrow keys. Forming candles expose only observed prices/volume. Chart-adjacent quotes and Buy at ask / Sell at bid launch a three-step order ticket. Desktop places the ticket beside the chart; narrower screens use an accessible modal. Contract price units, multiplier, fees, strike, expiry and position actions have explicit labels and explanations.
+
+Recorded plans can be edited through a modal. A reason and timestamp accompany each change. Existing fills retain their original plan. Working orders also freeze their plan at placement, including legacy orders when a plan is edited; execution still checks current resource limits. No automatic stop or target order is implied by a plan level.
+
+Learn is a separate header workspace, with seven introductory lesson pages, optional understanding checks, desktop module navigation, a mobile module selector, and Next lesson routes through practice and review. These are introductory pages, not the full previously planned interactive course or a validated competency assessment. Assessment still precedes module access for new learners. Returning learners can revisit or skip pages without losing their browser-saved trading attempt.
