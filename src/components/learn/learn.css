@@ -9,3 +9,9 @@
 .learn-workspace button:disabled { opacity: .5; cursor: not-allowed; }
 .learn-workspace button[aria-pressed=true] { border-color: #38bdf8; background: #12314a; }
 .learn-workspace summary { cursor: pointer; min-height: 30px; }
+.learn-workspace .learn-blank { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.learn-workspace .learn-blank select { width: 100%; text-overflow: ellipsis; }
+@media (min-width: 640px) {
+  .learn-workspace .learn-blank { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .learn-workspace .learn-blank select { width: auto; flex: 1 1 240px; }
+}

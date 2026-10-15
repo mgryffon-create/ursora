@@ -31,3 +31,7 @@ A DOM harness additionally exercises first-entry screening, foundations, recorde
 ## Next boundaries
 
 Before broader release: full visual placement and foundation modules; competency/routing records; reviewed indicator teaching; calibrated option model and execution scenarios; deeper causal production-detector adapter; accessible mobile browser QA; durable server progress and appropriate access policies. Synthetic practice does not establish readiness for live trading.
+
+## Supported response update
+
+Thesis, buy/add, sell/trim/close and wait/pass prompts now use sentence blanks with native dropdown choices. No answers are preselected. Each selected phrase has a plain-language explanation; the assembled response is displayed before recording. Incomplete responses cannot be recorded or submitted. The journal preserves the actual choices without treating them as validated observations. Numeric price/exposure limits remain editable. Older recorded plans and fills remain unchanged; partial dropdown drafts use the existing browser-persistence format.
