@@ -14,6 +14,9 @@ export function historicalEntryHeadline(playback: HistoricalPlaybackResponse, tr
     return `${direction} entry opposed the substantiated ${review.retro_direction} thesis`;
   }
   if (review.retro_direction !== 'neutral') {
+    if (review.entry_quality_label === 'late_extended') return `${direction} entry after an extended thesis move`;
+    if (review.entry_quality_label === 'late_confirmed_move') return `${direction} entry after most of the original target distance`;
+    if (review.entry_quality_label === 'pullback_unconfirmed') return `${direction} entry before the pullback showed a confirmed hold`;
     const thesis = review.retro_direction === 'bullish' ? 'Bullish' : 'Bearish';
     return review.session_state === 'existing_thesis'
       ? `Existing ${thesis.toLowerCase()} thesis; no fresh confirmation before entry`

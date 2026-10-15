@@ -124,7 +124,7 @@ export interface HistoricalTradeReview {
   post_invalidation_minutes: number | null;
   confidence_score: number | null;
   review_summary: string | null;
-  evidence: Record<string, unknown>;
+  evidence: import('../api').HistoricalTradeReview['evidence'];
   engine_version: string;
   computed_at: string;
 }

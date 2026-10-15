@@ -305,13 +305,13 @@ export const TraderIntelligenceView: React.FC<{
     const comparable = historicalReviews.filter((review) =>
       review.directional_agreement === 'aligned' &&
       review.retro_direction !== 'neutral' &&
-      review.confirmation_to_entry_minutes !== null &&
-      review.move_consumed_to_target_pct !== null
+      (review.evidence?.thesis_entry?.elapsed_minutes != null || review.confirmation_to_entry_minutes !== null) &&
+      (review.evidence?.thesis_entry ? review.evidence.thesis_entry.move_consumed_pct !== null : review.move_consumed_to_target_pct !== null)
     );
 
     const late = comparable.filter((review) =>
       ['late_confirmed_move', 'late_extended', 'late_weakening'].includes(review.entry_quality_label ?? '') ||
-      (review.move_consumed_to_target_pct ?? 0) >= 60
+      (review.evidence?.thesis_entry?.move_consumed_pct ?? review.move_consumed_to_target_pct ?? 0) >= 60
     );
 
     if (comparable.length < 8) return null;
@@ -324,15 +324,15 @@ export const TraderIntelligenceView: React.FC<{
     };
 
     const lateShare = Math.round((late.length / comparable.length) * 100);
-    const medianDelay = median(late.map((review) => Number(review.confirmation_to_entry_minutes)));
-    const medianConsumed = median(late.map((review) => Number(review.move_consumed_to_target_pct)));
+    const medianDelay = median(late.map((review) => Number(review.evidence?.thesis_entry?.elapsed_minutes ?? review.confirmation_to_entry_minutes)));
+    const medianConsumed = median(late.map((review) => Number(review.evidence?.thesis_entry?.move_consumed_pct ?? review.move_consumed_to_target_pct)));
     const medianRoom = median(late.map((review) => Number(review.remaining_room_to_target_pct)).filter(Number.isFinite));
 
     const observation: Observation = {
       observation_type: 'late_confirmed_move_entry',
       category: 'EXECUTION',
       statement: lateShare >= 50
-        ? `Across ${comparable.length} confirmed-direction trades, ${lateShare}% of entries occurred after at least 60% of the confirmation-to-target move had already been consumed. Median delay among those late entries was ${medianDelay === null ? 'unavailable' : `${Math.round(medianDelay)} minutes`}.`
+        ? `Across ${comparable.length} confirmed-direction trades, ${lateShare}% met the late-entry signature based on move consumption, extension, or weakening. Median delay among those late entries was ${medianDelay === null ? 'unavailable' : `${Math.round(medianDelay)} minutes`}.`
         : `Across ${comparable.length} confirmed-direction trades, ${lateShare}% met URSORA's late-entry signature. Most entries occurred before the move became substantially consumed.`,
       baseline_value: 60,
       current_value: lateShare,
@@ -344,8 +344,8 @@ export const TraderIntelligenceView: React.FC<{
       construct_key: 'late_confirmed_move_entry',
       evidence_trade_ids: late.map((review) => -Math.abs(review.brokerage_episode_id)),
       severity: lateShare >= 70 ? 'ELEVATED' : lateShare >= 50 ? 'MODERATE' : 'LOW',
-      model_version: 'historical-cycle-1.1',
-      formula: 'Comparable = aligned trades with confirmed pre-entry direction and measurable confirmation→target geometry. Late entry = >=60% of confirmation→target move consumed OR historical entry-quality label late_confirmed_move / late_extended / late_weakening.',
+      model_version: 'historical-cycle-1.5',
+      formula: 'Comparable = aligned trades with confirmed pre-entry direction and measurable target geometry; original thesis target when ancestry is available, session target for legacy reviews. Late entry = >=60% of confirmation→target move consumed OR historical entry-quality label late_confirmed_move / late_extended / late_weakening.',
     };
 
     return {

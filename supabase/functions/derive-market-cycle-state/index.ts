@@ -1,3 +1,4 @@
+import { replayThesis, assessThesisEntry } from '../_shared/thesis-lifecycle.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -451,12 +452,30 @@ Deno.serve(async (req) => {
       if (e5) throw e5;
       if (ed) throw ed;
 
-      let state = deriveCycle(
-        symbol,
-        [...(bars30 ?? [])].reverse(),
-        [...(bars5 ?? [])].reverse(),
+      let state: AnyRow = deriveCycle(
+        String(symbol),
+        [...(bars30 ?? [])].reverse().filter(bar => +new Date(bar.bar_time) + 30 * 60000 <= Date.now()),
+        [...(bars5 ?? [])].reverse().filter(bar => +new Date(bar.bar_time) + 5 * 60000 <= Date.now()),
         [...(daily ?? [])].reverse(),
       );
+
+      // Use the same ancestry and entry geometry as historical reconstruction.
+      // Ignore in-progress provider candles; reconfirmation does not reset ancestry.
+      const completed30 = [...(bars30 ?? [])].filter(bar => +new Date(bar.bar_time) + 30 * 60000 <= Date.now())
+        .sort((a, b) => String(a.bar_time).localeCompare(String(b.bar_time)))
+        .map(bar => ({ ...bar, available_at: new Date(+new Date(bar.bar_time) + 30 * 60000).toISOString() }));
+      const anchor = replayThesis(completed30, prefix => {
+        const detected = deriveCycle(String(symbol), prefix, [], []);
+        return { confirmed: ['reversal_confirmed', 'breakout_confirmed', 'continuation_confirmed'].includes(detected.cycle_state),
+          direction: detected.direction, confirmation: detected.confirmation_price, invalidation: detected.cycle_invalidation };
+      });
+      const completed5 = [...(bars5 ?? [])].filter(bar => +new Date(bar.bar_time) + 5 * 60000 <= Date.now())
+        .sort((a, b) => String(a.bar_time).localeCompare(String(b.bar_time)))
+        .map(bar => ({ ...bar, available_at: new Date(+new Date(bar.bar_time) + 5 * 60000).toISOString() }));
+      const latestEvidence = completed5.at(-1) ?? completed30.at(-1);
+      const entryTiming = latestEvidence && anchor?.direction === state.direction
+        ? assessThesisEntry(anchor, completed5.length ? completed5 : completed30, latestEvidence.available_at, Number(latestEvidence.close)) : null;
+      state.details = { ...state.details, thesis_entry: entryTiming };
 
       // Provider outages or sparse cache coverage must not turn a previously
       // substantiated cycle into "unconfirmed" simply because new bars could not

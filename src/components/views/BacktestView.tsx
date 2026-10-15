@@ -349,7 +349,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
         const episodeId = Math.abs(selectedTradeId);
         const reconstructionKey = String(episodeId);
 
-        const needsDecisionEvidence = result.bars.length > 0 && (!result.review || result.review.engine_version !== 'historical-cycle-1.4');
+        const needsDecisionEvidence = result.bars.length > 0 && (!result.review || result.review.engine_version !== 'historical-cycle-1.5');
         if (canonicalEpisode && needsDecisionEvidence && reconstructedKey.current !== reconstructionKey) {
           reconstructedKey.current = reconstructionKey;
           setReconstructionBusy(true);
@@ -654,6 +654,12 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                           </div>
                         </div>
 
+                        {playback.review.evidence?.thesis_entry && (
+                          <div className="border-l-2 border-amber-400/40 pl-3">
+                            <div className="font-mono text-[8px] uppercase tracking-wider text-amber-300">Thesis age and entry location</div>
+                            <div className="mt-1 text-[11px] leading-relaxed text-zinc-300">{playback.review.evidence.thesis_entry.summary}</div>
+                          </div>
+                        )}
                         <div className="border-l-2 border-violet-400/35 pl-3">
                           <div className="font-mono text-[8px] uppercase tracking-wider text-violet-300/80">Your entry</div>
                           <div className="mt-1 text-[11px] leading-relaxed text-zinc-300">
