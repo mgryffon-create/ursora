@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "CommonJS", "moduleResolution": "Node",
+    "strict": true, "noUnusedLocals": true, "noUnusedParameters": true,
+    "skipLibCheck": true, "noEmit": true, "types": []
+  },
+  "include": ["server/thesis-tracking/**/*.ts"]
+}

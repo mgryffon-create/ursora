@@ -1,5 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "infrastructure/thesis-tracking-dormant": false
+    }
+  },
   "headers": [
     {
       "source": "/",
