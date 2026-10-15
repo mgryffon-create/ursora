@@ -1,16 +1,18 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { exercises, type Exercise, type ExerciseQuestion } from '@/lib/learn/exercises';
 import { patterns, patternBars } from '@/lib/learn/patterns';
 import { useLearnState } from './LearnProgress';
 import StudyChart from './StudyChart';
 type State = { index: number; answers: Record<string,string>; checked: Record<string,boolean>; average: boolean; position: number; quantity: number; side: 'buy' | 'sell'; order: 'market' | 'limit' };
-type Props = { lesson: {id:string;title:string}; onReturn:()=>void; onNext:()=>void };
-export default function LessonPractice({lesson,onReturn,onNext}:Props) {
+type Props = { lesson: {id:string;title:string}; onReturn:()=>void; onNext:()=>void; onPass?:()=>void };
+export default function LessonPractice({lesson,onReturn,onNext,onPass}:Props) {
  const [state,setState] = useLearnState<State>(`lesson-exercise-v1:${lesson.id}`,{index:0,answers:{},checked:{},average:false,position:4,quantity:2,side:'buy',order:'market'});
  const group = lesson.id === 'candle-patterns' ? 'candle' : lesson.id === 'chart-patterns' ? 'chart' : null;
  const catalog = group ? patterns.filter(pattern=>pattern.group === group) : [];
  const scenes = exercises[lesson.id] ?? [];
  const count = catalog.length || scenes.length;
+ const completed = catalog.length ? catalog.every((pattern,i)=>state.checked[pattern.id] && Number(state.answers[`${pattern.id}:0`])===i && Number(state.answers[`${pattern.id}:1`])===1) : scenes.length>0 && scenes.every((scene,i)=>state.checked[String(i)] && scene.questions.every((q,j)=>Number(state.answers[`${i}:${j}`])===q.correct));
+ useEffect(()=>{if(completed)onPass?.();},[completed,onPass]);
  const index = Math.min(state.index,count-1), pattern = catalog[index];
  const scene: Exercise = pattern ? {
   title:'Recognize the formation and read its context',why:'Naming a shape is only the first step. Its location and subsequent evidence determine what you can reasonably claim.',task:`Context: ${pattern.context}. Inspect the displayed formation, choose its name, then select the cautious interpretation.`,

@@ -111,3 +111,18 @@
 .learn-workspace fieldset { min-inline-size: 0; }
 .learn-exercise select { width: 100%; }
 .learn-study-chart { min-width: 0; }
+.university-card { background: #f3f7fd; padding: 20px; border: 1px solid #d7e5f3; border-radius: 9px; }
+.university-card h2 { font-size: 20px; }
+.university-stage-heading { font-size: 11px; font-weight: 600; margin: 20px 0 4px; text-transform: uppercase; letter-spacing: .05em; }
+.university-chart { min-width: 0; border: 1px solid #d5e2f0; padding: 14px; border-radius: 9px; background: #fff; }
+.university-chart-scroll { overflow-x: auto; border: 1px solid #e5edf5; border-radius: 6px; }
+.university-chart svg { display: block; width: 100%; min-width: 600px; height: auto; touch-action: pan-x pan-y; }
+.university-chart svg text { font-size: 12px; fill: #4a6580; }
+.university-chart [aria-label="Chart studies"] button { font-size: 12px; padding: 6px 10px; }
+.university-source { display: block; text-decoration: underline; color: #1d57a3; margin-top: 8px; font-size: 13px; }
+.university-decision { border-top: 1px solid #d5e2f0; padding: 12px 0; font-size: 13px; }
+.university-module { width: 100%; min-width: 0; }
+.university-module select { width: 100%; }
+.university-quicktrade { position: sticky; top: 112px; z-index: 8; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; background: #f4f8ff; border: 1px solid #bed3ed; border-radius: 7px; padding: 8px; box-shadow: 0 2px 8px #34516e10; font-size: 13px; }
+.university-live-layout { display: grid; gap: 16px; grid-template-columns: minmax(0,1fr); }
+@media (min-width: 1250px) { .university-live-layout { grid-template-columns: minmax(0,1fr) 270px; } .university-live-station { position: sticky; top: 180px; align-self: start; } .university-live-layout .university-chart svg { min-width: 0; } .university-live-station .learn-exercise-inputs { grid-template-columns: minmax(0,1fr); } }

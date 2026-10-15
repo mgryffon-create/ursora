@@ -1,11 +1,11 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const ts=require('typescript');
 function load(path,dependencies={}){const exports={};new Function('exports','require',ts.transpileModule(fs.readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(exports,name=>dependencies[name]);return exports;}
 const patternData=load('src/lib/learn/patterns.ts');const {patterns,patternBars}=patternData;
-const {lessons}=load('src/lib/learn/lessons.ts');const {exercises}=load('src/lib/learn/exercises.ts',{'./patterns':patternData});
+const units=load('src/lib/learn/university.ts');const {lessons}=load('src/lib/learn/lessons.ts',{'./university':units});const {exercises}=load('src/lib/learn/exercises.ts',{'./patterns':patternData});
 test('every curriculum lesson has focused exercises and patterns follow their prerequisites',()=>{
- assert.ok(lessons.findIndex(l=>l.id==='candle-patterns')===lessons.findIndex(l=>l.id==='candles')+1);
- assert.ok(lessons.findIndex(l=>l.id==='chart-patterns')===lessons.findIndex(l=>l.id==='structure')+1);
- for(const lesson of lessons.filter(l=>!l.id.endsWith('-patterns')))assert.ok(exercises[lesson.id]?.length>=3,lesson.id);
+ assert.ok(lessons.findIndex(l=>l.id==='candle-patterns')>lessons.findIndex(l=>l.id==='candles'));
+ assert.ok(lessons.findIndex(l=>l.id==='chart-patterns')>lessons.findIndex(l=>l.id==='structure'));
+ for(const lesson of lessons.filter(l=>!l.unit&&!l.id.endsWith('-patterns')))assert.ok(exercises[lesson.id]?.length>=3,lesson.id);
 });
 test('educational candles use coherent OHLC and context changes the meaning of identical shapes',()=>{
  const all=[...patterns.filter(p=>p.bars).flatMap(p=>patternBars(p).bars),...Object.values(exercises).flat().flatMap(s=>s.bars??[])];

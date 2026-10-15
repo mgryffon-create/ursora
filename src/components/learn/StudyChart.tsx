@@ -1,7 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import type { StudyBar } from '@/lib/learn/patterns';
+import MarketClassChart from './MarketClassChart';
 type Props = { bars?: StudyBar[]; points?: number[]; focus?: number; title: string; labels?: boolean; levels?: { price: number; label: string }[]; average?: boolean };
-export default function StudyChart({ bars, points, focus = -1, title, labels = true, levels = [], average = false }: Props) {
+export default function StudyChart(props:Props) {
+ if(props.points){
+  const points=props.points, bars:StudyBar[]=[];
+  for(let i=1;i<points.length;i++)for(let step=0;step<4;step++){const open=points[i-1]+(points[i]-points[i-1])*step/4,close=points[i-1]+(points[i]-points[i-1])*(step+1)/4;bars.push({open,close,high:Math.max(open,close)+.12,low:Math.min(open,close)-.12,volume:Math.round(300+Math.abs(close-open)*1000+step*70)});}
+  return <MarketClassChart bars={bars} title={props.title} levels={props.levels} persistKey={'formation:'+points.join(',')}/>;
+ }
+ return <SchematicCandleChart {...props}/>;
+}
+function SchematicCandleChart({ bars, points, focus = -1, title, labels = true, levels = [], average = false }:Props) {
  const [selected, setSelected] = useState<number | null>(null);
  const [progress, setProgress] = useState(1);
  const [playing, setPlaying] = useState(false);
