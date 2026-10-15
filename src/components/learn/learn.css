@@ -1,0 +1,11 @@
+.learn-workspace { color: #e4e4e7; overflow-wrap: anywhere; }
+.learn-workspace .learn-panel { border: 1px solid #303038; background: #11151b; border-radius: 8px; padding: 16px; }
+.learn-workspace h2 { color: #bae6fd; font-weight: 500; }
+.learn-workspace label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; min-width: 0; }
+.learn-workspace input,.learn-workspace select,.learn-workspace textarea { color: #f4f4f5; background: #090d12; border: 1px solid #52525b; border-radius: 5px; padding: 10px; max-width: 100%; min-width: 0; font-size: 16px; }
+.learn-workspace textarea { min-height: 78px; width: 100%; }
+.learn-workspace button { border: 1px solid #52525b; background: #17212d; color: #e0f2fe; padding: 10px 14px; border-radius: 5px; min-height: 44px; }
+.learn-workspace button:hover { background: #203146; }
+.learn-workspace button:disabled { opacity: .5; cursor: not-allowed; }
+.learn-workspace button[aria-pressed=true] { border-color: #38bdf8; background: #12314a; }
+.learn-workspace summary { cursor: pointer; min-height: 30px; }

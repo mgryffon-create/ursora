@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState , Component } from 'react';
+import React, { useCallback, useEffect, useMemo, useState , Component, lazy, Suspense } from 'react';
 import {
   Brain, ChevronDown, CircleHelp, FlaskConical, LineChart,
   ListChecks, LogOut, Menu, Radar, ScrollText, UserRound, X,
@@ -59,9 +59,11 @@ class ViewErrorBoundary extends Component<
   }
 }
 
+const LearnWorkspace = lazy(() => import('@/components/learn/LearnWorkspace'));
+
 type ViewKey =
   | 'opportunities' | 'command' | 'trades' | 'history'
-  | 'backtest' | 'thesis' | 'trader' | 'profile' | 'about';
+  | 'backtest' | 'thesis' | 'trader' | 'profile' | 'about' | 'learn';
 
 type NavGroupKey = 'today' | 'trades' | 'intelligence';
 
@@ -120,6 +122,7 @@ const labelForView = (view: ViewKey) => {
   }
   if (view === 'thesis') return 'Trade Analysis';
   if (view === 'about') return 'About URSORA';
+  if (view === 'learn') return 'Learn · Private alpha';
   return 'URSORA';
 };
 
@@ -170,6 +173,18 @@ const StatusBar: React.FC<{ snapshot: MarketSnapshot | null }> = ({ snapshot }) 
 
 export const AppLayout: React.FC = () => {
   const { user, favorites, loading, signOut } = useAuth();
+  // app_metadata is administrator-controlled. No user-editable metadata gates.
+  const learnTester = user?.app_metadata?.learn_tester === true;
+  const [learnEnabled, setLearnEnabled] = useState(false);
+  useEffect(() => {
+    try { setLearnEnabled(Boolean(learnTester && localStorage.getItem(`ursora_learn_enabled_${user?.id}`) === 'true')); }
+    catch { setLearnEnabled(false); }
+  }, [user?.id, learnTester]);
+  const toggleLearn = useCallback(() => {
+    const next = !learnEnabled;
+    try { localStorage.setItem(`ursora_learn_enabled_${user?.id}`, String(next)); } catch { /* Optional preference only. */ }
+    setLearnEnabled(next);
+  }, [learnEnabled, user?.id]);
   const [entered, setEntered] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup' | null>(null);
   const [view, setView] = useState<ViewKey>('opportunities');
@@ -421,14 +436,16 @@ export const AppLayout: React.FC = () => {
             onOpenHistoricalEvidence={openHistoricalEvidence}
           />
         );
+      case 'learn':
+        return learnTester && learnEnabled && user ? <ViewErrorBoundary key={user.id} name="Learn"><Suspense fallback={<Spinner label="Opening Learn" />}><LearnWorkspace key={user.id} /></Suspense></ViewErrorBoundary> : <TraderProfileView />;
       case 'profile':
-        return <TraderProfileView />;
+        return <><TraderProfileView />{learnTester && <section className="mt-5 rounded border border-zinc-700 bg-[#11151b] p-4"><h2 className="text-sky-200">Optional workspaces · Private testing</h2><p className="mt-2 text-sm text-zinc-400">Learn uses fictional market sessions and a separate virtual account. Progress stays on this browser. Disabling it preserves your attempt.</p><button className="mt-3 min-h-11 rounded border border-sky-700 px-4 py-2" onClick={toggleLearn}>{learnEnabled ? 'Disable Learn' : 'Enable Learn'}</button>{learnEnabled && <button className="ml-3 min-h-11 rounded border border-zinc-600 px-4 py-2" onClick={() => go('learn')}>Open Learn</button>}</section>}</>;
       case 'about':
         return <AboutView />;
       default:
         return <OpportunitiesView onOpenThesis={openThesis} />;
     }
-  }, [go, historicalEvidenceDay, historicalEvidenceTradeIds, openHistoricalEvidence, openThesis, thesisFocusNewsId, thesisId, thesisInitialTab, view]);
+  }, [go, historicalEvidenceDay, historicalEvidenceTradeIds, openHistoricalEvidence, openThesis, thesisFocusNewsId, thesisId, thesisInitialTab, view, learnTester, learnEnabled, user, toggleLearn]);
 
   if (loading) {
     return (
@@ -551,6 +568,7 @@ export const AppLayout: React.FC = () => {
           )}
         >
           <nav aria-label="Primary" className="p-2">
+            {learnTester && learnEnabled && <button type="button" className="mb-3 w-full rounded border border-sky-800 px-3 py-3 text-left text-sky-200" onClick={() => go('learn')}>Learn · Private alpha</button>}
             {NAV_GROUPS.map((group) => {
               const GroupIcon = group.Icon;
               const expanded = expandedGroup === group.key;
