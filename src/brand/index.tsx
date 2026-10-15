@@ -53,7 +53,7 @@ export const BRAND_ASSETS: {
 } = {
   fullLockup: '/brand/ursora-lockup-full.png',
   standardLockup: '/brand/ursora-lockup-standard.png',
-  compactMark: '/brand/ursora-mark.png',
+  compactMark: '/brand/ursora-mark-transparent.png',
   appIcon: '/brand/ursora-app-icon-1024.png',
 };
 
