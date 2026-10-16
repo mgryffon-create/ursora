@@ -1,16 +1,17 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { indicators, drawingFeedback, type DrawLine, type DrawPoint, type Series } from '@/lib/learn/technicals';
 import type { StudyBar } from '@/lib/learn/patterns';
 import type { Study } from '@/lib/learn/university';
 import { useLearnState } from './LearnProgress';
 type ChartState={studies:Study[];lines:DrawLine[];anchorA:number;anchorB:number;priceA:string;priceB:string;interval:number};
-type Props={bars:StudyBar[];title:string;allowed?:Study[];initial?:Study[];drawing?:'line'|'wedge';persistKey:string;forming?:StudyBar;compactTools?:boolean;levels?:{price:number;label:string}[]};
+type Props={bars:StudyBar[];title:string;allowed?:Study[];initial?:Study[];drawing?:'line'|'wedge';persistKey:string;forming?:StudyBar;compactTools?:boolean;onDrawingsChange?:(lines:DrawLine[])=>void;levels?:{price:number;label:string}[]};
 const colors={sma:'#d97706',ema:'#2563eb',vwap:'#7c3aed',bands:'#64748b',rsi:'#a21caf',macd:'#2563eb',atr:'#0f766e'};
 function aggregate(bars:StudyBar[],n:number){if(n===1)return bars;const result:StudyBar[]=[];for(let i=0;i+n<=bars.length;i+=n){const chunk=bars.slice(i,i+n);result.push({open:chunk[0].open,close:chunk.at(-1)!.close,high:Math.max(...chunk.map(b=>b.high)),low:Math.min(...chunk.map(b=>b.low)),volume:chunk.reduce((a,b)=>a+b.volume,0)});}return result;}
 const time=(index:number)=>{const m=570+index;return `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;};
-export default function MarketClassChart({bars,title,allowed=[],initial=[],drawing,persistKey,forming,compactTools,levels=[]}:Props){
+export default function MarketClassChart({bars,title,allowed=[],initial=[],drawing,persistKey,forming,compactTools,onDrawingsChange,levels=[]}:Props){
  const [state,setState]=useLearnState<ChartState>(`university-chart:${persistKey}`,{studies:initial,lines:[],anchorA:Math.max(0,bars.length-60),anchorB:Math.max(0,bars.length-50),priceA:'',priceB:'',interval:1});
  const [selected,setSelected]=useState<number|null>(null),[draw,setDraw]=useState(false),[pending,setPending]=useState<DrawPoint|null>(null),[feedback,setFeedback]=useState<{ok:boolean;text:string}|null>(null);
+ useEffect(()=>{onDrawingsChange?.(state.lines);},[state.lines,onDrawingsChange]);
  const svg=useRef<SVGSVGElement>(null);
  const completed=aggregate(bars,state.interval),studies=indicators(completed),data=forming&&state.interval===1?[...completed,forming]:completed;
  const offset=Math.max(0,data.length-60),shown=data.slice(offset),count=shown.length;if(!count)return <p>Waiting for completed candles…</p>;

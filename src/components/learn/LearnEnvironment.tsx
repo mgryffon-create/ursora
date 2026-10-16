@@ -7,13 +7,13 @@ import './learn.css';
 import { lessons } from '@/lib/learn/lessons';
 import PatternLesson from './PatternLesson';
 import LessonPractice from './LessonPractice';
-import UniversityModule from './UniversityModule';
+import UniversityModule, { type LearnFeature } from './UniversityModule';
 import { stageNames } from '@/lib/learn/university';
 type Enrollment = { path: 'foundations' | 'practice' | null; page: string; practiceLesson?: string; answers: Record<string, number>; checked: Record<string, boolean> };
-export default function LearnEnvironment({ onDisable }: { onDisable?: () => void }) {
-  return <LearnProgress><LearnContent onDisable={onDisable}/></LearnProgress>;
+export default function LearnEnvironment({ onDisable, onOpenFeature }: { onDisable?: () => void; onOpenFeature?: (feature:LearnFeature)=>void }) {
+  return <LearnProgress><LearnContent onDisable={onDisable} onOpenFeature={onOpenFeature}/></LearnProgress>;
 }
-function LearnContent({ onDisable }: { onDisable?: () => void }) {
+function LearnContent({ onDisable, onOpenFeature }: { onDisable?: () => void; onOpenFeature?: (feature:LearnFeature)=>void }) {
   const [enrollment, setEnrollment] = useLearnState<Enrollment>('enrollment', { path: null, page: 'candles', answers: {}, checked: {} });
   const { path, page } = enrollment;
   const [course,setCourse] = useLearnState('university-course-v1',{completed:{} as Record<string,boolean>});
@@ -24,20 +24,20 @@ function LearnContent({ onDisable }: { onDisable?: () => void }) {
   const lesson = lessons.find(l => l.id === page);
   const index = lessons.findIndex(l => l.id === page);
   const activeLesson = exercise ?? lesson;
-  const markPassed = useCallback(() => { if(activeLesson) setCourse(value=>value.completed[activeLesson.id]?value:{...value,completed:{...value.completed,[activeLesson.id]:true}}); },[activeLesson,setCourse]);
-  const isPassed=(id:string)=>course.completed[id] || (enrollment.checked[id] && enrollment.answers[id]===lessons.find(l=>l.id===id)?.correct);
+  const markPassed = useCallback(() => { if(activeLesson){const key=activeLesson.unit?.assessment?`assessment:${activeLesson.id}`:activeLesson.id;setCourse(value=>value.completed[key]?value:{...value,completed:{...value.completed,[key]:true}});} },[activeLesson,setCourse]);
+  const isPassed=(id:string)=>lessons.find(l=>l.id===id)?.unit?.assessment?course.completed[`assessment:${id}`]:course.completed[id] || (enrollment.checked[id] && enrollment.answers[id]===lessons.find(l=>l.id===id)?.correct);
   const recommended=lessons.find(item=>!isPassed(item.id));
   const practiceLesson = lessons.find(item => item.id === enrollment.practiceLesson);
   const items = [{ id: 'placement', title: 'Placement & foundation recap' }, ...lessons.map(l => ({ id: l.id, title: l.title, stage:l.stage })), { id: 'practice', title: 'Full trading sandbox' }, { id: 'review', title: 'Review your decisions' }];
   const currentPage = path ? exercise?.id ?? page : 'placement';
   const currentTitle = items.find(item => item.id === currentPage)?.title ?? 'Learning session';
-  const moduleButtons = <>{items.map((item,i) => <React.Fragment key={item.id}>{'stage' in item && (i===1 || !('stage' in items[i-1]) || (items[i-1] as typeof item).stage !== item.stage) && <h3 className="university-stage-heading">Stage {String(item.stage)} · {stageNames[Number(item.stage)]}</h3>}<button aria-current={currentPage === item.id ? 'page' : undefined} disabled={!path && item.id !== 'placement'} onClick={() => navigate(item.id)}><span>{item.title}</span>{currentPage === item.id && <small>Current activity{exercise ? ' · Practice' : ''}</small>}{isPassed(item.id) && <small>Understanding check passed</small>}{!path && item.id !== 'placement' && <small>After placement</small>}</button></React.Fragment>)}</>;
+  const moduleButtons = <>{items.map((item,i) => <React.Fragment key={item.id}>{'stage' in item && (i===1 || !('stage' in items[i-1]) || (items[i-1] as typeof item).stage !== item.stage) && <h3 className="university-stage-heading">Stage {String(item.stage)} · {stageNames[Number(item.stage)]}</h3>}<button aria-current={currentPage === item.id ? 'page' : undefined} disabled={!path && item.id !== 'placement'} onClick={() => navigate(item.id)}><span>{item.title}</span>{lessons.find(l=>l.id===item.id)?.unit?.assessment&&<small>Capstone · Continuous paper session</small>}{currentPage === item.id && <small>Current activity{exercise ? ' · Practice' : ''}</small>}{isPassed(item.id) && <small>{lessons.find(l=>l.id===item.id)?.unit?.assessment?'Assessment process requirements met':'Understanding check passed'}</small>}{!path && item.id !== 'placement' && <small>After placement</small>}</button></React.Fragment>)}</>;
 
   return <div className="learn-workspace learn-environment">
     <nav className="learn-module-sidebar" aria-label="Learn modules"><h2>URSORA University</h2><p className="mt-1 text-xs text-zinc-400">Follow the staged path or explore a lesson. Advanced topics build on earlier examples.</p>{path && recommended && <p className="mt-3 text-xs">Suggested next: {recommended.title}</p>}<div className="learn-module-links">{moduleButtons}</div>{onDisable && <button className="mt-4" onClick={onDisable}>Disable Learn</button>}</nav>
     <div className="min-w-0 space-y-4"><details className="learn-mobile-modules learn-panel"><summary>Modules · {currentTitle}</summary><nav aria-label="Learn module menu" className="learn-module-links">{moduleButtons}</nav></details>
       {onDisable && <button className="learn-mobile-modules" onClick={onDisable}>Disable Learn</button>}
-      {!path || page === 'placement' ? <Placement onComplete={value => setEnrollment(s => ({ ...s, path: value, page: value === 'foundations' ? 'market-basics' : 'candles' }))}/> : activeLesson?.unit ? <UniversityModule key={activeLesson.id} unit={activeLesson.unit} practice={!!exercise} onPractice={() => navigate('exercise:' + activeLesson.id)} onReturn={() => navigate(activeLesson.id)} onNext={() => navigate(lessons[lessons.indexOf(activeLesson)+1]?.id ?? 'practice')} onPass={markPassed}/> : exercise ? <LessonPractice key={exercise.id} lesson={exercise} onPass={markPassed} onReturn={() => navigate(exercise.id)} onNext={() => navigate(lessons[lessons.findIndex(item => item.id === exercise.id) + 1]?.id ?? 'practice')}/> : lesson ? <article className="learn-panel mx-auto w-full max-w-3xl space-y-5">
+      {!path || page === 'placement' ? <Placement onComplete={value => setEnrollment(s => ({ ...s, path: value, page: value === 'foundations' ? 'market-basics' : 'candles' }))}/> : activeLesson?.unit ? <UniversityModule key={activeLesson.id} unit={activeLesson.unit} practice={!!exercise} onPractice={() => navigate('exercise:' + activeLesson.id)} onReturn={() => navigate(activeLesson.id)} onNext={() => navigate(lessons[lessons.indexOf(activeLesson)+1]?.id ?? 'practice')} onPass={markPassed} onOpenLesson={navigate} onOpenFeature={onOpenFeature}/> : exercise ? <LessonPractice key={exercise.id} lesson={exercise} onPass={markPassed} onReturn={() => navigate(exercise.id)} onNext={() => navigate(lessons[lessons.findIndex(item => item.id === exercise.id) + 1]?.id ?? 'practice')}/> : lesson ? <article className="learn-panel mx-auto w-full max-w-3xl space-y-5">
         <p className="text-xs uppercase tracking-wider text-sky-300">URSORA University · Stage {lesson.stage} · Lesson {index + 1} of {lessons.length}</p>
         <h1 className="text-xl">{lesson.title}</h1>
         {['candle-patterns', 'chart-patterns'].includes(lesson.id) ? <>

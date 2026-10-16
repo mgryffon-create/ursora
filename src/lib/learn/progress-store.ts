@@ -71,7 +71,7 @@ export class ProgressStore {
   this.emit({ document: { schema: 'learn-progress-1', slices: { ...this.snapshot.document.slices, [name]: copy(next) } }, status: 'saving', message: 'Saving progress…' });
   const localOK = this.cache();
   if (!localOK) this.emit({ status: 'local', message: 'Browser backup unavailable. Keep this tab open until account save is confirmed.' });
-  this.schedule(name === 'workspace' || name.startsWith('university-session-v1:') ? 1000 : 200);
+  this.schedule(name === 'workspace' || (name.startsWith('university-session-v1:') || name.startsWith('university-assessment-v1:')) ? 1000 : 200);
  }
  private schedule(delay: number) { if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; void this.flush(); }, delay); }
  async flush() {

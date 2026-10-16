@@ -1,5 +1,5 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const ts=require('typescript');
-function load(path,dependencies={}){const exports={};new Function('exports','require',ts.transpileModule(fs.readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(exports,name=>dependencies[name]);return exports;}
+function load(path,dependencies={}){const exports={};new Function('exports','require',ts.transpileModule(fs.readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(exports,name=>dependencies[name]??load(require('node:path').resolve(require('node:path').dirname(path),name+'.ts')));return exports;}
 const patternData=load('src/lib/learn/patterns.ts');const {patterns,patternBars}=patternData;
 const units=load('src/lib/learn/university.ts');const {lessons}=load('src/lib/learn/lessons.ts',{'./university':units});const {exercises}=load('src/lib/learn/exercises.ts',{'./patterns':patternData});
 test('every curriculum lesson has focused exercises and patterns follow their prerequisites',()=>{

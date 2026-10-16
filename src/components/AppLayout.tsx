@@ -432,7 +432,7 @@ export const AppLayout: React.FC = () => {
           />
         );
       case 'learn':
-        return learnTester && learnEnabled && user ? <ViewErrorBoundary key={user.id} name="Learn"><Suspense fallback={<Spinner label="Opening Learn" />}><LearnWorkspace key={user.id} onDisable={() => { try { localStorage.setItem(`ursora_learn_enabled_${user.id}`, 'false'); } catch { /* Optional preference. */ } setLearnEnabled(false); go('opportunities'); }} /></Suspense></ViewErrorBoundary> : <TraderProfileView />;
+        return learnTester && learnEnabled && user ? <ViewErrorBoundary key={user.id} name="Learn"><Suspense fallback={<Spinner label="Opening Learn" />}><LearnWorkspace key={user.id} onOpenFeature={go} onDisable={() => { try { localStorage.setItem(`ursora_learn_enabled_${user.id}`, 'false'); } catch { /* Optional preference. */ } setLearnEnabled(false); go('opportunities'); }} /></Suspense></ViewErrorBoundary> : <TraderProfileView />;
       case 'profile':
         return <TraderProfileView />;
       case 'about':

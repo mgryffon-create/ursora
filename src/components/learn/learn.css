@@ -126,3 +126,8 @@
 .university-quicktrade { position: sticky; top: 112px; z-index: 8; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; background: #f4f8ff; border: 1px solid #bed3ed; border-radius: 7px; padding: 8px; box-shadow: 0 2px 8px #34516e10; font-size: 13px; }
 .university-live-layout { display: grid; gap: 16px; grid-template-columns: minmax(0,1fr); }
 @media (min-width: 1250px) { .university-live-layout { grid-template-columns: minmax(0,1fr) 270px; } .university-live-station { position: sticky; top: 180px; align-self: start; } .university-live-layout .university-chart svg { min-width: 0; } .university-live-station .learn-exercise-inputs { grid-template-columns: minmax(0,1fr); } }
+
+.brokerage-comparison { display:grid; gap:20px; }
+.brokerage-comparison fieldset { border:1px solid #d4e2f0; padding:14px; border-radius:7px; }
+.brokerage-comparison a,.university-card a { text-decoration:underline;color:#1d57a3; }
+@media(min-width:760px){.brokerage-comparison{grid-template-columns:repeat(2,minmax(0,1fr));}}
