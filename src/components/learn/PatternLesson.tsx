@@ -12,7 +12,7 @@ export default function PatternLesson({ group }: { group: 'candle' | 'chart' }) 
   <label>Choose a {group === 'candle' ? 'candlestick' : 'chart'} pattern<select value={pattern.id} onChange={event=>setState(value=>({...value,id:event.target.value}))}>{catalog.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
   <div className="flex flex-wrap items-center justify-between gap-2"><h2>{pattern.name}</h2><span>{index+1} of {catalog.length}</span></div>
   <p><strong>Where to look:</strong> {pattern.context}.</p>
-  <StudyChart key={pattern.id} {...plotted} points={pattern.points} title={`${pattern.name} · ${pattern.context}`} labels={state.labels}/>
+  <StudyChart comparison key={pattern.id} {...plotted} points={pattern.points} title={`${pattern.name} · ${pattern.context}`} labels={state.labels}/>
   <div className="learn-pattern-notes"><div><h3>Recognize the shape</h3><p>{pattern.shape}</p></div><div><h3>What it may suggest</h3><p>{pattern.suggests}</p></div><div><h3>What still needs checking</h3><p>{pattern.boundary}</p></div></div>
   <p className="learn-coach">Read it in order: prior direction → nearby floor or ceiling → completed shape → subsequent evidence → invalidation. A floor is support; a ceiling is resistance. Volume measures activity, not the identity or intent of traders. A pattern alone does not establish a profitable entry.</p>
   <div className="flex flex-wrap justify-between gap-2"><button disabled={index===0} onClick={()=>setState(value=>({...value,id:catalog[index-1].id}))}>Previous pattern</button><button disabled={index===catalog.length-1} onClick={()=>setState(value=>({...value,id:catalog[index+1].id}))}>Next pattern</button></div>
