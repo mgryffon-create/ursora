@@ -28,6 +28,14 @@ export default function UniversityModule({unit,practice,onPractice,onReturn,onNe
  const scenario=practice?item.scenario:unit.scenario,bars=trainingSession(scenario).slice(0,unit.assessment?capstones[unit.assessment].start:130);
  const passed=unit.cases.every((q,i)=>state.checked[i]&&Number(state.answers[i])===q.correct);
  useEffect(()=>{if(passed&&!unit.assessment)onPass();},[passed,onPass,unit.assessment]);
+ if(!practice && unit.drawing) return <ExerciseStage title={unit.title} label={`Stage ${unit.stage} · Guided drawing · Explanation ${state.card+1} of ${unit.cards.length}`} onReturn={onReturn}
+  visual={<MarketClassChart exercise compactTools key={unit.id} bars={bars} title="Draw directly on the chart · time vs price" persistKey={unit.id+':study'} drawing={unit.drawing}/>}
+  navigation={<><button onClick={onReturn}>Return to curriculum</button><button onClick={onPractice}>Practice examples</button><button onClick={onNext}>Next lesson</button></>}>
+  <h2>{card.title}</h2>
+  <p>{card.text}</p>
+  <p className="exercise-stage-guidance">Select Draw line, then tap or click the starting and ending locations. The horizontal X axis shows time; the vertical Y axis shows USD price. Use Check drawing for feedback.</p>
+  <div className="exercise-stage-actions"><button disabled={state.card===0} onClick={()=>setState(v=>({...v,card:v.card-1}))}>Previous explanation</button><button onClick={()=>state.card<unit.cards.length-1?setState(v=>({...v,card:v.card+1})):onPractice()}>{state.card<unit.cards.length-1?'Next explanation':'Start focused practice'}</button></div>
+ </ExerciseStage>;
  if(practice && !unit.assessment && !unit.worksheet && !unit.tour && (!unit.cumulative || showConceptChecks)) return <ExerciseStage title={unit.title} label={`Focused practice · Example ${casePosition+1} of ${unit.cases.length}`} onReturn={onReturn}
   visual={<MarketClassChart exercise compactTools key={`${unit.id}:${state.case}`} bars={bars} title={`Practice chart · ${scenario}`} allowed={unit.studies} initial={unit.studies.length>2?unit.studies.slice(0,1):unit.studies} drawing={unit.drawing} persistKey={`${unit.id}:case:${state.case}`}/>}
   navigation={<>{unit.cumulative && <button onClick={()=>setShowConceptChecks(false)}>Back to session</button>}<button disabled={casePosition===0} onClick={()=>moveCase(casePosition-1)}>Previous</button>{casePosition<unit.cases.length-1 ? <button onClick={()=>moveCase(casePosition+1)}>Next example</button> : <button onClick={onNext}>Finish practice · Next lesson</button>}{!unit.cumulative && <button onClick={onNext}>Next lesson</button>}</>}>
