@@ -122,7 +122,7 @@ const labelForView = (view: ViewKey) => {
   }
   if (view === 'thesis') return 'Trade Analysis';
   if (view === 'about') return 'About URSORA';
-  if (view === 'learn') return 'Learn · Private alpha';
+  if (view === 'learn') return 'URSORA U · Private alpha';
   return 'URSORA';
 };
 
@@ -484,7 +484,7 @@ export const AppLayout: React.FC = () => {
   return (
     <div className={cn('min-h-screen', view === 'learn' ? 'learn-app-shell' : 'bg-[#0b0d10] text-zinc-200')}>
       <header className="sticky top-0 z-40 border-b border-zinc-800 bg-[#0b0d10]/95 backdrop-blur">
-        {view === 'learn' ? <div className="border-b border-zinc-800 px-3 py-1.5 font-mono text-xs text-sky-300">URSORA Learn · Training workspace · Synthetic market</div> : <StatusBar snapshot={snapshot} />}
+        {view === 'learn' ? <div className="border-b border-zinc-800 px-3 py-1.5 font-mono text-xs text-sky-300">URSORA U · Training workspace · Synthetic market</div> : <StatusBar snapshot={snapshot} />}
         <div className="flex flex-wrap items-center gap-3 px-3 py-2">
           {view !== 'learn' && <button
             type="button"
@@ -500,7 +500,7 @@ export const AppLayout: React.FC = () => {
             className="flex items-center gap-2 font-mono text-[13px] font-semibold tracking-[0.2em] text-zinc-100 transition-colors hover:text-sky-300"
           >
             <CompactMark className="h-6 w-6" title="URSORA" />
-            {view === 'learn' ? 'URSORA Learn' : 'URSORA'}
+            {view === 'learn' ? 'URSORA U' : 'URSORA'}
           </button>
           <span className="hidden font-mono text-[10px] uppercase tracking-wider text-zinc-500 md:inline">
             {activeLabel}
@@ -516,7 +516,7 @@ export const AppLayout: React.FC = () => {
               <span className="hidden md:inline">About</span>
             </button>
             {view === 'learn' && <button type="button" className="min-h-11 rounded border border-zinc-700 px-3 py-2 text-sm" onClick={() => go('opportunities')}>TradeCycle</button>}
-            {learnTester && <button type="button" aria-pressed={view === 'learn'} className="min-h-11 rounded border border-sky-700 bg-sky-950/40 px-3 py-2 text-sm text-sky-200" onClick={() => { try { localStorage.setItem(`ursora_learn_enabled_${user?.id}`, 'true'); } catch { /* In-memory preference is sufficient. */ } setLearnEnabled(true); go('learn'); }}>{learnEnabled ? 'Learn' : 'Enable Learn'}</button>}
+            {learnTester && <button type="button" aria-pressed={view === 'learn'} className="min-h-11 rounded border border-sky-700 bg-sky-950/40 px-3 py-2 text-sm text-sky-200" onClick={() => { try { localStorage.setItem(`ursora_learn_enabled_${user?.id}`, 'true'); } catch { /* In-memory preference is sufficient. */ } setLearnEnabled(true); go('learn'); }}>URSORA U</button>}
             {user ? (
               <button
                 type="button"
