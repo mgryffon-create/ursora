@@ -9,6 +9,7 @@ import ExerciseStage from './ExerciseStage';
 import ExerciseFeedback from './ExerciseFeedback';
 import { newQuizSeed, shuffleQuiz } from '@/lib/learn/quiz-order';
 import { improveQuestion } from '@/lib/learn/question-quality';
+import { shortChoices } from '@/lib/learn/short-choices';
 import PaperAssessment from './PaperAssessment';
 import BrokerageWorksheet from './BrokerageWorksheet';
 import { capstones } from '@/lib/learn/capstones';
@@ -24,7 +25,7 @@ export default function UniversityModule({unit,practice,onPractice,onReturn,onNe
  const item=improveQuestion(unit.id,state.case,unit.cases[Math.min(state.case,unit.cases.length-1)]),card=unit.cards[Math.min(state.card,unit.cards.length-1)];
  const casePosition=order.indexOf(state.case);
  const moveCase=(position:number)=>setState(v=>({...v,case:order[position]}));
- const options=shuffleQuiz(item.options.map((text,i)=>({text,value:i})),randomization.seed,`answer:${state.case}`);
+ const options=shuffleQuiz(shortChoices(item.options.map((text,i)=>({label:text,value:i})),item.correct,randomization.seed+':'+unit.id+':'+state.case).map(({label,value})=>({text:label,value})),randomization.seed,`answer:${state.case}`);
  const scenario=practice?item.scenario:unit.scenario,bars=trainingSession(scenario).slice(0,unit.assessment?capstones[unit.assessment].start:130);
  const passed=unit.cases.every((q,i)=>state.checked[i]&&Number(state.answers[i])===q.correct);
  useEffect(()=>{if(passed&&!unit.assessment)onPass();},[passed,onPass,unit.assessment]);
@@ -38,12 +39,13 @@ export default function UniversityModule({unit,practice,onPractice,onReturn,onNe
  </ExerciseStage>;
  if(practice && !unit.assessment && !unit.worksheet && !unit.tour && (!unit.cumulative || showConceptChecks)) return <ExerciseStage title={unit.title} label={`Focused practice · Example ${casePosition+1} of ${unit.cases.length}`} onReturn={onReturn}
   visual={<MarketClassChart exercise compactTools key={`${unit.id}:${state.case}`} bars={bars} title={`Practice chart · ${scenario}`} allowed={unit.studies} initial={unit.studies.length>2?unit.studies.slice(0,1):unit.studies} drawing={unit.drawing} persistKey={`${unit.id}:case:${state.case}`}/>}
-  navigation={<>{unit.cumulative && <button onClick={()=>setShowConceptChecks(false)}>Back to session</button>}<button disabled={casePosition===0} onClick={()=>moveCase(casePosition-1)}>Previous</button>{casePosition<unit.cases.length-1 ? <button onClick={()=>moveCase(casePosition+1)}>Next example</button> : <button onClick={onNext}>Finish practice · Next lesson</button>}{!unit.cumulative && <button onClick={onNext}>Next lesson</button>}</>}>
+  navigation={<>{unit.cumulative && <button onClick={()=>setShowConceptChecks(false)}>Back to session</button>}<button disabled={casePosition===0} onClick={()=>moveCase(casePosition-1)}>Previous</button><span className="exercise-stage-nav-status">Example {casePosition+1} of {unit.cases.length}</span></>}>
   <p className="exercise-stage-step">Understanding check {casePosition+1} of {unit.cases.length}</p>
   <label>{item.prompt}<select value={state.answers[state.case]??''} onChange={event=>setState(v=>({...v,answers:{...v.answers,[v.case]:event.target.value},checked:{...v.checked,[v.case]:false}}))}><option value="" disabled>Choose an explanation…</option>{options.map(option=><option key={option.value} value={option.value}>{option.text}</option>)}</select></label>
   <button className="learn-primary" disabled={state.answers[state.case]===undefined} onClick={()=>setState(v=>({...v,checked:{...v.checked,[v.case]:true}}))}>Check explanation</button>
   {state.checked[state.case] ? <ExerciseFeedback correct={Number(state.answers[state.case])===item.correct} text={`${Number(state.answers[state.case])===item.correct?'Correct.':'Revisit this distinction.'} ${item.why}`}/> : <p className="exercise-stage-guidance">{state.answers[state.case]!==undefined ? `Selected: ${item.options[Number(state.answers[state.case])]}` : 'Inspect the chart and compare the visible evidence with each explanation before choosing.'}</p>}
   {passed && <p className="exercise-stage-hint">All understanding checks passed. You can revisit any example.</p>}
+  <div className="exercise-stage-continue">{casePosition<unit.cases.length-1 ? <button className="learn-primary" onClick={()=>moveCase(casePosition+1)}>Next exercise →</button> : <button className="learn-primary exercise-stage-next-lesson" onClick={onNext}>Next lesson →</button>}</div>
  </ExerciseStage>;
  return <article className="learn-panel university-module mx-auto max-w-5xl space-y-4">
   {practice&&<button onClick={onReturn}>Return to lesson: {unit.title}</button>}
