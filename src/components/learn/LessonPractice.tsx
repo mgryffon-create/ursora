@@ -9,6 +9,7 @@ import { improveQuestion } from '@/lib/learn/question-quality';
 import { newQuizSeed, shuffleQuiz } from '@/lib/learn/quiz-order';
 import { patternInterpretations } from '@/lib/learn/pattern-assessment';
 import { remainingPatternChoices } from '@/lib/learn/pattern-choices';
+import { shortChoices } from '@/lib/learn/short-choices';
 type State = { questionIndex?: number; matchedPatterns?: Record<string,boolean>; index: number; answers: Record<string,string>; checked: Record<string,boolean>; average: boolean; position: number; quantity: number; side: 'buy' | 'sell'; order: 'market' | 'limit' };
 type Props = { lesson: {id:string;title:string}; onReturn:()=>void; onNext:()=>void; onPass?:()=>void };
 export default function LessonPractice({lesson,onReturn,onNext,onPass}:Props) {
@@ -46,17 +47,26 @@ export default function LessonPractice({lesson,onReturn,onNext,onPass}:Props) {
  const checkedCount = progressKeys.filter(id=>state.checked[id]).length;
  const move = (next:number)=>{setState(value=>({...value,index:order[next],questionIndex:0}));window.scrollTo({top:0,behavior:'smooth'});};
  const checkExercise = () => setState(value=>({...value,checked:{...value.checked,[key]:true},matchedPatterns:pattern && Number(value.answers[`${key}:0`])===index ? {...value.matchedPatterns,[key]:true} : value.matchedPatterns}));
- const optionsFor = (question: ExerciseQuestion, i: number) => shuffleQuiz(pattern && i === 0 ? remainingChoices.map(item => ({ label: item.name, value: item.index })) : question.options.map((label,value)=>({label,value})), randomization.seed, `${key}:${i}`);
+ const optionsFor = (question: ExerciseQuestion, i: number) => {
+  const pool=pattern && i===0 ? remainingChoices.map(item=>({label:item.name,value:item.index})) : question.options.map((label,value)=>({label,value}));
+  const selected=shortChoices(pool,question.correct,randomization.seed+`:${key}:${i}`,5);
+  // Preserve a saved selection during review, even after earlier matches narrow the pool.
+  const saved=state.answers[answerKey(i)];
+  const previous=pool.find(choice=>String(choice.value)===saved);
+  if(previous && !selected.some(choice=>choice.value===previous.value))selected[selected.length-1]=previous;
+  return shuffleQuiz(selected,randomization.seed,`${key}:${i}`);
+ };
  if (scene.bars || scene.points) {
   const step = Math.min(questionIndex, scene.questions.length - 1), question = scene.questions[step];
   return <ExerciseStage title={scene.title} label={`${lesson.title} · Example ${position+1} of ${count}`} onReturn={onReturn}
     visual={<><p className="exercise-stage-context">{scene.task}</p><StudyChart compact comparison={!!pattern} simpleInspection={!!pattern} key={`${lesson.id}:${index}`} bars={scene.bars} points={scene.points} focus={pattern?.bars ? 3 : -1} title="Exercise chart · tap to inspect" levels={scene.levels} average={scene.tool==='average' && state.average}/>{scene.tool==='average' && <button aria-pressed={state.average} onClick={()=>setState(value=>({...value,average:!value.average}))}>{state.average ? 'Hide VWAP comparison' : 'Show VWAP comparison'}</button>}</>}
-    navigation={<><select aria-label="Choose exercise" value={position} onChange={event=>move(Number(event.target.value))}>{Array.from({length:count},(_,i)=><option key={i} value={i}>Example {i+1} of {count}</option>)}</select><button disabled={position===0} onClick={()=>move(position-1)}>Previous</button><span>{checkedCount}/{count} checked</span>{position<count-1 ? <button onClick={()=>move(position+1)}>Next exercise</button> : <button onClick={onReturn}>Finish practice</button>}<button onClick={onNext}>Next lesson</button></>}>
+    navigation={<><select aria-label="Choose exercise" value={position} onChange={event=>move(Number(event.target.value))}>{Array.from({length:count},(_,i)=><option key={i} value={i}>Example {i+1} of {count}</option>)}</select><button disabled={position===0} onClick={()=>move(position-1)}>Previous</button><span>{checkedCount}/{count} checked</span><span className="exercise-stage-nav-status">{position+1} / {count} examples</span></>}>
     <p className="exercise-stage-step">Question {step+1} of {scene.questions.length}</p>
     <label>{question.prompt}<select value={visibleAnswer(step)} onChange={event=>setState(value=>({...value,answers:{...value.answers,[answerKey(step)]:event.target.value},checked:{...value.checked,[key]:false}}))}><option value="" disabled>Choose an explanation…</option>{optionsFor(question,step).map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
     {checked ? <ExerciseFeedback correct={correct(question,step)} text={`${correct(question,step) ? 'Correct.' : 'Try again.'} ${question.explanation}`}/> : <p className="exercise-stage-guidance">{visibleAnswer(step) ? `Selected: ${optionsFor(question,step).find(option=>String(option.value)===visibleAnswer(step))?.label}` : scene.why}</p>}
     {pattern && !checked && visibleAnswer(step)==='' && <p className="exercise-stage-hint">Correct matches leave later answer lists. Your current case stays available for review.</p>}
-    <div className="exercise-stage-actions"><button disabled={step===0} onClick={()=>setQuestionIndex(step-1)}>Previous question</button>{step<scene.questions.length-1 ? <button disabled={visibleAnswer(step)===''} onClick={()=>setQuestionIndex(step+1)}>Next question</button> : <button className="learn-primary" disabled={!answered} onClick={checkExercise}>Check exercise</button>}</div>
+    <div className="exercise-stage-actions"><button disabled={step===0} onClick={()=>setQuestionIndex(step-1)}>Previous question</button>{step<scene.questions.length-1 ? <button className="learn-primary" disabled={visibleAnswer(step)===''} onClick={()=>setQuestionIndex(step+1)}>Next question</button> : <button className="learn-primary" disabled={!answered} onClick={checkExercise}>Check exercise</button>}</div>
+    <div className="exercise-stage-continue">{position<count-1 ? <button className="learn-primary" onClick={()=>move(position+1)}>Next exercise →</button> : <button className="learn-primary exercise-stage-next-lesson" onClick={onNext}>Next lesson →</button>}</div>
   </ExerciseStage>;
  }
  return <article className="learn-panel learn-exercise mx-auto w-full max-w-4xl space-y-5">
