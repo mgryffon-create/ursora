@@ -1,8 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import type { StudyBar } from '@/lib/learn/patterns';
 import MarketClassChart from './MarketClassChart';
-type Props = { bars?: StudyBar[]; points?: number[]; focus?: number; title: string; labels?: boolean; levels?: { price: number; label: string }[]; average?: boolean; compact?: boolean; simpleInspection?: boolean };
+type Props = { bars?: StudyBar[]; points?: number[]; focus?: number; title: string; labels?: boolean; levels?: { price: number; label: string }[]; average?: boolean; compact?: boolean; simpleInspection?: boolean; comparison?: boolean };
 export default function StudyChart(props:Props) {
+ if(props.comparison && (props.bars?.length || props.points?.length)){
+  // Both panels originate from the identical schematic series, never independent examples.
+  // A point-only chart is interpolated into fictional OHLC candles for structural comparison.
+  const bars:StudyBar[]=props.bars ?? props.points!.slice(1).flatMap((end,i)=>{
+   const start=props.points![i];
+   return Array.from({length:4},(_,step)=>{
+    const open=start+(end-start)*step/4,close=start+(end-start)*(step+1)/4;
+    return {open,close,high:Math.max(open,close)+.12,low:Math.min(open,close)-.12,volume:400};
+   });
+  });
+  const closingPrices=bars.map(b=>b.close);
+  return <div className="learn-pattern-comparison" role="group" aria-label={props.title+' shown as candlesticks and a closing-price line'}>
+   <div className="learn-pattern-view"><strong>Candlestick view · OHLC</strong><SchematicCandleChart {...props} bars={bars} points={undefined} compact simpleInspection /></div>
+   <div className="learn-pattern-view"><strong>Line view · closing prices</strong><SchematicCandleChart {...props} bars={undefined} points={closingPrices} compact simpleInspection /></div>
+   <p className="learn-pattern-comparison-note">Same underlying price sequence in both views. Candles reveal each interval’s open, high, low and close; the line connects closes and hides wicks and within-interval movement. For point-based formations, candles are synthetic illustrations, not recorded market data.</p>
+  </div>;
+ }
  if(props.points && !props.compact){
   const points=props.points, bars:StudyBar[]=[];
   for(let i=1;i<points.length;i++)for(let step=0;step<4;step++){const open=points[i-1]+(points[i]-points[i-1])*step/4,close=points[i-1]+(points[i]-points[i-1])*(step+1)/4;bars.push({open,close,high:Math.max(open,close)+.12,low:Math.min(open,close)-.12,volume:Math.round(300+Math.abs(close-open)*1000+step*70)});}
