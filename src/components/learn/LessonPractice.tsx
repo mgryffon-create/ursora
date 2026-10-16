@@ -4,6 +4,7 @@ import { patterns, patternBars } from '@/lib/learn/patterns';
 import { useLearnState } from './LearnProgress';
 import StudyChart from './StudyChart';
 import ExerciseStage from './ExerciseStage';
+import ExerciseContinuation from './ExerciseContinuation';
 import ExerciseFeedback from './ExerciseFeedback';
 import { improveQuestion } from '@/lib/learn/question-quality';
 import { newQuizSeed, shuffleQuiz } from '@/lib/learn/quiz-order';
@@ -66,7 +67,7 @@ export default function LessonPractice({lesson,onReturn,onNext,onPass}:Props) {
     {checked ? <ExerciseFeedback correct={correct(question,step)} text={`${correct(question,step) ? 'Correct.' : 'Try again.'} ${question.explanation}`}/> : <p className="exercise-stage-guidance">{visibleAnswer(step) ? `Selected: ${optionsFor(question,step).find(option=>String(option.value)===visibleAnswer(step))?.label}` : scene.why}</p>}
     {pattern && !checked && visibleAnswer(step)==='' && <p className="exercise-stage-hint">Correct matches leave later answer lists. Your current case stays available for review.</p>}
     <div className="exercise-stage-actions"><button disabled={step===0} onClick={()=>setQuestionIndex(step-1)}>Previous question</button>{step<scene.questions.length-1 ? <button className="learn-primary" disabled={visibleAnswer(step)===''} onClick={()=>setQuestionIndex(step+1)}>Next question</button> : <button className="learn-primary" disabled={!answered} onClick={checkExercise}>Check exercise</button>}</div>
-    <div className="exercise-stage-continue">{position<count-1 ? <button className="learn-primary" onClick={()=>move(position+1)}>Next exercise →</button> : <button className="learn-primary exercise-stage-next-lesson" onClick={onNext}>Next lesson →</button>}</div>
+    <ExerciseContinuation position={position} total={count} onNextExample={()=>move(position+1)} onNextLesson={onNext}/>
   </ExerciseStage>;
  }
  return <article className="learn-panel learn-exercise mx-auto w-full max-w-4xl space-y-5">
