@@ -60,4 +60,17 @@ universityUnits.push({id:'ursora-workflow',title:'Use your learning with URSORA'
  question('URSORA Patterns and the candle-pattern library are',['Different: behavior across trades versus shapes on charts','Identical tools','Both live execution tools'],0,'Use each for the question it answers.'),
  question('When reviewing an entry, distinguish',['What was visible then from what happened later','Only green candles from red','The final result from all context'],0,'Avoid hindsight when evaluating process.')],source:[sources.plan]});
 
-export const stageNames:Record<number,string>={1:'Start from zero',2:'Read price and activity',3:'Map chart structure',4:'Learn one indicator at a time',5:'Combine the evidence',6:'Plan risk and execution',7:'Options and management',8:'Independent practice and review'};
+export const stageNames:Record<number,string>={
+1:'Trading foundations',
+2:'Price action and candlesticks',
+3:'Market structure and chart formations',
+4:'Technical indicators',
+5:'Market context and catalysts',
+6:'Evidence synthesis and trade thesis',
+7:'Risk management and trade planning',
+8:'Execution and position management',
+9:'Options and advanced instruments',
+10:'Trading psychology and discipline',
+11:'Strategy and performance',
+12:'Independent trading laboratory'
+};
