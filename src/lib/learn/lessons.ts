@@ -1,4 +1,5 @@
 import { universityUnits, type Unit } from './university';
+import { expansionUnits } from './expansion';
 export type Lesson = { id:string;title:string;body:string;task:string;question:string;choices:string[];correct:number;explanation:string;stage:number;unit?:Unit };
 const baseLessons = [
   { id: 'candles', title: 'Candles in plain language', body: 'A candle summarizes one time window. The body joins its opening and closing prices; the wicks reach its highest and lowest prices. A forming candle has a current price instead of a final close. Volume counts the shares traded during that window.', task: 'Inspect a completed candle, identify its body and wicks, and compare it with a candle that is still forming.', question: 'An unfinished candle moves above its opening price. What do you know?', choices: ['Its final close must be higher', 'Its current price is higher; its final shape can still change', 'The next candle must rise'], correct: 1, explanation: 'The candle remains open until its time window ends. Its body, wicks and volume can still change.' },
@@ -12,7 +13,42 @@ const baseLessons = [
   { id: 'options', title: 'Understand the option ticket', body: 'The stock chart and option quote show different prices. Strike is the option’s reference stock price; expiry is when it ends. Bid is the sell reference, ask the buy reference. This simulator uses a 100-share multiplier: a $0.60 premium represents $60 for one contract before fees.', task: 'Change the number of contracts and order type. Compare bid, ask, multiplier and total cost before choosing whether an order can fill.', question: 'Two contracts are quoted at $0.60 per share with a 100-share multiplier. What is the premium before fees?', choices: ['$1.20', '$60', '$120'], correct: 2, explanation: '$0.60 × 100 × 2 = $120 before fees.' },
 ];
 
-const baseStages:Record<string,number>={candles:1,structure:2,movement:2,'candle-patterns':2,'chart-patterns':3,indicators:4,plan:6,options:7,management:7};
-const catalog:Lesson[]=[...baseLessons.map(l=>({...l,stage:baseStages[l.id]})),...universityUnits.map(unit=>({id:unit.id,title:unit.title,body:unit.cards[0].text,task:'Apply the explanation to three focused examples.',question:unit.cases[0].prompt,choices:unit.cases[0].options,correct:unit.cases[0].correct,explanation:unit.cases[0].why,stage:unit.stage,unit}))];
-const order=['market-basics','quotes-liquidity','candles','structure','movement','volume-pressure','candle-patterns','drawing-lines','chart-patterns','cup-steps','wedges','timeframes','price-assessment','indicators','sma-ema','vwap','rsi','macd','bollinger','atr','confluence','indicator-assessment','plan','risk-sizing','execution','scan-news','execution-assessment','options','option-greeks','management','journal-testing','capstone','brokerage-choice','ursora-workflow'];
-export const lessons:Lesson[]=order.map(id=>catalog.find(l=>l.id===id)!);
+// Stable lesson IDs preserve previously saved progress across curriculum revisions.
+const stageOverride:Record<string,number>={
+ 'market-basics':1,'quotes-liquidity':1,'market-participants':1,'trading-costs':1,'candles':2,'structure':3,'movement':2,'volume-pressure':2,'candle-patterns':2,
+ 'drawing-lines':3,'chart-patterns':3,'cup-steps':3,'wedges':3,'timeframes':3,'price-assessment':3,
+ 'indicators':4,'sma-ema':4,'vwap':4,'rsi':4,'macd':4,'bollinger':4,'atr':4,
+ 'scan-news':5,'market-macro':5,'confluence':6,'thesis-conflicts':6,'plan':6,'indicator-assessment':6,
+ 'risk-sizing':7,'drawdown-exposure':7,'execution':8,'management':8,'execution-assessment':8,
+ 'options':9,'options-foundations':9,'option-greeks':9,'behavioral-discipline':10,
+ 'journal-testing':11,'strategy-validation':11,'capstone':12,'brokerage-choice':12,'ursora-workflow':12
+};
+const catalog:Lesson[]=[
+ ...baseLessons.map(l=>({...l,stage:stageOverride[l.id]})),
+ ...[...universityUnits,...expansionUnits].map(unit=>({...{
+ id:unit.id,title:unit.title,body:unit.cards[0].text,
+ task:'Apply the explanation to three focused examples.',question:unit.cases[0].prompt,
+ choices:unit.cases[0].options,correct:unit.cases[0].correct,
+ explanation:unit.cases[0].why,stage:stageOverride[unit.id]??unit.stage,
+ unit:{...unit,stage:stageOverride[unit.id]??unit.stage}
+ }}))
+];
+const order=[
+ 'market-basics','market-participants','quotes-liquidity','trading-costs',
+ 'candles','movement','volume-pressure','candle-patterns',
+ 'structure','drawing-lines','chart-patterns','cup-steps','wedges','timeframes','price-assessment',
+ 'indicators','sma-ema','vwap','rsi','macd','bollinger','atr',
+ 'scan-news','market-macro',
+ 'confluence','thesis-conflicts','plan','indicator-assessment',
+ 'risk-sizing','drawdown-exposure',
+ 'execution','management','execution-assessment',
+ 'options','options-foundations','option-greeks',
+ 'behavioral-discipline',
+ 'journal-testing','strategy-validation',
+ 'capstone','brokerage-choice','ursora-workflow'
+];
+export const lessons:Lesson[]=order.map(id=>{
+ const lesson=catalog.find(l=>l.id===id);
+ if(!lesson)throw new Error('URSORA U curriculum missing lesson: '+id);
+ return lesson;
+});
