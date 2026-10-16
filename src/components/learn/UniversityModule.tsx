@@ -6,6 +6,7 @@ import { PREPARE_UPDATE_EVENT } from '@/lib/deployment-update';
 import { useLearnState } from './LearnProgress';
 import MarketClassChart from './MarketClassChart';
 import ExerciseStage from './ExerciseStage';
+import ExerciseContinuation from './ExerciseContinuation';
 import ExerciseFeedback from './ExerciseFeedback';
 import { newQuizSeed, shuffleQuiz } from '@/lib/learn/quiz-order';
 import { improveQuestion } from '@/lib/learn/question-quality';
@@ -45,7 +46,7 @@ export default function UniversityModule({unit,practice,onPractice,onReturn,onNe
   <button className="learn-primary" disabled={state.answers[state.case]===undefined} onClick={()=>setState(v=>({...v,checked:{...v.checked,[v.case]:true}}))}>Check explanation</button>
   {state.checked[state.case] ? <ExerciseFeedback correct={Number(state.answers[state.case])===item.correct} text={`${Number(state.answers[state.case])===item.correct?'Correct.':'Revisit this distinction.'} ${item.why}`}/> : <p className="exercise-stage-guidance">{state.answers[state.case]!==undefined ? `Selected: ${item.options[Number(state.answers[state.case])]}` : 'Inspect the chart and compare the visible evidence with each explanation before choosing.'}</p>}
   {passed && <p className="exercise-stage-hint">All understanding checks passed. You can revisit any example.</p>}
-  <div className="exercise-stage-continue">{casePosition<unit.cases.length-1 ? <button className="learn-primary" onClick={()=>moveCase(casePosition+1)}>Next exercise →</button> : <button className="learn-primary exercise-stage-next-lesson" onClick={onNext}>Next lesson →</button>}</div>
+  <ExerciseContinuation position={casePosition} total={unit.cases.length} onNextExample={()=>moveCase(casePosition+1)} onNextLesson={onNext}/>
  </ExerciseStage>;
  return <article className="learn-panel university-module mx-auto max-w-5xl space-y-4">
   {practice&&<button onClick={onReturn}>Return to lesson: {unit.title}</button>}
