@@ -296,3 +296,21 @@
 .learn-workspace .exercise-stage-continue .exercise-stage-next-lesson:hover{background:#0b4b34;}
 .exercise-stage-navigation .exercise-stage-nav-status{margin-left:auto;color:#425c76;font-size:12px;}
 @media(max-width:759px){.exercise-stage-question .exercise-stage-continue{margin-top:3px}.learn-workspace .exercise-stage-continue .learn-primary{min-height:36px;padding:5px 12px;font-size:12px;}}
+
+
+/* Capstone information hierarchy: context + playback + evidence/decision are one task. */
+.assessment-overview{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:4px 0 8px}
+.assessment-overview h2{font-size:clamp(18px,2vw,24px);margin:3px 0 6px}
+.assessment-eyebrow{font-size:11px;letter-spacing:.08em;color:#5a779a;font-weight:700}
+.assessment-objective{font-size:14px;line-height:1.45;max-width:74ch}
+.assessment-status{font-size:13px;white-space:nowrap;padding:8px 10px;background:#edf3fc;border:1px solid #c9daee;border-radius:6px;color:#254e7c}
+.assessment-playback{position:sticky;top:0;z-index:3;background:#fff;border:1px solid #d9e4ef;border-radius:8px;padding:8px 12px}
+.assessment-playback label{display:flex;flex-direction:row;align-items:center;gap:8px}
+.assessment-playback select{width:auto;max-width:280px}
+.assessment-account-strip{display:flex;flex-wrap:wrap;gap:8px 18px;padding:8px 12px;background:#f2f6fc;border-radius:6px;font-size:13px;color:#2e5278}
+.assessment-reference{border:1px solid #d9e4ef;border-radius:7px;background:#f8fafc;padding:10px 12px;margin:8px 0}
+.assessment-reference summary{font-size:14px;font-weight:600;color:#244f7c}
+.assessment-reference[open]>*:not(summary){margin-top:8px}
+.assessment-account-note{font-size:13px;color:#43607f;line-height:1.45}
+.university-live-layout{align-items:start}
+@media(max-width:850px){.assessment-overview{flex-direction:column;gap:5px}.assessment-status{white-space:normal}.assessment-playback{position:static}.assessment-playback label{flex-direction:column;align-items:start}}
