@@ -286,3 +286,13 @@
 .exercise-stage-visual .learn-pattern-comparison{flex:1 1 auto;min-height:0;overflow:hidden;grid-template-rows:minmax(0,1fr) auto;}
 .exercise-stage-visual .learn-pattern-view{overflow:hidden;}
 @media(max-width:650px){.learn-pattern-comparison{gap:4px}.learn-pattern-view{padding:3px}.learn-pattern-view>strong{font-size:10px}.learn-pattern-view .learn-chart-values{font-size:9px}.learn-pattern-comparison-note{font-size:10px}}
+
+
+/* Assessment flow: progression belongs with the question, not beside lesson navigation. */
+.exercise-stage-question .exercise-stage-continue{display:flex;justify-content:flex-end;align-items:center;flex:0 0 auto;margin-top:clamp(4px,1.2dvh,12px);}
+.learn-workspace .exercise-stage-continue .learn-primary{min-height:44px;background:#225cbe;border-color:#225cbe;color:white;font-weight:650;padding:8px 18px;}
+.learn-workspace .exercise-stage-continue .learn-primary:hover{background:#174993;}
+.learn-workspace .exercise-stage-continue .exercise-stage-next-lesson{background:#116145;border-color:#116145;}
+.learn-workspace .exercise-stage-continue .exercise-stage-next-lesson:hover{background:#0b4b34;}
+.exercise-stage-navigation .exercise-stage-nav-status{margin-left:auto;color:#425c76;font-size:12px;}
+@media(max-width:759px){.exercise-stage-question .exercise-stage-continue{margin-top:3px}.learn-workspace .exercise-stage-continue .learn-primary{min-height:36px;padding:5px 12px;font-size:12px;}}
