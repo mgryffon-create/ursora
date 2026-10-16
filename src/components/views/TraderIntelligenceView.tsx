@@ -261,6 +261,8 @@ export const TraderIntelligenceView: React.FC<{
     return () => { active = false; };
   }, [load, trades, user]);
 
+  const activeTrades = useMemo(() => demoProfile ? generateProfile(demoProfile) : trades, [demoProfile, trades]);
+
   const intel = useMemo(
     () => computeTraderIntelligence(activeTrades, {
       sensitivity: prefs.sensitivity,

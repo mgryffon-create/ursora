@@ -16,6 +16,8 @@ type Saved = { version: string; seed: number; second: number; account: Account; 
 function fresh(): Saved { return { version: VERSION, seed: Math.floor(Math.random() * 1000000), second: 0, account: initialAccount(), plan: defaultPlan, locked: false, path: null, guided: true, checkpoints: [], decisions: [], changes: [] }; }
 export default function LearnWorkspace({ placementPath, reviewMode = false, onNextLesson }: { placementPath?: 'foundations' | 'practice'; reviewMode?: boolean; onNextLesson?: () => void } = {}) {
   const [state, setState] = useLearnState<Saved>('workspace', () => ({ ...fresh(), path: placementPath ?? null }));
+  const [guide, setGuide] = useLearnState('workspace-guide-v1', { seen: false });
+  const [showGuide, setShowGuide] = useState(false);
   const [speed, setSpeed] = useLearnState('playbackSpeed', 30);
   const [playing, setPlaying] = useState(false), [review, setReview] = useState(reviewMode), [error, setError] = useState('');
   const [contract, setContract] = useLearnState('selectedContract', 0);
@@ -52,6 +54,20 @@ export default function LearnWorkspace({ placementPath, reviewMode = false, onNe
     } catch (e) { setError((e as Error).message); }
   };
   if (!state.path) return <div className="learn-workspace"><Placement onComplete={path => setState(s => ({ ...s, path, guided: true }))}/></div>;
+  if (!guide.seen || showGuide) return <section className="learn-workspace learn-panel mx-auto max-w-3xl space-y-5" aria-label="Practice workspace guide">
+    <p className="text-xs uppercase tracking-widest">URSORA U · Workspace orientation</p>
+    <h1 className="text-2xl">How to use the practice workspace</h1>
+    <p>This is a fictional market where you practice a decision process. The replay starts paused. You can wait or pass; placing an order is optional.</p>
+    <ol className="list-decimal space-y-4 pl-6">
+      <li><h2>Read the chart and account strip</h2><p>The chart shows SIM stock, while the selected option has its own bid and ask. Tap or hover over candles to inspect price and volume. The account strip shows virtual cash, equity and realized results.</p></li>
+      <li><h2>Build your plan before trading</h2><p>Choose “Build plan to unlock trading” beside the chart. Record your thesis, entry trigger, invalidation, target and option budget. Saving a plan unlocks the order controls; it does not place an order.</p></li>
+      <li><h2>Advance the market deliberately</h2><p>Use Play, Pause and Speed under the chart. A forming candle can change until it closes. Guided checkpoints pause the replay so you can compare evidence with your plan.</p></li>
+      <li><h2>Use the practice order station</h2><p>On a wide screen the station sits beside the chart; on mobile it follows the chart. Select a contract, choose Buy / add or Sell / close, enter quantity and order type, explain your decision, then review and submit. Check whether an order filled or remains working. Selling requires an available position.</p></li>
+      <li><h2>Review and return to your lesson</h2><p>Inspect your positions, orders and decision journal below. “Review session” pauses playback and opens your review. Use the return-to-lesson button when you arrived from a lesson, or the Modules menu to choose your next topic. Your progress saves to your account.</p></li>
+    </ol>
+    <p className="learn-coach">Practice uses synthetic prices and simplified execution. No real orders are sent. A saved invalidation is a plan condition; review your order settings rather than assuming every plan level creates an order.</p>
+    <button onClick={() => { setGuide({ seen: true }); setShowGuide(false); }}>Open the practice workspace</button>
+  </section>;
   const available = (id: number) => Math.max(0, (state.account.positions[id]?.quantity ?? 0) - state.account.orders.filter(o => o.contract === id && o.side === 'sell').reduce((sum, o) => sum + o.quantity, 0));
   const holdings = Object.entries(state.account.positions).filter(([, p]) => p.quantity > 0);
   const buys = state.account.fills.filter(f => f.side === 'buy');
@@ -60,11 +76,11 @@ export default function LearnWorkspace({ placementPath, reviewMode = false, onNe
   const ticketPanel = request ? <OrderTicket key={request.id} draftKey={`ticket:${state.seed}:${request.id}`} request={request} ticks={ticks} second={state.second} available={available(request.contract)} error={error} onPlace={place} onCancel={() => { setRequest(null); setError(''); }}/> : null;
   const restart = (independent = false) => { setPlaying(false); setReview(false); setRequest(null); setError(''); setNotice(''); setState(s => ({ ...fresh(), path: independent ? 'practice' : s.path, guided: independent ? false : s.guided })); };
   return <div className="learn-workspace space-y-4">
-    <header className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-widest text-sky-300">Learn · Private alpha · Synthetic market</p><h1 className="mt-1 text-xl">Read the pullback. Make your plan.</h1><p className="text-xs text-zinc-400">Fictional SIM · No real orders · Progress saved to your account with browser backup</p></div><button onClick={() => { setPlaying(false); setRequest(null); setReview(true); }}>Review session</button></header>
-    <div className="learn-account-strip"><span>Virtual equity <strong>{money(equity(state.account, ticks, state.second))}</strong></span><span>Cash <strong>{money(state.account.cash)}</strong></span><span>Net realized <strong>{money(state.account.realized - state.account.fees)}</strong></span><span className="text-zinc-400">Fees paid {money(state.account.fees)}</span></div>
+    <header className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-widest text-sky-300">Learn · Private alpha · Synthetic market</p><h1 className="mt-1 text-xl">Read the pullback. Make your plan.</h1><p className="text-xs text-zinc-400">Fictional SIM · No real orders · Progress saved to your account with browser backup</p></div><div className="flex flex-wrap gap-2"><button onClick={() => { setPlaying(false); setShowGuide(true); }}>How to use this workspace</button><button onClick={() => { setPlaying(false); setRequest(null); setReview(true); }}>Review session</button></div></header>
+    <p className="learn-coach">Start here: inspect the chart → build your plan → play or pause the market → record a decision or review an order → review the session. On mobile, scroll down for the order station and journal.</p><div className="learn-account-strip"><span>Virtual equity <strong>{money(equity(state.account, ticks, state.second))}</strong></span><span>Cash <strong>{money(state.account.cash)}</strong></span><span>Net realized <strong>{money(state.account.realized - state.account.fees)}</strong></span><span className="text-zinc-400">Fees paid {money(state.account.fees)}</span></div>
     <div className="learn-workstation">
       <section className="learn-panel min-w-0 space-y-3" aria-label="Chart and quick trade controls">
-        <div className="flex flex-wrap items-center justify-between gap-2"><h2>SIM stock · {money(current.price)}</h2><span className="font-mono text-sm">{clock(state.second)} simulated</span></div>
+        <div className="flex flex-wrap items-center justify-between gap-2"><h2>1 · Observe the chart · SIM stock · {money(current.price)}</h2><span className="font-mono text-sm">{clock(state.second)} simulated</span></div>
         <div className="learn-chart-tradebar">
           <label>Selected option<select value={contract} onChange={e => { setContract(Number(e.target.value)); setRequest(null); setError(''); }}>{contracts.map((c, i) => <option key={c.strike} value={i}>{c.label}</option>)}</select></label>
           <button disabled={!state.locked || finished || available(contract) === 0} onClick={() => openTicket('sell')}>Sell at bid <strong>{money(q.bid)}</strong></button>
@@ -78,7 +94,7 @@ export default function LearnWorkspace({ placementPath, reviewMode = false, onNe
       </section>
       <aside className="learn-panel min-w-0 space-y-3" aria-label="Practice order station">
         {request && !finished && wide ? ticketPanel
-          : <><h2>Practice order station</h2><p className="text-sm text-zinc-400">Brokerage layouts vary. Here, follow this sequence: select a contract → choose buy or sell → enter quantity and order type → explain → review.</p>
+          : <><h2>3 · Practice order station</h2><p className="text-sm text-zinc-400">Brokerage layouts vary. Here, follow this sequence: select a contract → choose buy or sell → enter quantity and order type → explain → review.</p>
             <label>1. Choose your contract<select value={contract} onChange={e => setContract(Number(e.target.value))}>{contracts.map((c, i) => <option key={c.strike} value={i}>{c.label} · ${c.strike} strike</option>)}</select></label>
             <div className="learn-quote-pair"><span>Bid {money(q.bid)}<small>Sell reference</small></span><span>Ask {money(q.ask)}<small>Buy reference</small></span></div>
             <p className="text-sm">{contracts[contract].label} · Call option · Training expiry: fifth simulated session · 100-share multiplier</p>
@@ -91,9 +107,9 @@ export default function LearnWorkspace({ placementPath, reviewMode = false, onNe
       </aside>
     </div>
     {notice && <p role="status" className="text-sm text-sky-200">{notice}</p>}
-    <section className="learn-panel space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><h2>Your thesis and limits</h2><button onClick={() => { setPlaying(false); setEditingPlan(true); }}>{state.locked ? 'Edit recorded plan' : 'Build plan'}</button></div>
+    <section className="learn-panel space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><h2>2 · Your thesis and limits</h2><button onClick={() => { setPlaying(false); setEditingPlan(true); }}>{state.locked ? 'Edit recorded plan' : 'Build plan'}</button></div>
       <p className="text-sm">{state.plan.thesis || 'No thesis recorded yet. Build a plan before placing an order.'}</p>
-      <div className="learn-account-strip"><span>Entry level <strong>{money(state.plan.trigger)}</strong></span><span>Invalidation <strong>{money(state.plan.invalidation)}</strong></span><span>Exit area <strong>{money(state.plan.target)}</strong></span><span>Total budget <strong>{money(state.plan.budget)}</strong></span></div><p className="text-xs text-zinc-400">Entry, invalidation and exit levels refer to the stock, not the option premium. They do not place automatic orders. Editing pauses playback and preserves earlier trade snapshots.</p>
+      <p className="learn-coach">Start here: inspect the chart → build your plan → play or pause the market → record a decision or review an order → review the session. On mobile, scroll down for the order station and journal.</p><div className="learn-account-strip"><span>Entry level <strong>{money(state.plan.trigger)}</strong></span><span>Invalidation <strong>{money(state.plan.invalidation)}</strong></span><span>Exit area <strong>{money(state.plan.target)}</strong></span><span>Total budget <strong>{money(state.plan.budget)}</strong></span></div><p className="text-xs text-zinc-400">Entry, invalidation and exit levels refer to the stock, not the option premium. They do not place automatic orders. Editing pauses playback and preserves earlier trade snapshots.</p>
     </section>
     <details className="learn-panel"><summary>Wait or pass · Record an observation</summary><div className="mt-3 space-y-3"><SentenceResponse kind="wait" value={decision} onChange={setDecision}/><button disabled={!responseComplete(decision)} onClick={() => { setState(s => ({ ...s, decisions: [...s.decisions, { second: s.second, action: 'wait / pass', reason: decision }] })); setDecision(''); setNotice('Wait / pass decision recorded.'); }}>Record wait / pass</button></div></details>
     <details className="learn-panel"><summary>URSORA training evidence and playback mode</summary><div className="mt-3 space-y-3"><label>Mode<select value={state.guided ? 'guided' : 'independent'} disabled={playing || state.second > 0 || state.path === 'foundations'} onChange={e => setState(s => ({ ...s, guided: e.target.value === 'guided' }))}><option value="guided">Guided</option><option value="independent">Independent</option></select></label><p className="text-sm">{current.entry ? `${current.entry.prior_sessions} prior session(s) · Move since confirmation ${current.entry.move_before_entry_pct.toFixed(2)}% · Original target distance consumed ${current.entry.move_consumed_pct?.toFixed(0) ?? 'unknown'}% · Pullback: ${current.entry.pullback_status.replace(/_/g, ' ')}` : 'No active confirmed bullish ancestry in completed evidence.'}</p><p className="text-xs text-zinc-400">Completed-candle VWAP: {current.vwap === null ? 'waiting for first close' : money(current.vwap)}. Shared production ancestry calculations with a simplified training detector. Guided mode pauses at teaching moments. Tickets do not pause playback; editing plans and leaving this tab do.</p></div></details>

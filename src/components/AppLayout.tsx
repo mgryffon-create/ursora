@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState , Component, lazy, Suspense } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState , Component, lazy, Suspense } from 'react';
 import {
   Brain, ChevronDown, CircleHelp, FlaskConical, LineChart,
   ListChecks, LogOut, Menu, Radar, ScrollText, UserRound, X,
@@ -24,6 +24,7 @@ import TraderProfileView from '@/components/views/TraderProfileView';
 import TradesView from '@/components/views/TradesView';
 import AboutView from '@/components/views/AboutView';
 import OnboardingTour from '@/components/OnboardingTour';
+import { experiencePath, needsOrientation, orientationMetadata, type ExperiencePath } from '@/lib/orientation';
 
 class ViewErrorBoundary extends Component<
   { name: string; children: React.ReactNode },
@@ -63,7 +64,7 @@ const LearnWorkspace = lazy(() => import('@/components/learn/LearnEnvironment'))
 
 type ViewKey =
   | 'opportunities' | 'command' | 'trades' | 'history'
-  | 'backtest' | 'thesis' | 'trader' | 'profile' | 'about' | 'learn';
+  | 'backtest' | 'thesis' | 'trader' | 'profile' | 'about' | 'learn' | 'learn-home';
 
 type NavGroupKey = 'today' | 'trades' | 'intelligence';
 
@@ -122,7 +123,7 @@ const labelForView = (view: ViewKey) => {
   }
   if (view === 'thesis') return 'Trade Analysis';
   if (view === 'about') return 'About URSORA';
-  if (view === 'learn') return 'URSORA U · Private alpha';
+  if (view === 'learn' || view === 'learn-home') return 'URSORA U';
   return 'URSORA';
 };
 
@@ -173,15 +174,15 @@ const StatusBar: React.FC<{ snapshot: MarketSnapshot | null }> = ({ snapshot }) 
 
 export const AppLayout: React.FC = () => {
   const { user, favorites, loading, signOut } = useAuth();
-  // app_metadata is administrator-controlled. No user-editable metadata gates.
-  const learnTester = user?.app_metadata?.learn_tester === true;
-  const [learnEnabled, setLearnEnabled] = useState(false);
-  useEffect(() => {
-    try { setLearnEnabled(Boolean(learnTester && localStorage.getItem(`ursora_learn_enabled_${user?.id}`) === 'true')); }
-    catch { setLearnEnabled(false); }
-  }, [user?.id, learnTester]);
+  // This is a home-screen preference, not a permission or trading-competency gate.
+  const [path, setPath] = useState<ExperiencePath | null>(experiencePath(user?.user_metadata));
+  const initializedAccount = useRef<string | null>(null);
   const [entered, setEntered] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup' | null>(null);
+  const [learningVisit, setLearningVisit] = useState(0);
+  const learningLocation = useRef('Learning home');
+  const [lessonReturn, setLessonReturn] = useState<{ owner: string; title: string } | null>(null);
+  const recordLearningLocation = useCallback((title: string) => { learningLocation.current = title; }, []);
   const [view, setView] = useState<ViewKey>('opportunities');
   const [thesisId, setThesisId] = useState<number | null>(null);
   const [thesisInitialTab, setThesisInitialTab] = useState('score');
@@ -342,21 +343,19 @@ export const AppLayout: React.FC = () => {
     // Never render it while auth is resolving or after logout.
     if (loading || !user) {
       setShowOnboarding(false);
+      initializedAccount.current = null;
       return;
     }
 
-    const accountKey = `ursora_onboarding_v2_${user.id}`;
-    const legacySeen = window.localStorage.getItem('ursora_onboarding_v1') === 'seen';
-    const accountSeen = window.localStorage.getItem(accountKey) === 'seen';
-    const profileSeen = Boolean(user.user_metadata?.ursora_onboarding_completed);
-
-    if (legacySeen || accountSeen || profileSeen) {
-      window.localStorage.setItem(accountKey, 'seen');
-      setShowOnboarding(false);
-      return;
+    let accountSeen = false;
+    try { accountSeen = window.localStorage.getItem(`ursora_onboarding_v2_${user.id}`) === 'seen'; } catch { /* Account metadata is authoritative. */ }
+    if (initializedAccount.current !== user.id) {
+      initializedAccount.current = user.id;
+      const selectedPath = experiencePath(user.user_metadata);
+      setPath(selectedPath);
+      setView(selectedPath === 'learning' ? 'learn-home' : 'opportunities');
     }
-
-    setShowOnboarding(true);
+    setShowOnboarding(needsOrientation(user.user_metadata, accountSeen));
   }, [loading, user]);
 
   useEffect(() => {
@@ -380,10 +379,22 @@ export const AppLayout: React.FC = () => {
   }, []);
 
   const go = useCallback((key: ViewKey) => {
+    if (key === 'learn-home') setLearningVisit(v => v + 1);
+    if ((view === 'learn' || view === 'learn-home') && key !== 'learn' && key !== 'learn-home' && user) {
+      const origin = { owner: user.id, title: learningLocation.current };
+      setLessonReturn(origin);
+      try { sessionStorage.setItem(`ursora:lesson-return:${user.id}`, JSON.stringify(origin)); } catch { /* In-memory return remains available. */ }
+    }
     setView(key);
     setNavOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+  }, [view, user]);
+
+  useEffect(() => {
+    setLessonReturn(null);
+    if (!user) return;
+    try { const saved = JSON.parse(sessionStorage.getItem(`ursora:lesson-return:${user.id}`) ?? 'null'); if (saved?.owner === user.id && typeof saved.title === 'string') setLessonReturn(saved); } catch { /* Ignore invalid browser backup. */ }
+  }, [user]);
 
   const goGroup = useCallback((groupKey: NavGroupKey) => {
     const group = NAV_GROUPS.find((entry) => entry.key === groupKey);
@@ -431,8 +442,9 @@ export const AppLayout: React.FC = () => {
             onOpenHistoricalEvidence={openHistoricalEvidence}
           />
         );
+      case 'learn-home':
       case 'learn':
-        return learnTester && learnEnabled && user ? <ViewErrorBoundary key={user.id} name="Learn"><Suspense fallback={<Spinner label="Opening Learn" />}><LearnWorkspace key={user.id} onOpenFeature={go} onDisable={() => { try { localStorage.setItem(`ursora_learn_enabled_${user.id}`, 'false'); } catch { /* Optional preference. */ } setLearnEnabled(false); go('opportunities'); }} /></Suspense></ViewErrorBoundary> : <TraderProfileView />;
+        return user ? <ViewErrorBoundary key={`${user.id}:${view}`} name="URSORA U"><Suspense fallback={<Spinner label="Opening URSORA U" />}><LearnWorkspace key={`${user.id}:${view}:${learningVisit}`} onLocationChange={recordLearningLocation} home={view === 'learn-home'} onOpenFeature={go} onDisable={() => go('opportunities')} /></Suspense></ViewErrorBoundary> : <AuthPanel initialMode="signin" />;
       case 'profile':
         return <TraderProfileView />;
       case 'about':
@@ -440,7 +452,7 @@ export const AppLayout: React.FC = () => {
       default:
         return <OpportunitiesView onOpenThesis={openThesis} />;
     }
-  }, [go, historicalEvidenceDay, historicalEvidenceTradeIds, openHistoricalEvidence, openThesis, thesisFocusNewsId, thesisId, thesisInitialTab, view, learnTester, learnEnabled, user]);
+  }, [go, historicalEvidenceDay, historicalEvidenceTradeIds, openHistoricalEvidence, openThesis, thesisFocusNewsId, thesisId, thesisInitialTab, view, user, learningVisit, recordLearningLocation]);
 
   if (loading) {
     return (
@@ -478,15 +490,17 @@ export const AppLayout: React.FC = () => {
     );
   }
 
+  const learningView = view === 'learn' || view === 'learn-home';
+  const homeView: ViewKey = path === 'learning' ? 'learn-home' : 'opportunities';
   const activeGroup = groupForView(view);
   const activeLabel = labelForView(view);
 
   return (
-    <div className={cn('min-h-screen', view === 'learn' ? 'learn-app-shell' : 'bg-[#0b0d10] text-zinc-200')}>
+    <div className={cn('min-h-screen', learningView ? 'learn-app-shell' : 'bg-[#0b0d10] text-zinc-200')}>
       <header className="sticky top-0 z-40 border-b border-zinc-800 bg-[#0b0d10]/95 backdrop-blur">
-        {view === 'learn' ? <div className="border-b border-zinc-800 px-3 py-1.5 font-mono text-xs text-sky-300">URSORA U · Training workspace · Synthetic market</div> : <StatusBar snapshot={snapshot} />}
+        {learningView ? <div className="border-b border-zinc-800 px-3 py-1.5 font-mono text-xs text-sky-300">URSORA U · Training workspace · Synthetic market</div> : <StatusBar snapshot={snapshot} />}
         <div className="flex flex-wrap items-center gap-3 px-3 py-2">
-          {view !== 'learn' && <button
+          {!learningView && <button
             type="button"
             onClick={() => setNavOpen((v) => !v)}
             aria-label="Toggle navigation"
@@ -496,11 +510,11 @@ export const AppLayout: React.FC = () => {
           </button>}
           <button
             type="button"
-            onClick={() => go('opportunities')}
+            onClick={() => go(homeView)}
             className="flex items-center gap-2 font-mono text-[13px] font-semibold tracking-[0.2em] text-zinc-100 transition-colors hover:text-sky-300"
           >
             <CompactMark className="h-6 w-6" title="URSORA" />
-            {view === 'learn' ? 'URSORA U' : 'URSORA'}
+            {learningView ? 'URSORA U' : 'URSORA'}
           </button>
           <span className="hidden font-mono text-[10px] uppercase tracking-wider text-zinc-500 md:inline">
             {activeLabel}
@@ -515,8 +529,9 @@ export const AppLayout: React.FC = () => {
               <CircleHelp className="h-3 w-3" aria-hidden="true" />
               <span className="hidden md:inline">About</span>
             </button>
-            {view === 'learn' && <button type="button" className="min-h-11 rounded border border-zinc-700 px-3 py-2 text-sm" onClick={() => go('opportunities')}>TradeCycle</button>}
-            {learnTester && <button type="button" aria-pressed={view === 'learn'} className="min-h-11 rounded border border-sky-700 bg-sky-950/40 px-3 py-2 text-sm text-sky-200" onClick={() => { try { localStorage.setItem(`ursora_learn_enabled_${user?.id}`, 'true'); } catch { /* In-memory preference is sufficient. */ } setLearnEnabled(true); go('learn'); }}>URSORA U</button>}
+            {path === 'learning' && !learningView && <button type="button" className="min-h-11 rounded border border-sky-700 px-3 py-2 text-sm text-sky-200" onClick={() => go('learn-home')}>Learning home</button>}
+            {learningView && <button type="button" className="min-h-11 rounded border border-zinc-700 px-3 py-2 text-sm" onClick={() => go('opportunities')}>URSORA</button>}
+            {user && <button type="button" aria-pressed={learningView} className="min-h-11 rounded border border-sky-700 bg-sky-950/40 px-3 py-2 text-sm text-sky-200" onClick={() => go('learn-home')}>URSORA U</button>}
             {user ? (
               <button
                 type="button"
@@ -555,16 +570,21 @@ export const AppLayout: React.FC = () => {
             )}
           </div>
         </div>
+        {learningView && <nav aria-label="URSORA research features" className="flex gap-2 overflow-x-auto border-t border-zinc-800 px-3 py-2">
+          <button type="button" onClick={() => go('learn-home')} className="min-h-9 shrink-0 rounded border border-sky-700 px-3 text-xs text-sky-200">Learning home</button>
+          {([{ key: 'opportunities', label: 'Opportunities' }, { key: 'command', label: 'Market Overview' }, { key: 'trades', label: 'Positions & TradeCycles' }, { key: 'trader', label: 'Trader Intelligence' }] as const).map((item) => <button key={item.key} type="button" onClick={() => go(item.key)} className="min-h-9 shrink-0 rounded border border-zinc-800 px-3 text-xs text-zinc-400 hover:text-sky-200">{item.label}</button>)}
+        </nav>}
       </header>
 
       <div className="flex">
-        {view !== 'learn' && <aside
+        {!learningView && <aside
           className={cn(
             'fixed inset-y-0 left-0 z-30 w-56 shrink-0 overflow-y-auto border-r border-zinc-800 bg-[#0e1116] pt-[94px] transition-transform lg:sticky lg:top-[94px] lg:h-[calc(100vh-94px)] lg:translate-x-0 lg:pt-0',
             navOpen ? 'translate-x-0' : '-translate-x-full',
           )}
         >
           <nav aria-label="Primary" className="p-2">
+            {path === 'learning' && <button type="button" className="mb-3 min-h-11 w-full rounded border border-sky-700 bg-sky-500/10 p-2 text-sm text-sky-200" onClick={() => go('learn-home')}>URSORA U · Learning home</button>}
             {NAV_GROUPS.map((group) => {
               const GroupIcon = group.Icon;
               const expanded = expandedGroup === group.key;
@@ -629,11 +649,11 @@ export const AppLayout: React.FC = () => {
         )}
 
         <main className="min-w-0 flex-1 px-3 py-4 pb-20 lg:px-6 lg:pb-8">
-          <div className="mx-auto w-full max-w-[1600px]">{body}</div>
+          <div className="mx-auto w-full max-w-[1600px]">{!learningView && lessonReturn?.owner === user?.id && <section aria-label="Return to learning" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded border border-sky-700 bg-sky-950/30 p-3"><p className="text-sm text-sky-100">Exploring URSORA from: {lessonReturn.title}</p><button className="min-h-11 rounded border border-sky-500 px-4 py-2 text-sm text-sky-100" onClick={() => go(lessonReturn.title === 'Learning home' ? 'learn-home' : 'learn')}>Return to {lessonReturn.title === 'Learning home' ? 'learning home' : `lesson: ${lessonReturn.title}`}</button></section>}{body}</div>
         </main>
       </div>
 
-      {view !== 'learn' && <nav
+      {!learningView && <nav
         aria-label="Mobile primary"
         className="fixed bottom-0 left-0 right-0 z-40 grid grid-cols-3 border-t border-zinc-800 bg-[#0b0d10]/98 backdrop-blur lg:hidden"
       >
@@ -665,29 +685,15 @@ export const AppLayout: React.FC = () => {
 
       {user && showOnboarding && (
         <OnboardingTour
-          onSetupTraderProfile={() => {
-            if (!user) return;
-            const accountKey = `ursora_onboarding_v2_${user.id}`;
-            window.localStorage.setItem('ursora_onboarding_v1', 'seen');
-            window.localStorage.setItem(accountKey, 'seen');
+          key={user.id}
+          initialPath={path}
+          onFinish={async (selectedPath) => {
+            const { error } = await db.auth.updateUser({ data: orientationMetadata(selectedPath) });
+            if (error) throw error;
+            try { window.localStorage.setItem(`ursora_onboarding_v2_${user.id}`, 'seen'); } catch { /* Preference was saved to the account. */ }
+            setPath(selectedPath);
             setShowOnboarding(false);
-            if (!user.user_metadata?.ursora_onboarding_completed) {
-              void db.auth.updateUser({ data: { ursora_onboarding_completed: true } });
-            }
-            go('profile');
-          }}
-          onFinish={() => {
-            if (!user) return;
-            const accountKey = `ursora_onboarding_v2_${user.id}`;
-            window.localStorage.setItem('ursora_onboarding_v1', 'seen');
-            window.localStorage.setItem(accountKey, 'seen');
-            setShowOnboarding(false);
-
-            if (!user.user_metadata?.ursora_onboarding_completed) {
-              void db.auth.updateUser({
-                data: { ursora_onboarding_completed: true },
-              });
-            }
+            go(selectedPath === 'learning' ? 'learn-home' : 'opportunities');
           }}
         />
       )}

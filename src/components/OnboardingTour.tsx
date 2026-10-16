@@ -1,109 +1,54 @@
-import React, { useState } from 'react';
-import { BookOpen, Brain, LineChart, ShieldCheck, UserRound } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { BookOpen, Brain, GraduationCap, LineChart, ShieldCheck, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import type { ExperiencePath } from '@/lib/orientation';
 
-const STEPS = [
-  {
-    title: 'Welcome to URSORA',
-    body: 'URSORA is a market-intelligence and trader-learning environment. The goal is to help you understand what the market evidence says, what changed, and how your own decisions interact with that evidence.',
-    Icon: BookOpen,
-  },
-  {
-    title: 'Start with Today',
-    body: 'Opportunities ranks current setups. Market Overview explains the broader environment. Select a ticker anywhere it appears to open the current analysis and review the evidence behind it.',
-    Icon: LineChart,
-  },
-  {
-    title: 'Trades become learning episodes',
-    body: 'When brokerage connections are available, open and closed positions become TradeCycle episodes. URSORA monitors the original thesis, meaningful changes in evidence, and the trader’s response over time.',
-    Icon: Brain,
-  },
-  {
-    title: 'Make Trader Intelligence yours',
-    body: 'Your trader profile gives URSORA a personal baseline for your goals, trading style, risk comfort, preferred structures, and the habits you want to watch. It is optional, but Trader Intelligence is more unique and useful when you fill it out.',
-    Icon: UserRound,
-    traderSetup: true,
-  },
-  {
-    title: 'Understand the limits',
-    body: 'URSORA is a research and learning tool, not investment advice. Scores are summaries of available evidence, not probabilities of profit. Missing data increases uncertainty. Trading and options involve the risk of loss.',
-    Icon: ShieldCheck,
-  },
+const tradingSteps = [
+  { title: 'Start with Today', body: 'Opportunities organizes current setups. Market Overview explains the broader environment. Open a ticker to review the evidence behind its analysis.', Icon: LineChart },
+  { title: 'Review your trading process', body: 'Connected brokerage history, historical evidence, and trader patterns help you review your decisions alongside the available market evidence.', Icon: Brain },
+  { title: 'Make MyURSORA yours', body: 'Your optional trader profile adds context about your goals, trading style, and habits. You can set it up from MyURSORA at any time.', Icon: UserRound },
+  { title: 'URSORA U is here when you need it', body: 'You can open URSORA University for lessons, focused practice, and synthetic paper-trading sessions without leaving your account.', Icon: GraduationCap },
 ];
+const learningSteps = [
+  { title: 'Your home is URSORA U', body: 'Your dashboard will help you start or continue modules and see your progress through URSORA University.', Icon: GraduationCap },
+  { title: 'Learn, then practice', body: 'Start with a short placement and foundation recap. Lessons connect market concepts with exercises and synthetic paper-trading assessments.', Icon: BookOpen },
+  { title: 'Explore the research workspace', body: 'URSORA’s opportunities, market overview, positions, and trade evidence remain available. You can explore them and return to your learning home at any time.', Icon: LineChart },
+  { title: 'Your pace, your progress', body: 'Completed module checks and your current activity are saved to your account. Learning progress does not certify that you are ready to trade with real money.', Icon: Brain },
+];
+const limits = { title: 'Understand the limits', body: 'URSORA is a research and learning tool. Scores summarize available evidence, not probabilities of profit. Trading and options involve the risk of loss.', Icon: ShieldCheck };
 
-export const OnboardingTour: React.FC<{
-  onFinish: () => void;
-  onSetupTraderProfile?: () => void;
-}> = ({ onFinish, onSetupTraderProfile }) => {
+export default function OnboardingTour({ onFinish, initialPath = null }: { onFinish: (path: ExperiencePath) => Promise<void>; initialPath?: ExperiencePath | null }) {
+  const [path, setPath] = useState<ExperiencePath | null>(initialPath);
   const [step, setStep] = useState(0);
   const [acknowledged, setAcknowledged] = useState(false);
-  const current = STEPS[step];
-  const Icon = current.Icon;
-  const final = step === STEPS.length - 1;
-  const traderSetup = Boolean((current as typeof current & { traderSetup?: boolean }).traderSetup);
-
-  return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-xl rounded-lg border border-zinc-700 bg-[#111419] p-5 shadow-2xl">
-        <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-sky-400">
-          Getting started · {step + 1} of {STEPS.length}
-        </div>
-        <div className="mt-4 flex gap-3">
-          <div className="rounded-md border border-sky-500/30 bg-sky-500/10 p-2 text-sky-300">
-            <Icon className="h-5 w-5" aria-hidden="true" />
-          </div>
-          <div>
-            <h2 className="text-xl font-semibold text-zinc-100">{current.title}</h2>
-            <p className="mt-2 text-sm leading-relaxed text-zinc-400">{current.body}</p>
-          </div>
-        </div>
-
-        {final && (
-          <label className="mt-5 flex items-start gap-2 rounded-md border border-zinc-800 bg-black/20 p-3 text-[12px] leading-relaxed text-zinc-400">
-            <input
-              type="checkbox"
-              checked={acknowledged}
-              onChange={(event) => setAcknowledged(event.target.checked)}
-              className="mt-0.5"
-            />
-            <span>I understand that URSORA organizes market evidence for research and learning and does not guarantee investment outcomes.</span>
-          </label>
-        )}
-
-        <div className="mt-6 flex items-center justify-between">
-          <button
-            type="button"
-            disabled={step === 0}
-            onClick={() => setStep((value) => Math.max(0, value - 1))}
-            className="text-[12px] text-zinc-500 hover:text-zinc-300 disabled:opacity-30"
-          >
-            Back
-          </button>
-          {traderSetup ? (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setStep((value) => value + 1)}
-                className="px-2 py-1 text-[11px] text-zinc-500 transition-colors hover:text-zinc-300"
-              >
-                Skip for now
-              </button>
-              <Button onClick={onSetupTraderProfile}>
-                Set up my profile
-              </Button>
-            </div>
-          ) : (
-            <Button
-              onClick={() => final ? onFinish() : setStep((value) => value + 1)}
-              disabled={final && !acknowledged}
-            >
-              {final ? 'Enter URSORA' : 'Continue'}
-            </Button>
-          )}
-        </div>
-      </div>
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { heading.current?.focus(); }, [step]);
+  const steps = [...(path === 'learning' ? learningSteps : tradingSteps), limits];
+  const current = step ? steps[step - 1] : null;
+  const final = step === steps.length;
+  const finish = async () => {
+    if (!path || busy) return;
+    setBusy(true); setError(null);
+    try { await onFinish(path); } catch { setError('Your choice could not be saved. Please try again; your orientation is still open.'); } finally { setBusy(false); }
+  };
+  return <div className="fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-sm">
+    <div role="dialog" aria-modal="true" aria-labelledby="orientation-title" className="my-auto max-h-[90dvh] w-full max-w-2xl overflow-auto rounded-xl border border-zinc-700 bg-[#111419] p-5 shadow-2xl sm:p-7">
+      <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-sky-400">Getting started · {step + 1} of {steps.length + 1}</p>
+      <h2 id="orientation-title" ref={heading} tabIndex={-1} className="mt-4 text-2xl font-semibold text-zinc-100 outline-none">{current?.title ?? 'What brings you to URSORA?'}</h2>
+      {current ? <div className="mt-4 flex gap-3"><current.Icon className="mt-1 h-5 w-5 shrink-0 text-sky-300"/><p className="text-sm leading-relaxed text-zinc-300">{current.body}</p></div> : <>
+        <p className="mt-2 text-sm text-zinc-400">Choose the experience you’d like to start with. Both workspaces stay available.</p>
+        <fieldset className="mt-5 grid gap-3 sm:grid-cols-2"><legend className="sr-only">Choose your starting experience</legend>
+          {([{ value: 'learning', title: 'URSORA U', label: 'I’m here to learn to trade', body: 'Make lessons, practice, and module progress the center of my experience.', Icon: GraduationCap }, { value: 'trading', title: 'URSORA', label: 'I’m a current trader', body: 'Start with market research, setups, and reviewing my trading process.', Icon: LineChart }] as const).map((option) => <label key={option.value} className={`cursor-pointer rounded-lg border p-4 focus-within:ring-2 focus-within:ring-sky-400 ${path === option.value ? 'border-sky-400 bg-sky-500/10' : 'border-zinc-700 bg-black/20'}`}>
+            <div className="flex items-center justify-between"><option.Icon className="h-6 w-6 text-sky-300"/><input type="radio" name="experience" value={option.value} checked={path === option.value} onChange={() => setPath(option.value)}/></div>
+            <div className="mt-4 text-lg font-semibold text-zinc-100">{option.title}</div><div className="mt-1 text-sm text-sky-200">{option.label}</div><p className="mt-2 text-sm leading-relaxed text-zinc-400">{option.body}</p>
+          </label>)}
+        </fieldset>
+      </>}
+      {final && <label className="mt-5 flex items-start gap-2 rounded-md border border-zinc-800 p-3 text-xs leading-relaxed text-zinc-400"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} className="mt-0.5"/><span>I understand that URSORA supports research and learning and does not guarantee investment outcomes.</span></label>}
+      {error && <p role="alert" className="mt-4 text-sm text-amber-300">{error}</p>}
+      <div className="mt-6 flex items-center justify-between gap-3"><button type="button" disabled={!step || busy} onClick={() => setStep((value) => value - 1)} className="min-h-11 px-2 text-sm text-zinc-400 disabled:opacity-30">Back</button><Button className="min-h-11" disabled={busy || !path || (final && !acknowledged)} onClick={() => final ? void finish() : setStep((value) => value + 1)}>{busy ? 'Saving your choice…' : final ? path === 'learning' ? 'Enter URSORA U' : 'Enter URSORA' : 'Continue'}</Button></div>
     </div>
-  );
-};
-
-export default OnboardingTour;
+  </div>;
+}
