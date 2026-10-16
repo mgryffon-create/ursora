@@ -1,0 +1,158 @@
+// Alternatives represent nearby concepts or common calculation/process errors.
+// Canonical answer slots stay fixed so existing account progress remains valid.
+type Question = { prompt: string; options: string[]; correct: number };
+type Revision = { prompt?: string; answer?: string; wrong: [string,string] };
+const r = (a:string,b:string,prompt?:string,answer?:string):Revision => ({wrong:[a,b],prompt,answer});
+const assessment = [
+ r('The complete session, including candles after the entry','The final profit relative to the largest available move'),
+ r('Enter a smaller position before the condition appears','Substitute a different trigger after inspecting the next candle'),
+ r('Estimates of the probability that the next trade will profit','Personalized live position limits inferred from this practice'),
+];
+const bank:Record<string,Revision[]> = {
+ 'market-basics':[
+ r('Price activity since the regular-session open','The last sixty completed one-minute candles'),
+ r('Use a small initial order to discover the entry condition','Enter at the prior high and define invalidation after the fill',undefined,'Wait or pass until a defined entry condition is observed'),
+ r('It buys a put contract that gains when the underlying falls','It sells shares already owned and can repurchase them later'),
+ ],
+ 'quotes-liquidity':[
+ r('$0.05','$0.20'),
+ r('Use the last print as the current executable offer','Use the midpoint as the available market-buy price','The last print is $100. How should a trader treat a new market-buy fill?','Quotes and liquidity can change before the order fills'),
+ r('Only at the best ask visible when the order was submitted','At the midpoint whenever both sides display a quote'),
+ ],
+ 'volume-pressure':[
+ r('Observed buying absorption; lower closes show the sellers are exhausted','A widening quoted spread; volume measures quote disagreement'),
+ r('Treat the flat base as confirmation of accumulation','Infer distribution because upward progress has paused','A flat base forms after selling. How should accumulation be classified?'),
+ r('Treat the volume burst as acceptance above the ceiling','Use the size of the spike as the new support condition'),
+ ],
+ 'drawing-lines':[
+ r('Separated swing highs','The two most recent candle closes'),
+ r('A confirmed support retest above the old ceiling','A continuation pause that has held above resistance'),
+ r('Updates the original entry evidence to reflect the latest structure','Preserves the original thesis because the new line fits more points','An entry’s support breaks. The trader redraws the line through lower lows. What does that change about the original decision?'),
+ ],
+ wedges:[
+ r('Directional continuation because both boundaries slope','A parallel channel with approximately constant width'),
+ r('A rising wedge','An ascending triangle'),
+ r('Label the breakout direction from the boundary slope','Move the decision boundary to the latest candle wick'),
+ ],
+ 'cup-steps':[
+ r('104, using the rim alone','106, using half the cup depth'),
+ r('Transfer the larger-timeframe projection without changing the evidence standard','Treat the rounded shape as confirmed once its center is visible','An intraday rounded shape resembles a longer cup. How should the comparison be treated?'),
+ r('Keep the continuation label because the earlier steps rose','Replace the broken resting floor with the next lower price'),
+ ],
+ timeframes:[
+ r('20 minutes','25 minutes'),
+ r('A confirmed reversal of the larger decline','A continuation observation on both intervals'),
+ r('Independent confirmation from another data source','A neutral change that leaves the evidence comparison unchanged'),
+ ],
+ 'sma-ema':[
+ r('Volume-weighted typical prices','The average of recent true ranges'),
+ r('Equal weight to each close in the chosen window','More weight to observations with higher trading volume'),
+ r('The green candle confirms recovery above the larger downtrend','The color change outweighs the still-falling average','A green candle closes below a falling average. What does that observation support?'),
+ ],
+ vwap:[
+ r('Less weight because high activity is smoothed out','Equal weight regardless of traded volume',undefined,'A greater contribution to the cumulative weighted average'),
+ r('Whether the crossing candle is green, regardless of later response','Whether the cross also changes the historical VWAP values'),
+ r('Different moving-average periods selected for the same VWAP','Different option multipliers applied to the underlying stock'),
+ ],
+ rsi:[
+ r('A measured 75% chance that the next candle will close higher','A fixed reversal threshold that overrides the rising structure'),
+ r('Treat the threshold crossing as the entry trigger','Use the RSI low as proof that the price floor has held','RSI falls below 30 while price keeps making lower lows. Is a long entry established by that threshold alone?','No; check price structure and the planned confirmation'),
+ r('An immediate countertrend entry at the latest price','Replacing the price invalidation with the indicator value'),
+ ],
+ macd:[
+ r('Confirmed positive long-term momentum because a crossover occurred','Further momentum deterioration because MACD remains below zero'),
+ r('The fast EMA minus the slow EMA','The signal line minus the latest closing price'),
+ r('Independent observations of price, volume and volatility','Equivalent to a separately verified market-news catalyst'),
+ ],
+ bollinger:[
+ r('A confirmed upward break because the bands compressed','Lower trading volume because the bands moved closer'),
+ r('The trend has reversed because the upper boundary was touched','Price must return to the middle band before the next candle','During a persistent trend, what does an upper-band touch establish?'),
+ r('Evidence that the selloff has ended at a support floor','A long trigger with invalidation at the middle band'),
+ ],
+ atr:[
+ r('Stronger downside momentum measured from closing-price changes','More shares traded relative to the recent volume average'),
+ r('Remains unchanged because the share quantity is unchanged','Decreases because the position has more room to recover',undefined,'Increases because each share has a larger planned loss distance'),
+ r('Yes, because ATR includes opening gaps in its calculation','Yes, when the stop distance uses the latest complete ATR','Does using ATR to select a stop distance fix the eventual execution loss?','No; stop selection and execution price remain different issues'),
+ ],
+ confluence:[
+ r('Several independent sources confirming the same forecast','A direct measure of the probability of continuation'),
+ r('The candle color confirms the larger structure has reversed','The average must turn upward on the next completed interval','A green candle forms below a falling average. What follows?','A rebound remains possible; inspect structure and follow-through'),
+ r('Which indicator produced the most recent entry signal','Which setting would best explain the subsequent price outcome'),
+ ],
+ 'risk-sizing':[
+ r('25 shares before costs','50 shares before costs'),
+ r('−0.67R','+1.5R'),
+ r('Yes, by multiplying the stock-price distance by 100','Yes, because one stock-price point equals one premium point','Can a stock-price invalidation alone determine the option-premium loss?','No; premium sensitivity and execution also matter'),
+ ],
+ execution:[
+ r('Pay the quoted ask once the stock reaches the limit','Activate a market order when the limit is touched'),
+ r('The stop price is the fill price after the trigger','The fill is capped at the stop price even through a gap','What does a stop-market trigger determine?','It activates a market order; the eventual fill can differ from the stop'),
+ r('30 shares, matching the amount already filled','100 shares, because the original quantity is unchanged'),
+ ],
+ 'scan-news':[
+ r('Rank the percentage move above spread and available liquidity','Use the percentage gain as confirmation that a pullback will hold','A stock leads the percentage-gainers list. What should happen next?','Assess liquidity, spread and the setup before treating it as a candidate'),
+ r('Treat the newest repost timestamp as the event time','Compare only the headline sentiment with the chart direction'),
+ r('The signal provides an executable price during the halt','A market order submitted now will fill at the last print','How should a bullish indicator on a halted stock be interpreted?'),
+ ],
+ 'option-greeks':[
+ r('Its delta must be negative because the option is a call','Its quoted premium follows the stock point for point'),
+ r('How the option price changes as one day passes','How the option price changes with implied volatility'),
+ r('Fixed contract characteristics that remain unchanged after entry','Exact fill-price predictions for large stock moves'),
+ ],
+ 'journal-testing':[
+ r('+$0.20 before additional costs','+$0.60 before additional costs'),
+ r('An out-of-sample rule selected before the replay','A spread adjustment applied to both entry and exit'),
+ r('The gain as evidence that the risk rule should be removed','Only the rule violation, omitting the financial result'),
+ ],
+ capstone:[
+ r('Treat the green candle as confirmation that MACD has reversed','Treat negative MACD as evidence that local price cannot improve'),
+ r('A reversal trigger because RSI has remained elevated','A completed pullback because strong momentum must reset'),
+ r('Trade each average crossing as a new trend confirmation','Increase the quantity to compensate for the short price swings'),
+ ],
+ 'price-assessment':assessment,'indicator-assessment':assessment,'execution-assessment':assessment,
+ 'brokerage-choice':[
+ r('The platform with the most indicators, before verifying account rules','The lowest advertised commission, before comparing the full fee schedule'),
+ r('Zero until a charge appears on the statement','The rate advertised by a different broker for a similar account'),
+ r('Yes, once a brokerage comparison is marked complete','Yes, after the practice order ticket passes its checks','Which order capability is available inside this lesson?','Simulated lesson orders; live execution is not available here'),
+ ],
+ 'ursora-workflow':[
+ r('Use the Opportunity score as the entry trigger and size the trade afterward','Select the highest score, then use the eventual outcome to validate the entry','How should an Opportunity score fit into a trade decision?','Inspect its evidence and form a conditional entry and risk plan'),
+ r('The same analysis presented as separate navigation pages','Separate tools for bullish and bearish chart formations'),
+ r('The final outcome from a reconstruction using later candles','The best later exit from the original entry-time assessment'),
+ ],
+};
+
+Object.assign(bank, {
+ 'summary-candles':[r('The full candle range is now above the opening price','Its eventual close has been set by crossing the open')],
+ 'summary-structure':[r('The last rising swing low has been broken','The latest swing high has become confirmed resistance')],
+ 'summary-movement':[r('Trading volume from the bid-ask spread','The selected chart interval from the order quantity')],
+ 'summary-indicators':[r('Price has completed a reclaim of the previous swing high','The next pullback has a confirmed floor at VWAP')],
+ 'summary-plan':[r('Apply the corrected target to earlier fills and later decisions','Keep only the latest target and reconstruct earlier snapshots from it')],
+ 'summary-options':[r('$60','$1.20')],
+ 'summary-management':[r('The recorded profit validates the original risk decision','The later recovery shows the original invalidation was misplaced')],
+ placement:[
+  r('Its current price becomes the close used for completed-candle indicators','Its high and low are fixed once it first moves above the open'),
+  r('The preceding swing low has been broken','The earlier upward trend has resumed at the retreat low'),
+  r('A preferred direction, an exit target and a past winning example','An indicator setting, a preferred symbol and a profit objective'),
+  r('Reject the plan because a losing outcome disproves its entry evidence','Keep the same entry but increase the next size to restore expected return'),
+ ],
+ 'candle-wicks':[r('It measures the distance between open and close','It marks the price range before this candle opened')],
+ candles:[
+  r('98 to 103','100 to 103'),
+  r('It must finish with the same color once a body is visible','Only its trading volume changes after the open'),
+  r('The higher-volume candle had a larger price gain','The higher-volume candle had a wider quoted spread'),
+ ],
+ structure:[r('Rising peaks but falling dips','Falling peaks but rising dips'),r('Higher rebound peaks and lower swing lows','A sideways sequence with equal rebound peaks'),r('An upward trend defined by the latest rebound','A completed reversal through the upper boundary')],
+ movement:[r('A break beneath the prior swing low','A recovery that has already exceeded the prior peak'),r('A smooth trend with progressively higher resting areas','A narrow range with little movement in either direction'),r('Treat the break as a normal pullback above the old floor','Keep the same thesis by moving its floor to the latest low')],
+ indicators:[r('Price is above its simple average closing price','Price has risen by one average true range'),r('Independent confirmation of a new rising price sequence','A confirmed recovery above the previous swing peak'),r('100.40','102.00')],
+ plan:[r('The latest price rebounds from any point inside the range','The last candle closes green while remaining below the ceiling'),r('A small red candle that still holds above 99','A later close above the previous swing high'),r('4.5 to the exit versus 0.5 to invalidation','0.5 to the exit versus 0.5 to invalidation')],
+ management:[r('Closing the entire position','Adding two contracts to the existing four'),r('Replacing the original four with two contracts','Selling two of the original four contracts'),r('The profit as evidence the original risk rule was too strict','The broken rule as proof the trade could not finish profitably')],
+ options:[r('$60','$1.20'),r('$0.06','$0.60'),r('A buy stop that activates when price reaches $0.55','A market order expected to execute at the last trade price')],
+});
+
+export function improveQuestion<T extends Question>(id:string,index:number,question:T):T {
+ const revision=bank[id]?.[index];if(!revision)return question;
+ let wrongIndex=0;
+ return {...question,prompt:revision.prompt??question.prompt,options:question.options.map((_,i)=>i===question.correct?revision.answer??question.options[i]:revision.wrong[wrongIndex++])};
+}
+export const revisedQuestionGroups=Object.keys(bank);

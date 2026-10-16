@@ -10,6 +10,8 @@ import LessonPractice from './LessonPractice';
 import UniversityModule, { type LearnFeature } from './UniversityModule';
 import { stageNames } from '@/lib/learn/university';
 import LearningHome from './LearningHome';
+import { newQuizSeed, shuffleQuiz } from '@/lib/learn/quiz-order';
+import { improveQuestion } from '@/lib/learn/question-quality';
 import { learningDashboard, passedLesson } from '@/lib/learn/dashboard';
 import { useState } from 'react';
 type Enrollment = { path: 'foundations' | 'practice' | null; page: string; practiceLesson?: string; answers: Record<string, number>; checked: Record<string, boolean> };
@@ -18,6 +20,7 @@ export default function LearnEnvironment({ onDisable, onOpenFeature, home = fals
 }
 function LearnContent({ onDisable, onOpenFeature, home, onLocationChange }: { onDisable?: () => void; onOpenFeature?: (feature:LearnFeature)=>void; home: boolean; onLocationChange?: (title: string) => void }) {
   const [showHome, setShowHome] = useState(home);
+  const [quizOrder] = useLearnState('lesson-choice-order-v1',()=>({seed:newQuizSeed()}));
   const [enrollment, setEnrollment] = useLearnState<Enrollment>('enrollment', { path: null, page: 'candles', answers: {}, checked: {} });
   const { path, page } = enrollment;
   const [course,setCourse] = useLearnState('university-course-v1',{completed:{} as Record<string,boolean>});
@@ -26,6 +29,8 @@ function LearnContent({ onDisable, onOpenFeature, home, onLocationChange }: { on
   const exerciseId = page.startsWith('exercise:') ? page.slice(9) : null;
   const exercise = lessons.find(item => item.id === exerciseId);
   const lesson = lessons.find(l => l.id === page);
+  const summaryQuestion = lesson ? improveQuestion(`summary-${lesson.id}`,0,{prompt:lesson.question,options:lesson.choices,correct:lesson.correct}) : null;
+  const summaryChoices = summaryQuestion ? shuffleQuiz(summaryQuestion.options.map((choice,i)=>({choice,value:i})),quizOrder.seed,`summary:${page}`) : [];
   const index = lessons.findIndex(l => l.id === page);
   const activeLesson = exercise ?? lesson;
   const markPassed = useCallback(() => { if(activeLesson){const key=activeLesson.unit?.assessment?`assessment:${activeLesson.id}`:activeLesson.id;setCourse(value=>value.completed[key]?value:{...value,completed:{...value.completed,[key]:true}});} },[activeLesson,setCourse]);
@@ -54,7 +59,7 @@ function LearnContent({ onDisable, onOpenFeature, home, onLocationChange }: { on
           <p className="learn-activity-context">What you’re doing: understand the concept, inspect the illustration, then check your understanding. You can revisit this page at any time.</p>
           <LessonVisual topic={lesson.id}/><h2>What it means and why it matters</h2><p>{lesson.body}</p>
           <div className="learn-coach"><h2>Try it in practice</h2><p className="mt-2">{lesson.task}</p><button className="mt-3" onClick={() => navigate('exercise:' + lesson.id)}>Start lesson exercise</button></div>
-          <fieldset className="space-y-3"><legend>{lesson.question}</legend>{lesson.choices.map((choice, i) => <label key={choice} className="learn-choice"><input type="radio" name={lesson.id} checked={answer === i} onChange={() => setEnrollment(s => ({ ...s, answers: { ...s.answers, [page]: i }, checked: { ...s.checked, [page]: false } }))}/><span>{choice}</span></label>)}
+          <fieldset className="space-y-3"><legend>{summaryQuestion?.prompt}</legend>{summaryChoices.map(({choice,value}) => <label key={value} className="learn-choice"><input type="radio" name={lesson.id} checked={answer === value} onChange={() => setEnrollment(s => ({ ...s, answers: { ...s.answers, [page]: value }, checked: { ...s.checked, [page]: false } }))}/><span>{choice}</span></label>)}
             <button disabled={answer === null} onClick={() => setEnrollment(s => ({ ...s, checked: { ...s.checked, [page]: true } }))}>Check understanding</button>
             {checked && <p role="status" className={answer === lesson.correct ? 'learn-feedback-correct' : 'learn-feedback-incorrect'}>{answer === lesson.correct ? 'That matches the explanation. ' : 'Revisit the distinction: '}{lesson.explanation}</p>}
           </fieldset>
