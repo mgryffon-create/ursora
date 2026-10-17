@@ -1,4 +1,5 @@
 import React from 'react';
+import UniversityBilling from './UniversityBilling';
 import { ArrowRight, BookOpen, CheckCircle2, GraduationCap, Radar } from 'lucide-react';
 import type { Lesson } from '@/lib/learn/lessons';
 import type { learningDashboard } from '@/lib/learn/dashboard';
@@ -24,6 +25,7 @@ export default function LearningHome({ dashboard, lessons, onStart, onOpenFeatur
       <p className="text-sm text-zinc-400">{dashboard.needsPlacement ? 'Tell us what feels familiar and try a few questions. We’ll help you choose a starting point.' : 'Open the lesson, work through its practice, and complete the understanding check or assessment.'}</p>
       <button onClick={() => onStart(target)} className="inline-flex min-h-11 items-center gap-2">{dashboard.needsPlacement ? 'Find my starting point' : dashboard.current ? 'Continue module' : dashboard.next ? 'Start next module' : 'Open practice sandbox'}<ArrowRight className="h-4 w-4"/></button>
     </section>
+    <UniversityBilling/>
     <div className="grid gap-4 md:grid-cols-2">
       <section className="learn-panel space-y-3"><h2 className="flex items-center gap-2 text-lg"><BookOpen className="h-4 w-4"/>Keep learning</h2><p className="text-sm text-zinc-400">Work through the curriculum at your pace. Your completed modules stay saved to your account.</p>
         {lessons.filter((lesson) => lesson.id === dashboard.next?.id || lesson.id === dashboard.current?.id).map((lesson) => <button key={lesson.id} className="block w-full text-left" onClick={() => onStart(dashboard.needsPlacement ? 'placement' : lesson.id)}>{lesson.title}</button>)}
