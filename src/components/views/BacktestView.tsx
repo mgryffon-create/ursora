@@ -31,6 +31,11 @@ const timeET = (value: string | null | undefined) =>
       })
     : '—';
 
+const dateTimeET = (value: string | null | undefined) =>
+  value && Number.isFinite(new Date(value).getTime())
+    ? `${dateET(value)} · ${timeET(value)} ET`
+    : '—';
+
 const tradeDayKey = (trade: TradeRecord) => {
   const value = trade.entry_at ?? trade.created_at;
   return new Date(value).toLocaleDateString('en-CA', {
@@ -583,8 +588,8 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                   {playback.underlying_symbol && playback.underlying_symbol !== playback.symbol && <div className="mt-1 text-[10px] text-zinc-500">Underlying chart: {playback.underlying_symbol.replace(/^I:/, '')} · contract root: {playback.symbol}</div>}
                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-zinc-400">
                     <span>{playback.instrument?.asset_type === 'option' ? `${playback.instrument.symbol} ${playback.instrument.strike ?? '—'} ${String(playback.instrument.option_type ?? '').toUpperCase()} · ${dateET(playback.instrument.expiration)}` : playback.symbol}</span>
-                    <span>Entry {playback.instrument?.entry_option_price?.toFixed(2) ?? selectedTrade?.entry_price ?? '—'} · {timeET(playback.episode.entry_at)}</span>
-                    <span>Exit {playback.instrument?.exit_option_price?.toFixed(2) ?? selectedTrade?.exit_price ?? '—'} · {timeET(playback.episode.exit_at)}</span>
+                    <span>Entry {playback.instrument?.entry_option_price?.toFixed(2) ?? selectedTrade?.entry_price ?? '—'} · {dateTimeET(playback.episode.entry_at)}</span>
+                    <span>Exit {playback.instrument?.exit_option_price?.toFixed(2) ?? selectedTrade?.exit_price ?? '—'} · {dateTimeET(playback.episode.exit_at)}</span>
                     <span className={Number(playback.episode.realized_pl) >= 0 ? 'text-emerald-400' : 'text-red-400'}>{signedMoney(playback.episode.realized_pl)}</span>
                   </div>
                 </div>
@@ -663,6 +668,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                         <div className="border-l-2 border-violet-400/35 pl-3">
                           <div className="font-mono text-[8px] uppercase tracking-wider text-violet-300/80">Your entry</div>
                           <div className="mt-1 text-[11px] leading-relaxed text-zinc-300">
+                            {playback.episode.entry_at ? `The position was opened on ${dateTimeET(playback.episode.entry_at)}. ` : 'No recorded entry timestamp is available. '}
                             {playback.review.directional_agreement === 'opposed'
                               ? `The position was opened against the confirmed ${playback.review.retro_direction} thesis.`
                               : playback.review.directional_agreement === 'aligned'
@@ -702,7 +708,7 @@ export const BacktestView: React.FC<{ initialTradeIds?: number[]; initialDay?: s
                           <div className="font-mono text-[8px] uppercase tracking-wider text-blue-300/80">Your exit</div>
                           <div className="mt-1 text-[11px] leading-relaxed text-zinc-300">
                             {playback.episode.exit_at
-                              ? `The position was closed at ${timeET(playback.episode.exit_at)}.`
+                              ? `The position was closed on ${dateTimeET(playback.episode.exit_at)}.`
                               : 'No recorded exit timestamp is available.'}
                             {' '}
                             {playback.review.exit_relationship
