@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import { announceDeployment } from '@/lib/deployment-update';
 import './index.css';
-import { prepareBrokerageBootstrap, startBrokerageDailyRefresh } from '@/lib/brokerage-bootstrap';
+import { startBrokerageDailyRefresh } from '@/lib/brokerage-bootstrap';
 
 const CURRENT_BUILD_ID = import.meta.env.VITE_BUILD_ID;
 
@@ -86,7 +86,5 @@ if (import.meta.env.PROD) {
 
 const root = createRoot(document.getElementById('root')!);
 
-void prepareBrokerageBootstrap().finally(() => {
-  root.render(<App />);
-  startBrokerageDailyRefresh();
-});
+root.render(<App />);
+if (window.location.pathname === '/') startBrokerageDailyRefresh();

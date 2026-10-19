@@ -65,6 +65,7 @@ async function requireUser(req: Request) {
     throw new AuthError('Invalid or expired session.', 401);
   }
 
+  await requireSecureAccount(req);
   return { user, db };
 }
 
@@ -2269,3 +2270,12 @@ Deno.serve(async (req) => {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
 });
+
+// Verify the caller's MFA and agreement state with their own JWT, not service-role privileges.
+async function requireSecureAccount(req: Request) {
+ const response = await fetch(Deno.env.get('SUPABASE_URL') + '/rest/v1/rpc/account_api_allowed', {
+  method: 'POST', headers: {'Content-Type':'application/json', apikey:Deno.env.get('SUPABASE_ANON_KEY')!, Authorization:req.headers.get('Authorization') || ''}, body:'{}'
+ });
+ if (!response.ok || await response.json() !== true) throw new Error('Complete account authentication and the current agreement notice before continuing.');
+}
+

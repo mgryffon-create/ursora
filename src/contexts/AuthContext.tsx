@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import db from '@/lib/db';
+import { LEGAL_VERSION } from '@/lib/legal';
 import { callEdge, EDGE_FUNCTIONS } from '@/lib/api';
 
 export interface UserPrefs {
@@ -30,7 +31,7 @@ interface AuthContextValue {
   favorites: string[];
   prefs: UserPrefs;
   signIn: (email: string, password: string, remember?: boolean) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<{ needsConfirmation: boolean }>;
+  signUp: (email: string, password: string, agreed: boolean) => Promise<{ needsConfirmation: boolean }>;
   signOut: () => Promise<void>;
   addToWatchlist: (symbol: string) => Promise<void>;
   removeFromWatchlist: (symbol: string) => Promise<void>;
@@ -279,12 +280,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string) => {
+  const signUp = useCallback(async (email: string, password: string, agreed: boolean) => {
+    if(!agreed) throw new Error('Agree to the User Agreement before creating an account.');
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('ursora_remember_login', 'true');
       window.sessionStorage.removeItem('ursora_session_only_active');
     }
-    const { data, error } = await db.auth.signUp({ email, password });
+    const { data, error } = await db.auth.signUp({ email, password,options:{data:{legal_acceptance:{version:LEGAL_VERSION,accepted:true,adult_us:true,privacy_received:true}}} });
     if (error) throw new Error(error.message);
     // Record the new trader in the owner's CRM (upsert by email, consent-aware).
     try {

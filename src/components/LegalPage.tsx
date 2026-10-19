@@ -1,0 +1,9 @@
+import React,{useEffect,useState} from 'react';
+import db from '@/lib/db';
+import { LEGAL_CONTENT, LEGAL_VERSION } from '@/lib/legal';
+export function LegalLinks(){return <nav aria-label="Legal and account" className="flex flex-wrap gap-4 text-sm"><a className="text-sky-300 underline" href="/legal">Agreement & privacy</a><a className="text-sky-300 underline" href="/account">Account & security</a></nav>}
+export default function LegalPage(){
+ const version=new URLSearchParams(window.location.search).get('version')??LEGAL_VERSION;
+ const [body,setBody]=useState(version===LEGAL_VERSION?LEGAL_CONTENT:'Loading archived agreement…');
+ useEffect(()=>{let active=true;if(version===LEGAL_VERSION)return;void db.from('legal_documents').select('body').eq('version',version).single().then(({data,error})=>{if(active)setBody(error?'This agreement version could not be found. Contact support for a copy.':data.body)});return()=>{active=false}},[version]);
+ return <main className="min-h-screen bg-[#0b0d10] p-4 text-zinc-200 sm:p-8"><article className="mx-auto max-w-3xl space-y-4 break-words"><a href="/" className="text-sky-300 underline">Return to URSORA</a><h1 className="text-2xl">Agreement & privacy</h1><p>Version {version} · Operator: Rachelle Olsen, Texas, USA · <a className="underline" href="mailto:mgryffon@icloud.com">mgryffon@icloud.com</a></p><p>Read at your own pace. Your account keeps the version and date of your acceptance. Live trade execution is not authorized by these terms.</p><button className="rounded border border-zinc-600 px-3 py-2" onClick={()=>window.print()}>Print / save a copy</button>{body.split('\n\n').map((block,i)=>block.startsWith('#')?<h2 key={i} className="pt-3 text-lg font-semibold">{block.replace(/^#+ /,'')}</h2>:<p key={i} className="whitespace-pre-line text-sm leading-7">{block.replace(/\*\*/g,'')}</p>)}<LegalLinks/></article></main>}

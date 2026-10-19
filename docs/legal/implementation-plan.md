@@ -1,6 +1,6 @@
 # Agreement release plan
 
-Status: drafting only. No legal acceptance requirement is enabled; no production data-use promise has been changed.
+Historical planning document. Superseded for version 2026-10-19.1 by `account-security-release.md` and the published `src/lib/legal-notice.md`. The original `user-agreement-draft.md` remains a historical draft, not the active agreement.
 
 ## Source findings (2026-10-19)
 

@@ -8,6 +8,7 @@ import {
 import type { SnapTradeAccount, TraderProfile } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Panel, SectionHeading, Spinner } from '@/components/common/Primitives';
+import { LegalLinks } from '@/components/LegalPage';
 import { cn } from '@/lib/utils';
 
 type Choice = { value: string; label: string };
@@ -333,6 +334,7 @@ export const TraderProfileView: React.FC<{ onboarding?: boolean; onSaved?: () =>
 
   return (
     <div className="space-y-4">
+      <LegalLinks/>
       <SectionHeading
         eyebrow="MyURSORA"
         title={editing ? 'Set your trading baseline' : 'Your trading baseline'}

@@ -62,6 +62,10 @@ export async function hydrateBrokerageData(force = false): Promise<boolean> {
       const { data, error } = await db.auth.getSession();
       if (error || !data.session?.user?.id || !data.session.access_token) return false;
 
+      const mfa=await db.auth.mfa.getAuthenticatorAssuranceLevel();
+      if(mfa.error||(mfa.data.nextLevel==='aal2'&&mfa.data.currentLevel!=='aal2'))return false;
+      const consent=await db.from('legal_receipts').select('action').eq('version','2026-10-19.1');
+      if(consent.error||!consent.data?.some(r=>r.action==='first_login_notice'))return false;
       const userId = data.session.user.id;
       const accounts = await linkedAccounts(userId);
 

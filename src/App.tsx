@@ -9,6 +9,10 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { ExplanationProvider } from '@/contexts/ExplanationContext';
 import Index from './pages/Index';
 import NotFound from './pages/NotFound';
+import LegalPage from '@/components/LegalPage';
+import AccountSecurity from '@/components/AccountSecurity';
+import AccountGate from '@/components/AccountGate';
+import PasswordRecovery from '@/components/PasswordRecovery';
 import DeploymentUpdateNotice from '@/components/DeploymentUpdateNotice';
 
 const queryClient = new QueryClient();
@@ -65,7 +69,10 @@ const App = () => (
             <DeploymentUpdateNotice />
             <BrowserRouter>
               <Routes>
-                <Route path="/" element={<Index />} />
+                <Route path="/" element={<AccountGate><Index /></AccountGate>} />
+                <Route path="/legal" element={<LegalPage />} />
+                <Route path="/account" element={<AccountGate><AccountSecurity /></AccountGate>} />
+                <Route path="/account/recovery" element={<PasswordRecovery />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </BrowserRouter>

@@ -4,6 +4,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { track } from '@/lib/api';
 import { reportError } from '@/lib/errors';
+import db from '@/lib/db';
+import { LEGAL_VERSION } from '@/lib/legal';
+import { AgreementAcceptance } from '@/components/AgreementAcceptance';
 import { FullLockup } from '@/brand';
 
 export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' | 'signup' }> = ({
@@ -17,6 +20,8 @@ export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' 
     typeof window === 'undefined' ? true : window.localStorage.getItem('ursora_remember_login') !== 'false'
   );
   const [busy, setBusy] = useState(false);
+  const [agreed,setAgreed]=useState(false);
+  const [recovery,setRecovery]=useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -33,14 +38,16 @@ export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' 
     e.preventDefault();
     setError(null);
     setNotice(null);
-    if (password.length < 8) {
-      setError('Choose a password of at least 8 characters.');
+    if(recovery){setBusy(true);try{const result=await db.auth.resetPasswordForEmail(email.trim(),{redirectTo:window.location.origin+'/account/recovery'});if(result.error)throw result.error;setNotice('If an account can receive recovery email, a password reset link will be sent. Check your inbox and spam folder.')}catch{setNotice('Recovery requests are temporarily unavailable. Try again later or contact support.')}finally{setBusy(false)}return;}
+    if(mode==='signup'&&!agreed){setError('Agree to the User Agreement before creating an account.');return;}
+    if (password.length < (mode==='signup'?12:8)) {
+      setError('Choose a password of at least 12 characters.');
       return;
     }
     setBusy(true);
     try {
       if (mode === 'signup') {
-        const { needsConfirmation } = await signUp(email.trim(), password);
+        const { needsConfirmation } = await signUp(email.trim(), password, agreed);
         track('form_submit', { form: 'ursora-signup' });
         if (needsConfirmation) {
           setNotice('Account created. Confirm your email address, then sign in.');
@@ -86,7 +93,7 @@ export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' 
 
       </h2>
       <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
-        Your account stores your watchlist, alert preferences, paper-trading history, and AI analyst conversations. These records are private to your account.
+        Sign in with your email address. URSORA stores your activity and authorized financial imports; authorized operators and providers may access records as described in the Privacy Notice.
       </p>
 
       <form onSubmit={submit} className="mt-4 space-y-3">
@@ -108,7 +115,7 @@ export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' 
             />
           </div>
         </div>
-        <div>
+        {!recovery&&<div>
           <label htmlFor="sf-password" className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
             Password
           </label>
@@ -118,17 +125,18 @@ export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' 
               id="sf-password"
               type="password"
               required
-              minLength={8}
+              minLength={mode==='signup'?12:8}
               autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full bg-transparent py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
-              placeholder="At least 8 characters"
+              placeholder={mode==='signup'?"At least 12 characters":"Your password"}
             />
           </div>
-        </div>
+        </div>}
 
-        {mode === 'signin' && (
+        {mode==='signup'&&!recovery&&<AgreementAcceptance checked={agreed} onChange={setAgreed} termsUrl={'/legal?version='+LEGAL_VERSION} privacyUrl={'/legal?version='+LEGAL_VERSION}/> }
+        {mode === 'signin' && !recovery && (
           <label className="flex cursor-pointer items-start gap-2 rounded-sm border border-zinc-800 bg-black/20 p-2.5">
             <input
               type="checkbox"
@@ -155,15 +163,18 @@ export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' 
           <div className="rounded-sm border border-sky-500/40 bg-sky-500/10 p-2 text-[12px] text-sky-200">{notice}</div>
         )}
 
-        <Button type="submit" disabled={busy} className="w-full gap-2">
+        <Button type="submit" disabled={busy||(mode==='signup'&&!agreed&&!recovery)} className="w-full gap-2">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <ArrowRight className="h-4 w-4" aria-hidden="true" />}
-          {mode === 'signup' ? 'Create account' : 'Sign in'}
+          {recovery?'Send recovery link':mode === 'signup' ? 'Create account' : 'Sign in'}
         </Button>
       </form>
 
+      {mode==='signin'&&<button type="button" onClick={()=>{setRecovery(v=>!v);setError(null);setNotice(null)}} className="mt-3 w-full text-sky-300">{recovery?'Back to sign in':'Forgot password or sign-in email?'}</button>}
+      {recovery&&<p className="mt-2 text-sm text-zinc-300">Your username is your email address. If you cannot remember it or cannot access your inbox, contact mgryffon@icloud.com. We will verify ownership; never send your password.</p>}
       <button
         type="button"
         onClick={() => {
+          setRecovery(false);setAgreed(false);
           setMode(mode === 'signup' ? 'signin' : 'signup');
           setError(null);
           setNotice(null);
@@ -173,6 +184,7 @@ export const AuthPanel: React.FC<{ onClose?: () => void; initialMode?: 'signin' 
         {mode === 'signup' ? 'Already have an account? Sign in' : 'Need an account? Sign up'}
       </button>
 
+      <p className="mt-3 text-xs"><a href="/legal" target="_blank" rel="noopener noreferrer" className="text-sky-300 underline">User Agreement & Privacy Notice (new tab)</a></p>
       <p className="mt-4 border-t border-zinc-800 pt-3 text-[10px] leading-relaxed text-zinc-600">
         URSORA uses connected provider data where available and labels observed, delayed, derived, inferred, simulated,
         and unavailable information separately. Research tool only — not investment advice.

@@ -470,8 +470,8 @@ export const AppLayout: React.FC = () => {
           onSignIn={() => setAuthMode('signin')}
         />
         {authMode && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-fade-in">
-            <div className="w-full max-w-md">
+          <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 p-4 animate-fade-in">
+            <div className="mx-auto my-6 w-full max-w-md">
               <AuthPanel initialMode={authMode} onClose={() => setAuthMode(null)} />
               <button
                 type="button"
@@ -545,6 +545,7 @@ export const AppLayout: React.FC = () => {
             ) : (
               <span className="hidden font-mono text-[10px] text-zinc-500 sm:inline">demo session</span>
             )}
+            {user&&<a href="/account" className="rounded-sm border border-zinc-700 px-2 py-1.5 text-xs text-sky-300">Account & security</a>}
             {user ? (
               <button
                 type="button"
@@ -678,7 +679,7 @@ export const AppLayout: React.FC = () => {
       </nav>}
 
       {authMode && !user && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-fade-in">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 p-4 animate-fade-in">
           <AuthPanel initialMode={authMode} onClose={() => setAuthMode(null)} />
         </div>
       )}

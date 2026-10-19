@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import md5 from 'npm:blueimp-md5@2.19.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -11,6 +12,10 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+}
+
+function handleOptions(req: Request): Response | null {
+  return req.method === 'OPTIONS' ? new Response('ok', { headers: corsHeaders }) : null;
 }
 
 class AuthError extends Error {
@@ -30,14 +35,181 @@ function adminClient() {
 }
 
 async function requireUser(req: Request) {
-  const header = req.headers.get('Authorization');
-  if (!header?.startsWith('Bearer ')) throw new AuthError('Authentication required.', 401);
-  const token = header.slice(7).trim();
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) throw new AuthError('Authentication required.', 401);
+  const token = authHeader.slice(7).trim();
+  if (!token) throw new AuthError('Authentication required.', 401);
+
   const db = adminClient();
   const { data: { user }, error } = await db.auth.getUser(token);
   if (error || !user) throw new AuthError('Invalid or expired session.', 401);
+  await requireSecureAccount(req);
   return { user, db };
 }
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+function encodeWebull(value: string): string {
+  return encodeURIComponent(value);
+}
+
+function canonicalQuery(params: Record<string, string | number | boolean | null | undefined>): URLSearchParams {
+  const result = new URLSearchParams();
+  Object.entries(params)
+    .filter(([, v]) => v !== undefined && v !== null)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .forEach(([k, v]) => result.append(k, String(v)));
+  return result;
+}
+
+async function hmacSha1Base64(secret: string, value: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(`${secret}&`),
+    { name: 'HMAC', hash: 'SHA-1' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, enc.encode(value));
+  return bytesToBase64(new Uint8Array(signature));
+}
+
+function webullConfig() {
+  const appKey = Deno.env.get('WEBULL_APP_KEY')?.trim();
+  const appSecret = Deno.env.get('WEBULL_APP_SECRET')?.trim();
+  if (!appKey || !appSecret) {
+    throw new Error('WEBULL_APP_KEY and WEBULL_APP_SECRET must be configured as Supabase Edge Function secrets.');
+  }
+  const environment = (Deno.env.get('WEBULL_ENVIRONMENT')?.trim().toLowerCase() === 'production')
+    ? 'production'
+    : 'sandbox';
+  const host = environment === 'production' ? 'api.webull.com' : 'api.sandbox.webull.com';
+  return { appKey, appSecret, host, environment };
+}
+
+function summarizeWebullError(error: unknown) {
+  if (error instanceof Error) return { message: error.message };
+  if (error && typeof error === 'object') {
+    try {
+      return { message: JSON.stringify(error) };
+    } catch {
+      return { message: String(error) };
+    }
+  }
+  return { message: String(error) };
+}
+
+async function webullGet<T = unknown>(
+  path: string,
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<T> {
+  const config = webullConfig();
+  const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const nonce = crypto.randomUUID().replaceAll('-', '');
+  const queryParams = canonicalQuery(query);
+
+  const signingPairs: Array<[string, string]> = [
+    ...Array.from(queryParams.entries()),
+    ['host', config.host],
+    ['x-app-key', config.appKey],
+    ['x-signature-algorithm', 'HMAC-SHA1'],
+    ['x-signature-nonce', nonce],
+    ['x-signature-version', '1.0'],
+    ['x-timestamp', timestamp],
+  ].sort(([a], [b]) => a.localeCompare(b));
+
+  const str1 = signingPairs.map(([k, v]) => `${k}=${v}`).join('&');
+  const signingString = encodeWebull(`${path}&${str1}`);
+  const signature = await hmacSha1Base64(config.appSecret, signingString);
+
+  const url = new URL(`https://${config.host}${path}`);
+  for (const [k, v] of queryParams.entries()) url.searchParams.append(k, v);
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'x-app-key': config.appKey,
+      'x-timestamp': timestamp,
+      'x-signature-algorithm': 'HMAC-SHA1',
+      'x-signature-version': '1.0',
+      'x-signature-nonce': nonce,
+      'x-version': 'v3',
+      'x-signature': signature,
+      'Accept': 'application/json',
+    },
+  });
+
+  const raw = await response.text();
+  let body: unknown = raw;
+  try { body = raw ? JSON.parse(raw) : null; } catch {}
+  if (!response.ok) {
+    throw new Error(`Webull returned HTTP ${response.status}: ${typeof body === 'string' ? body : JSON.stringify(body)}`);
+  }
+  return body as T;
+}
+
+async function webullPost<T = unknown>(
+  path: string,
+  body: Record<string, unknown>,
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<T> {
+  const config = webullConfig();
+  const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const nonce = crypto.randomUUID().replaceAll('-', '');
+  const queryParams = canonicalQuery(query);
+  const bodyString = JSON.stringify(body);
+
+  const signingPairs: Array<[string, string]> = [
+    ...Array.from(queryParams.entries()),
+    ['host', config.host],
+    ['x-app-key', config.appKey],
+    ['x-signature-algorithm', 'HMAC-SHA1'],
+    ['x-signature-nonce', nonce],
+    ['x-signature-version', '1.0'],
+    ['x-timestamp', timestamp],
+  ].sort(([a], [b]) => a.localeCompare(b));
+
+  const str1 = signingPairs.map(([k, v]) => `${k}=${v}`).join('&');
+  const bodyHash = String(md5(bodyString)).toUpperCase();
+  const signingString = encodeWebull(`${path}&${str1}&${bodyHash}`);
+  const signature = await hmacSha1Base64(config.appSecret, signingString);
+
+  const url = new URL(`https://${config.host}${path}`);
+  for (const [k, v] of queryParams.entries()) url.searchParams.append(k, v);
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'x-app-key': config.appKey,
+      'x-timestamp': timestamp,
+      'x-signature-algorithm': 'HMAC-SHA1',
+      'x-signature-version': '1.0',
+      'x-signature-nonce': nonce,
+      'x-version': 'v3',
+      'x-signature': signature,
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: bodyString,
+  });
+
+  const raw = await response.text();
+  let parsed: unknown = raw;
+  try { parsed = raw ? JSON.parse(raw) : null; } catch {}
+  if (!response.ok) {
+    throw new Error(`Webull returned HTTP ${response.status}: ${typeof parsed === 'string' ? parsed : JSON.stringify(parsed)}`);
+  }
+  return parsed as T;
+}
+
 
 type AnyRow = Record<string, any>;
 
@@ -47,188 +219,260 @@ function n(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function inferDirection(trade: AnyRow): { direction: 'bullish' | 'bearish' | 'neutral'; basis: string } {
-  const explicit = String(trade.direction ?? '').toLowerCase();
-  if (explicit === 'bullish' || explicit === 'bearish') {
-    return { direction: explicit, basis: 'Stored trade direction' };
-  }
-
-  const optionType = String(trade.option_type ?? '').toUpperCase();
-  const side = String(trade.side ?? trade.position_side ?? '').toLowerCase();
-
-  if (optionType === 'CALL') {
-    return { direction: side === 'short' ? 'bearish' : 'bullish', basis: 'Option position structure' };
-  }
-  if (optionType === 'PUT') {
-    return { direction: side === 'short' ? 'bullish' : 'bearish', basis: 'Option position structure' };
-  }
-  if (side === 'long' || side === 'buy') return { direction: 'bullish', basis: 'Long underlying exposure' };
-  if (side === 'short' || side === 'sell') return { direction: 'bearish', basis: 'Short underlying exposure' };
-
-  return { direction: 'neutral', basis: 'Position structure does not reveal a directional thesis' };
+function sma(values: number[], period: number): number | null {
+  if (values.length < period) return null;
+  const slice = values.slice(-period);
+  return slice.reduce((a, b) => a + b, 0) / slice.length;
 }
 
-function isOpen(trade: AnyRow): boolean {
-  return String(trade.result ?? 'open').toLowerCase() === 'open' && !trade.closed_at && !trade.exit_at;
+function atr(bars: AnyRow[], period = 14): number | null {
+  if (bars.length < period + 1) return null;
+  const trs: number[] = [];
+  for (let i = 1; i < bars.length; i++) {
+    const h = n(bars[i].high);
+    const l = n(bars[i].low);
+    const pc = n(bars[i - 1].close);
+    if (h === null || l === null || pc === null) continue;
+    trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  if (trs.length < period) return null;
+  const recent = trs.slice(-period);
+  return recent.reduce((a, b) => a + b, 0) / recent.length;
+}
+
+function rsi(closes: number[], period = 14): number | null {
+  if (closes.length < period + 1) return null;
+  const recent = closes.slice(-(period + 1));
+  let gains = 0;
+  let losses = 0;
+  for (let i = 1; i < recent.length; i++) {
+    const diff = recent[i] - recent[i - 1];
+    if (diff > 0) gains += diff;
+    else losses += Math.abs(diff);
+  }
+  const avgGain = gains / period;
+  const avgLoss = losses / period;
+  if (avgLoss === 0) return avgGain === 0 ? 50 : 100;
+  const rs = avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
+}
+
+function normalizePayload(payload: any): { symbol: string; result: AnyRow[] }[] {
+  const groups = Array.isArray(payload?.result) ? payload.result
+    : Array.isArray(payload?.data?.result) ? payload.data.result
+    : Array.isArray(payload?.data) ? payload.data
+    : Array.isArray(payload) ? payload
+    : [];
+  return groups
+    .map((g: any) => ({
+      symbol: String(g.symbol ?? g.ticker ?? '').toUpperCase(),
+      result: Array.isArray(g.result) ? g.result : Array.isArray(g.bars) ? g.bars : [],
+    }))
+    .filter((g: any) => g.symbol && g.result.length);
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const preflight = handleOptions(req); if (preflight) return preflight;
   if (req.method !== 'POST') return json({ error: 'POST required' }, 405);
 
+  let stage = 'startup';
   try {
-    const { user, db } = await requireUser(req);
+    stage = 'authenticate user';
+    const { db } = await requireUser(req);
+    const config = webullConfig();
     const body = await req.json().catch(() => ({}));
-    const tradeId = n(body.trade_id);
 
-    let query = db.from('paper_trades').select('*').eq('user_id', user.id);
-    if (tradeId !== null) query = query.eq('id', tradeId);
-    const { data: trades, error: tradeError } = await query.order('created_at', { ascending: false }).limit(500);
-    if (tradeError) throw tradeError;
+    let symbols: string[] = Array.isArray(body?.symbols)
+      ? body.symbols.map((s: unknown) => String(s).trim().toUpperCase()).filter(Boolean)
+      : [];
 
-    let monitored = 0;
-    let reviewed = 0;
-    let inferred = 0;
+    if (!symbols.length) {
+      stage = 'load ticker list';
+      const { data, error } = await db.from('tickers').select('symbol').eq('is_default', true).order('priority').limit(25);
+      if (error) throw error;
+      symbols = (data ?? []).map((r: any) => r.symbol).filter(Boolean);
+    }
 
-    for (const trade of (trades ?? []) as AnyRow[]) {
-      const inferredThesis = inferDirection(trade);
-      const externalOrigin = !trade.signal_id || String(trade.origin ?? '') !== 'MATADOR_SUPPORTED';
-      const mode = isOpen(trade) ? 'monitoring' : 'review';
+    symbols = [...new Set(symbols)].slice(0, 25);
+    if (!symbols.length) return json({ success: false, error: 'No symbols configured.' }, 400);
 
-      if (externalOrigin && !trade.inferred_thesis_direction) inferred++;
-
-      const { data: latestSignals, error: signalError } = await db
-        .from('signals')
-        .select('*')
-        .eq('symbol', String(trade.symbol).toUpperCase())
-        .order('generated_at', { ascending: false })
-        .limit(1);
-      if (signalError) throw signalError;
-
-      const latest = (latestSignals ?? [])[0] as AnyRow | undefined;
-      const latestDirection = String(latest?.direction ?? 'neutral').toLowerCase();
-      const latestSupport = n(latest?.score_breakdown?.thesis_support);
-      const latestAgreement = n(latest?.score_breakdown?.agreement_score);
-      const latestState = String(latest?.score_breakdown?.thesis_state ?? 'Preliminary');
-
-      let relativeSupport = latestSupport;
-      let relativeState = latestState;
-
-      if (inferredThesis.direction !== 'neutral' && latest) {
-        if (latestDirection !== inferredThesis.direction && latestDirection !== 'neutral') {
-          relativeSupport = latestSupport === null ? null : Math.max(0, 100 - latestSupport);
-          relativeState = relativeSupport !== null && relativeSupport < 35 ? 'Rejected' : 'Unsupported';
-        } else if (latestDirection === 'neutral') {
-          relativeState = 'Unsupported';
+    // Webull can reject large historical batches or transiently throttle them.
+    // Keep requests small and retry throttled/transient failures with bounded backoff.
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const requestHistory = async (batch: string[]) => {
+      let lastError: unknown = null;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          return await webullPost('/market-data/stocks/bars/list', {
+            symbols: batch,
+            category: 'US_STOCK',
+            timespan: 'D',
+            count: 260,
+            real_time_required: false,
+          });
+        } catch (error) {
+          lastError = error;
+          const detail = summarizeWebullError(error);
+          const retryable = /429|rate|thrott|temporar|timeout|5\d\d/i.test(detail.message);
+          if (!retryable || attempt === 3) throw error;
+          await sleep(700 * (2 ** attempt));
         }
       }
+      throw lastError;
+    };
 
-      if (mode === 'monitoring') {
-        monitored++;
-        await db.from('paper_trades').update({
-          thesis_mode: 'monitoring',
-          inferred_thesis_direction: inferredThesis.direction,
-          thesis_inference_basis: inferredThesis.basis,
-          thesis_status: relativeState,
-          thesis_support: relativeSupport,
-          thesis_agreement: latestAgreement,
-          thesis_last_checked_at: new Date().toISOString(),
-        }).eq('id', trade.id).eq('user_id', user.id);
+    const groups: { symbol: string; result: AnyRow[] }[] = [];
+    for (let i = 0; i < symbols.length; i += 5) {
+      const batch = symbols.slice(i, i + 5);
+      stage = `request Webull history for ${batch.join(',')}`;
+      const payload = await requestHistory(batch);
+      groups.push(...normalizePayload(payload));
+      if (i + 5 < symbols.length) await sleep(350);
+    }
+    const now = new Date().toISOString();
+    let barsWritten = 0;
+    const updated: string[] = [];
 
-        await db.from('tradecycle_thesis_events').insert({
-          user_id: user.id,
-          trade_id: trade.id,
-          signal_id: latest?.id ?? null,
-          event_type: externalOrigin ? 'external_position_monitor' : 'ursora_position_monitor',
-          thesis_direction: inferredThesis.direction,
-          thesis_state: relativeState,
-          thesis_support: relativeSupport,
-          directional_agreement: latestAgreement,
-          underlying_price: n(latest?.stock_price_at_generation),
-          evidence: {
-            inference_basis: inferredThesis.basis,
-            latest_tradecycle_direction: latestDirection,
-            origin: trade.origin ?? null,
-          },
+    for (const group of groups) {
+      const ordered = [...group.result].sort((a, b) => String(a.time).localeCompare(String(b.time)));
+      const rows = ordered.map((b) => ({
+        symbol: group.symbol,
+        timeframe: '1d',
+        bar_time: b.time,
+        open: n(b.open),
+        high: n(b.high),
+        low: n(b.low),
+        close: n(b.close),
+        volume: n(b.volume),
+      })).filter((b) => b.bar_time && b.open !== null && b.high !== null && b.low !== null && b.close !== null);
+
+      if (rows.length) {
+        stage = `write historical bars for ${group.symbol}`;
+        // Historical rows can safely replace the same symbol/timeframe/time key if a unique constraint exists.
+        const { error: barError } = await db.from('ohlcv_bars').upsert(rows, {
+          onConflict: 'symbol,timeframe,bar_time',
+          ignoreDuplicates: false,
         });
-      } else {
-        reviewed++;
-        const tradeResult = String(trade.result ?? 'closed');
-        const validationStatus =
-          relativeState === 'Supported' || relativeState === 'Strongly Supported'
-            ? 'directionally_validated'
-            : relativeState === 'Rejected'
-              ? 'directionally_invalidated'
-              : 'directionally_ambiguous';
+        if (barError) throw barError;
+        barsWritten += rows.length;
+      }
 
-        const summary =
-          `Closed trade review: inferred ${inferredThesis.direction} thesis was ${validationStatus.replaceAll('_', ' ')} by the latest available TradeCycle evidence. Execution outcome: ${tradeResult}. Directional thesis validation and profit/loss are recorded separately.`;
+      const closes = ordered.map((b) => n(b.close)).filter((v): v is number => v !== null);
+      const volumes = ordered.map((b) => n(b.volume)).filter((v): v is number => v !== null);
+      const latest = ordered[ordered.length - 1];
+      const previous = ordered[ordered.length - 2];
+      const latestClose = n(latest?.close);
+      const latestOpen = n(latest?.open);
+      const previousClose = n(previous?.close);
+      const recent20 = ordered.slice(-20);
+      const support = recent20.length ? Math.min(...recent20.map((b) => n(b.low)).filter((v): v is number => v !== null)) : null;
+      const resistance = recent20.length ? Math.max(...recent20.map((b) => n(b.high)).filter((v): v is number => v !== null)) : null;
+      const avgVolume = sma(volumes, 20);
+      const latestVolume = n(latest?.volume);
+      const s20 = sma(closes, 20);
+      const s50 = sma(closes, 50);
+      const s200 = sma(closes, 200);
+      const a14 = atr(ordered, 14);
+      const rsi14 = rsi(closes, 14);
+      const gapPct = latestOpen !== null && previousClose !== null && previousClose !== 0
+        ? ((latestOpen - previousClose) / previousClose) * 100
+        : null;
 
-        await db.from('paper_trades').update({
-          thesis_mode: 'review',
-          inferred_thesis_direction: inferredThesis.direction,
-          thesis_inference_basis: inferredThesis.basis,
-          thesis_status: relativeState,
-          thesis_support: relativeSupport,
-          thesis_agreement: latestAgreement,
-          thesis_last_checked_at: new Date().toISOString(),
-          thesis_review_status: validationStatus,
-          thesis_review_summary: summary,
-        }).eq('id', trade.id).eq('user_id', user.id);
+      let trend = 'insufficient data';
+      if (latestClose !== null && s20 !== null && s50 !== null) {
+        trend = latestClose > s20 && s20 > s50 && (s200 === null || s50 > s200) ? 'uptrend'
+          : latestClose < s20 && s20 < s50 && (s200 === null || s50 < s200) ? 'downtrend'
+          : 'mixed';
+      }
 
-        await db.from('tradecycle_thesis_events').insert({
-          user_id: user.id,
-          trade_id: trade.id,
-          signal_id: latest?.id ?? null,
-          event_type: 'closed_trade_review',
-          thesis_direction: inferredThesis.direction,
-          thesis_state: relativeState,
-          thesis_support: relativeSupport,
-          directional_agreement: latestAgreement,
-          underlying_price: n(latest?.stock_price_at_generation),
-          evidence: {
-            inference_basis: inferredThesis.basis,
-            execution_result: tradeResult,
-            realized_pl: n(trade.realized_pl),
-            return_pct: n(trade.return_pct),
-            validation_status: validationStatus,
-          },
-        });
+      stage = `load latest quote for ${group.symbol}`;
+      const { data: latestQuote } = await db
+        .from('quotes')
+        .select('id')
+        .eq('symbol', group.symbol)
+        .order('as_of', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-        const existingObs = await db
-          .from('behavioral_observations')
-          .select('id')
-          .eq('trade_id', trade.id)
-          .eq('observation_type', 'thesis_review')
-          .limit(1);
-
-        if (!existingObs.error && !(existingObs.data ?? []).length) {
-          await db.from('behavioral_observations').insert({
-            user_id: user.id,
-            observation_type: 'thesis_review',
-            category: 'thesis_validation',
-            statement: summary,
-            baseline_value: null,
-            current_value: relativeSupport,
-            deviation_pct: null,
-            unit: 'thesis_support_pct',
-            sample_size: 1,
-            observation_period: 'single closed trade',
-            confidence_label: 'INSUFFICIENT DATA',
-            construct_key: 'thesis_validation',
-            evidence_trade_ids: [trade.id],
-            severity: 'LOW',
-            model_version: 'tradecycle-4',
-            trade_id: trade.id,
-            formula: 'Closed-trade thesis review compares the inferred entry direction with the latest available TradeCycle directional evidence; execution P/L is stored separately and does not define thesis validity.',
-          });
-        }
+      if (latestQuote?.id) {
+        stage = `update derived technicals for ${group.symbol}`;
+        const { error: quoteError } = await db.from('quotes').update({
+          avg_volume: avgVolume === null ? null : Math.round(avgVolume),
+          rel_volume: avgVolume && latestVolume ? latestVolume / avgVolume : null,
+          sma20: s20,
+          sma50: s50,
+          sma200: s200,
+          support,
+          resistance,
+          atr: a14,
+          momentum_score: rsi14,
+          gap_pct: gapPct,
+          prev_day_high: n(previous?.high),
+          prev_day_low: n(previous?.low),
+          trend,
+          retrieved_at: now,
+        }).eq('id', latestQuote.id);
+        if (quoteError) throw quoteError;
+        updated.push(group.symbol);
       }
     }
 
-    return json({ success: true, trades: trades?.length ?? 0, inferred, monitored, reviewed });
+    stage = 'update provider status';
+    await db.from('provider_configs').update({
+      adapter: 'WebullPaperTradeAdapter',
+      mode: 'sandbox',
+      last_sync: now,
+      last_error: null,
+      notes: 'Webull sandbox quotes and historical bars connected. Derived trend, moving averages, ATR, support/resistance and relative volume are available where sufficient history exists.',
+    }).eq('provider_key', 'market');
+
+    return json({
+      success: true,
+      provider: 'Webull',
+      environment: config.environment,
+      symbols_requested: symbols,
+      symbols_returned: groups.map((g) => g.symbol),
+      bars_written: barsWritten,
+      quotes_enriched: updated,
+      is_demo: true,
+    });
   } catch (error) {
     if (error instanceof AuthError) return json({ error: error.message }, error.status);
-    return json({ error: error instanceof Error ? error.message : String(error) }, 500);
+
+    let message: string;
+    if (error instanceof Error) {
+      message = error.message;
+    } else if (typeof error === 'string') {
+      message = error;
+    } else {
+      try {
+        message = JSON.stringify(error);
+      } catch {
+        message = String(error);
+      }
+    }
+
+    let publicMessage = message;
+
+    if (/22P02|invalid input syntax for type bigint/i.test(message)) {
+      publicMessage = 'Historical technical data could not be stored because one numeric value was in an unexpected format.';
+    } else if (/429|rate limit|thrott/i.test(message)) {
+      publicMessage = 'Historical technical data provider is temporarily rate-limited. Please try again shortly.';
+    } else if (/401|signature|authentication/i.test(message)) {
+      publicMessage = 'Historical technical data provider authentication failed.';
+    }
+
+    return json({
+      error: publicMessage,
+      debug: `History sync failed at "${stage}": ${message}`,
+    }, 500);
   }
 });
+// Verify the caller's MFA and agreement state with their own JWT, not service-role privileges.
+async function requireSecureAccount(req: Request) {
+ const response = await fetch(Deno.env.get('SUPABASE_URL') + '/rest/v1/rpc/account_api_allowed', {
+  method: 'POST', headers: {'Content-Type':'application/json', apikey:Deno.env.get('SUPABASE_ANON_KEY')!, Authorization:req.headers.get('Authorization') || ''}, body:'{}'
+ });
+ if (!response.ok || await response.json() !== true) throw new Error('Complete account authentication and the current agreement notice before continuing.');
+}
+

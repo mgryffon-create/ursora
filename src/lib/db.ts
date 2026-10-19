@@ -9,6 +9,11 @@ import { APP_CONFIG } from '@/lib/config';
  * closure using the refresh token in localStorage. AuthContext handles the optional
  * "session only" behavior when Remember me is turned off.
  */
+// Preserve recovery routing even if the provider falls back to the site's root URL.
+if (typeof window !== 'undefined' && new URLSearchParams(window.location.hash.slice(1)).get('type') === 'recovery') {
+  window.history.replaceState(window.history.state, '', '/account/recovery' + window.location.search + window.location.hash);
+}
+
 export const db = createClient(APP_CONFIG.supabaseUrl, APP_CONFIG.supabaseAnonKey, {
   auth: {
     persistSession: true,

@@ -281,6 +281,7 @@ export const Landing: React.FC<{ onStart: () => void; onSignIn: () => void }> = 
             </Button>
           </div>
           <Disclaimer className="mx-auto mt-8 max-w-2xl" />
+          <a href="/legal" className="mt-4 inline-block text-sm text-sky-300 underline">User Agreement & Privacy Notice</a>
         </div>
       </section>
     </main>
