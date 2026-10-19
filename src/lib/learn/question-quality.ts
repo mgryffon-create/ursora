@@ -9,6 +9,47 @@ const assessment = [
  r('Estimates of the probability that the next trade will profit','Personalized live position limits inferred from this practice'),
 ];
 const bank:Record<string,Revision[]> = {
+ 'account-mechanics':[
+ r('The total cash display regardless of settlement','The planned stop distance rather than the purchase amount'),
+ r('The initial order’s cash debit and commissions alone','The order’s time-in-force without the financing conditions'),
+ r('A snapshot of market value and buying power at one moment','Advertised commission and the sample’s gross results','Which record best supports a defensible account-permission check?','Instrument, dated official terms and unresolved constraints'),
+ ],
+ 'event-risk':[
+ r('Change the chart interval while retaining the earlier execution assumptions','Keep quantity fixed and move invalidation closer to offset the spread'),
+ r('The timestamp of the newest repost','The time price first crossed the planned entry condition'),
+ r('Acceptance above the ceiling confirmed by the intrabar high','A completed larger reversal because the upper test failed'),
+ ],
+ 'portfolio-risk':[
+ r('$110','$130'),
+ r('Offsetting because the companies have separate issuer-specific risks','Independent budgets because each position has a separate stop'),
+ r('The expected return calculated from earlier completed fills','The original share purchase cost before commissions'),
+ ],
+ 'execution-friction':[
+ r('100 because the order is still working','Zero because the cancellation request was submitted'),
+ r('Execution at the next bid because a stop-market order activated','Execution at the trigger because the limit fixes the stop price'),
+ r('Original desired quantity and the newest ask','Unfilled quantity measured before the cancellation request'),
+ ],
+ 'option-contracts':[
+ r('A strike above the stock changes the call’s moneyness','Open interest measures outstanding contracts','Which issue most directly conflicts with a three-session thesis using a same-day option?'),
+ r('5%','100%'),
+ r('The quantity traded during the current session','The quantity currently resting at the best bid'),
+ ],
+ 'option-payoffs':[
+ r('$500','$300'),
+ r('$2','$5'),
+ r('The fixed multiplier used in the calculation','The strike prices used to define the spread width','Which issue can make actual account exposure differ from a modeled expiration payoff?','Assignment, funding and leg execution can change the account state'),
+ ],
+ 'option-lifecycle':[
+ r('Possible only after all extrinsic value disappears','Possible only after the stock crosses the writer’s breakeven'),
+ r('Quoted premium and current delta','Recent volume and open interest'),
+ r('Use the expiration net payoff as the current account exposure','Treat the long and short as an automatically exercised pair'),
+ ],
+ 'validation-lab':[
+ r('$3','−$1'),
+ r('A validation period confirming a frozen threshold','Forward evaluation because each revision was logged'),
+ r('Final net profit and average without the trade sequence','Entry-rule frequency without the sequence of losses'),
+ ],
+
  'summary-candles':[r('Its final high and low are already fixed','Only the body color can change after this point')],
  'summary-candle-patterns':[r('A completed reversal through the earlier swing low','Continuation acceptance above the resistance area','A shooting-star shape appears after a rise near resistance. What is established?','A possible rejection that still needs confirmation and risk context')],
  'summary-chart-patterns':[r('Confirmed acceptance outside the range','A completed reversal of the larger trend','A breakout wick closes back inside its range. What is supported?','An excursion that failed to hold on that close; further evidence remains relevant')],
