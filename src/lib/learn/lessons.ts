@@ -1,5 +1,7 @@
 import { universityUnits, type Unit } from './university';
 import { expansionUnits } from './expansion';
+import { advancedUnits } from './advanced';
+import { lessonDepth } from './lesson-depth';
 export type Lesson = { id:string;title:string;body:string;task:string;question:string;choices:string[];correct:number;explanation:string;stage:number;unit?:Unit };
 const baseLessons = [
   { id: 'candles', title: 'Candles in plain language', body: 'A candle summarizes one time window. The body joins its opening and closing prices; the wicks reach its highest and lowest prices. A forming candle has a current price instead of a final close. Volume counts the shares traded during that window.', task: 'Inspect a completed candle, identify its body and wicks, and compare it with a candle that is still forming.', question: 'An unfinished candle moves above its opening price. What do you know?', choices: ['Its final close must be higher', 'Its current price is higher; its final shape can still change', 'The next candle must rise'], correct: 1, explanation: 'The candle remains open until its time window ends. Its body, wicks and volume can still change.' },
@@ -15,6 +17,7 @@ const baseLessons = [
 
 // Stable lesson IDs preserve previously saved progress across curriculum revisions.
 const stageOverride:Record<string,number>={
+ 'account-mechanics':1,'event-risk':5,'portfolio-risk':7,'execution-friction':8,'option-contracts':9,'option-payoffs':9,'option-lifecycle':9,'validation-lab':11,
  'market-basics':1,'quotes-liquidity':1,'market-participants':1,'trading-costs':1,'candles':2,'structure':3,'movement':2,'volume-pressure':2,'candle-patterns':2,
  'drawing-lines':3,'chart-patterns':3,'cup-steps':3,'wedges':3,'timeframes':3,'price-assessment':3,
  'indicators':4,'sma-ema':4,'vwap':4,'rsi':4,'macd':4,'bollinger':4,'atr':4,
@@ -25,7 +28,7 @@ const stageOverride:Record<string,number>={
 };
 const catalog:Lesson[]=[
  ...baseLessons.map(l=>({...l,stage:stageOverride[l.id]})),
- ...[...universityUnits,...expansionUnits].map(unit=>({...{
+ ...[...universityUnits,...expansionUnits,...advancedUnits].map(unit=>({...{
  id:unit.id,title:unit.title,body:unit.cards[0].text,
  task:'Apply the explanation to three focused examples.',question:unit.cases[0].prompt,
  choices:unit.cases[0].options,correct:unit.cases[0].correct,
@@ -34,21 +37,22 @@ const catalog:Lesson[]=[
  }}))
 ];
 const order=[
- 'market-basics','market-participants','quotes-liquidity','trading-costs',
+ 'market-basics','market-participants','quotes-liquidity','trading-costs','account-mechanics',
  'candles','movement','volume-pressure','candle-patterns',
  'structure','drawing-lines','chart-patterns','cup-steps','wedges','timeframes','price-assessment',
  'indicators','sma-ema','vwap','rsi','macd','bollinger','atr',
- 'scan-news','market-macro',
+ 'scan-news','market-macro','event-risk',
  'confluence','thesis-conflicts','plan','indicator-assessment',
- 'risk-sizing','drawdown-exposure',
- 'execution','management','execution-assessment',
- 'options','options-foundations','option-greeks',
+ 'risk-sizing','drawdown-exposure','portfolio-risk',
+ 'execution','execution-friction','management','execution-assessment',
+ 'options','options-foundations','option-greeks','option-contracts','option-payoffs','option-lifecycle',
  'behavioral-discipline',
- 'journal-testing','strategy-validation',
+ 'journal-testing','strategy-validation','validation-lab',
  'capstone','brokerage-choice','ursora-workflow'
 ];
 export const lessons:Lesson[]=order.map(id=>{
  const lesson=catalog.find(l=>l.id===id);
  if(!lesson)throw new Error('URSORA U curriculum missing lesson: '+id);
- return lesson;
+ const depth=lessonDepth(id);
+ return lesson.unit&&depth?{...lesson,unit:{...lesson.unit,cards:[...lesson.unit.cards,{title:"Worked example",text:depth.worked},{title:"Common mistake",text:depth.pitfall},{title:"Independent application",text:depth.transfer}]}}:lesson;
 });

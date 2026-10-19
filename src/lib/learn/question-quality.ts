@@ -9,6 +9,24 @@ const assessment = [
  r('Estimates of the probability that the next trade will profit','Personalized live position limits inferred from this practice'),
 ];
 const bank:Record<string,Revision[]> = {
+ 'summary-candles':[r('Its final high and low are already fixed','Only the body color can change after this point')],
+ 'summary-candle-patterns':[r('A completed reversal through the earlier swing low','Continuation acceptance above the resistance area','A shooting-star shape appears after a rise near resistance. What is established?','A possible rejection that still needs confirmation and risk context')],
+ 'summary-chart-patterns':[r('Confirmed acceptance outside the range','A completed reversal of the larger trend','A breakout wick closes back inside its range. What is supported?','An excursion that failed to hold on that close; further evidence remains relevant')],
+ 'summary-structure':[r('A completed reversal because the latest interval fell','An unchanged trend regardless of later structural breaks')],
+ 'summary-movement':[r('Recent volume from the width of the candle bodies','The latest tick from a completed-candle structural break')],
+ 'summary-indicators':[r('Price is above its unweighted mean closing price','Price has exceeded one average true range')],
+ 'summary-plan':[r('Update every earlier snapshot to match the revised target','Remove earlier snapshots so only the latest target remains')],
+ 'summary-management':[r('Treat the profitable result as validation of the violated rule','Discard the financial result because it conflicts with the process score')],
+
+ 'market-participants':[r('The last trade fixes the fill despite changing quotes','The candle close sets all fills in its interval'),r('The trigger creates a minimum acceptable sale price of 49','The opening print guarantees every stop fills at 46'),r('Use equity as the sole permission check','Use permissions from another account at the same broker')],
+ 'trading-costs':[r('$6 before fees','$120 before fees'),r('A net gain of $3','A net loss of $11'),r('An immediate midpoint fill','A fill whenever the last print touches the limit, regardless of available offers')],
+ 'market-macro':[r('Keep ordinary execution assumptions once the trigger occurs','Tighten the stop with unchanged size to compensate for the event'),r('It outperformed both reference groups','It underperformed both reference groups'),r('The local bounce establishes the larger reversal','The index direction rules out any stock-specific recovery')],
+ 'thesis-conflicts':[r('The oscillator recovery confirms the lower-high sequence ended','The price sequence rules out any local momentum improvement'),r('Treat the intrabar touch as the completed-close condition','Lower the threshold because the same setup remains visible'),r('Hold until another indicator agrees independently','Redraw the boundary lower and treat it as the original plan')],
+ 'drawdown-exposure':[r('20%','22.5%'),r('Separate stops prevent simultaneous losses','Different issuers mean those risks offset'),r('Continue beyond the stop at reduced size','Apply the daily limit only after the next trade closes')],
+ 'options-foundations':[r('$2.10','$2,100'),r('Delta alone determines the entire premium change','Intrinsic value necessarily rises by the full stock move'),r('Both acquire a right without an exercise obligation','The writer’s exposure is capped at premium received')],
+ 'behavioral-discipline':[r('Keep the original ratio because the formation remains','Increase size to compensate for reduced room'),r('Treat profit as validation of the violated rule','Exclude the trade because process and outcome disagree'),r('Continue beyond the stopping rule at smaller size','Change the limit after losses to preserve another opportunity')],
+ 'strategy-validation':[r('+$2','−$10'),r('More independent evidence because more thresholds were compared','Untouched evaluation because historical prices did not change'),r('The execution model is validated by a positive synthetic result','The score estimates performance in every regime')],
+
  'market-basics':[
  r('Price activity since the regular-session open','The last sixty completed one-minute candles'),
  r('Use a small initial order to discover the entry condition','Enter at the prior high and define invalidation after the fill',undefined,'Wait or pass until a defined entry condition is observed'),

@@ -1,4 +1,5 @@
 import React from 'react';
+import CompetencyOverview from './CompetencyOverview';
 import UniversityBilling from './UniversityBilling';
 import { ArrowRight, BookOpen, CheckCircle2, GraduationCap, Radar } from 'lucide-react';
 import type { Lesson } from '@/lib/learn/lessons';
@@ -17,7 +18,8 @@ export default function LearningHome({ dashboard, lessons, onStart, onOpenFeatur
       <div className="flex items-center gap-2 text-sky-300"><GraduationCap className="h-5 w-5"/><span className="text-xs uppercase tracking-widest">Your learning home</span></div>
       <h1 className="text-2xl font-semibold sm:text-3xl">Welcome to URSORA University</h1>
       <p className="max-w-2xl text-sm leading-relaxed text-zinc-300">Build your understanding, practice with synthetic markets, and connect each lesson to the evidence you see in URSORA.</p>
-      <div className="flex flex-wrap items-center justify-between gap-3 text-sm"><span>{dashboard.completed} of {dashboard.total} modules completed</span><span>{dashboard.percent}%</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 text-sm"><span>{dashboard.completed} of {dashboard.total} practice modules completed</span><span>{dashboard.percent}%</span></div>
+      <p className="text-sm text-zinc-400">Summary checks support understanding. Complete focused practice for module progress, then demonstrate applied skills separately.</p>
       <progress aria-label="Module completion" value={dashboard.completed} max={Math.max(1, dashboard.total)} className="h-2 w-full accent-sky-400"/>
     </section>
     <section className="learn-panel space-y-3 border-sky-700/50">
@@ -25,6 +27,7 @@ export default function LearningHome({ dashboard, lessons, onStart, onOpenFeatur
       <p className="text-sm text-zinc-400">{dashboard.needsPlacement ? 'Tell us what feels familiar and try a few questions. We’ll help you choose a starting point.' : 'Open the lesson, work through its practice, and complete the understanding check or assessment.'}</p>
       <button onClick={() => onStart(target)} className="inline-flex min-h-11 items-center gap-2">{dashboard.needsPlacement ? 'Find my starting point' : dashboard.current ? 'Continue module' : dashboard.next ? 'Start next module' : 'Open practice sandbox'}<ArrowRight className="h-4 w-4"/></button>
     </section>
+    <CompetencyOverview onOpen={id=>onStart(`skill:${id}`)} onCapstone={()=>onStart('exercise:capstone')}/>
     <UniversityBilling/>
     <div className="grid gap-4 md:grid-cols-2">
       <section className="learn-panel space-y-3"><h2 className="flex items-center gap-2 text-lg"><BookOpen className="h-4 w-4"/>Keep learning</h2><p className="text-sm text-zinc-400">Work through the curriculum at your pace. Your completed modules stay saved to your account.</p>
