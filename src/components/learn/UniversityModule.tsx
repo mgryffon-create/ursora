@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import LessonDepth from './LessonDepth';
 import {lessonDepth} from '@/lib/learn/lesson-depth';
+import {feedbackPages} from '@/lib/learn/feedback-pages';
 import {lessonSkills} from '@/lib/learn/competencies';
 import { type Unit } from '@/lib/learn/university';
 import { trainingSession, indicators, type Scenario } from '@/lib/learn/technicals';
@@ -79,7 +80,12 @@ export default function UniversityModule({unit,practice,onPractice,onReturn,onNe
 }
 function LessonReference({unit}:{unit:Unit}){
  const depth=lessonDepth(unit.id),worked=unit.cards.find(c=>c.title.startsWith('Worked'));
- return <section className="university-card space-y-3"><p className="text-xs uppercase tracking-wider">Worked reference · fictional examples</p><h2>Apply the idea to the stated facts</h2><p>{depth?.worked??worked?.text??unit.cards[0].text}</p><p className="text-sm">This reference supports guided practice. The separate skill demonstration uses independent checks without answer feedback until submission.</p></section>;
+ const text=depth?.worked??worked?.text??unit.cards[0].text;
+ const [compact,setCompact]=useState(()=>window.matchMedia('(max-width:759px) and (max-height:740px)').matches);
+ const [page,setPage]=useState(0);
+ useEffect(()=>{const media=window.matchMedia('(max-width:759px) and (max-height:740px)'),update=()=>setCompact(media.matches);media.addEventListener('change',update);return()=>media.removeEventListener('change',update);},[]);
+ const pages=compact?feedbackPages(text,100):[text],index=Math.min(page,pages.length-1);
+ return <section className="university-card lesson-reference space-y-3"><p className="text-xs uppercase tracking-wider">Guided reference</p><h2>Worked example</h2><p>{pages[index]}</p>{pages.length>1&&<div className="flex flex-wrap items-center gap-2"><span>Part {index+1} of {pages.length}</span><button aria-label="Previous reference part" disabled={index===0} onClick={()=>setPage(index-1)}>Previous</button><button aria-label="Next reference part" disabled={index===pages.length-1} onClick={()=>setPage(index+1)}>Next</button></div>}</section>;
 }
 type Decision={scenario:Scenario;invalidation:string;clock:number;action:string;reason:string;price:number;quantity:number;observedClose:number;rsi:number|null;macd:number|null};
 type SessionState={checkpointSeen:boolean;scenario:Scenario;clock:number;speed:number;quantity:number;reason:string;invalidation:string;cash:number;position:number;decisions:Decision[]};
